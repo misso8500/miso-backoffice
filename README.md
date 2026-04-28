@@ -88,6 +88,7 @@ Miso Backoffice는 미소 노인재가복지센터의 장기요양 운영 업무
 - [개발-학습일지 시스템](docs/%EA%B0%9C%EB%B0%9C-%ED%95%99%EC%8A%B5%EC%9D%BC%EC%A7%80%20%EC%8B%9C%EC%8A%A4%ED%85%9C.md)
 - [티켓단위 개발문서](docs/%ED%8B%B0%EC%BC%93%EB%8B%A8%EC%9C%84%20%EA%B0%9C%EB%B0%9C%EB%AC%B8%EC%84%9C.md)
 - [학습기록](docs/%ED%95%99%EC%8A%B5%EA%B8%B0%EB%A1%9D.md)
+- [수급자 도메인 모델](docs/%EC%88%98%EA%B8%89%EC%9E%90%20%EB%8F%84%EB%A9%94%EC%9D%B8%20%EB%AA%A8%EB%8D%B8.md)
 
 핵심 운영 원칙은 다음 한 줄로 정리한다.
 
