@@ -1,0 +1,29 @@
+:root {
+  color: #1b1f24;
+  background: #f7f8fa;
+  font-family:
+    Arial,
+    "Noto Sans KR",
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f7f8fa;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
