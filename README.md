@@ -6,6 +6,55 @@
 
 `v1.0 MVP`는 미소 노인재가복지센터 운영 업무 전체를 완성하는 최종 버전이 아니라, 가장 먼저 필요한 `수급자 관리 흐름`을 실제로 사용할 수 있는 수준까지 정리하는 첫 제품 버전이다.
 
+## Development Setup
+
+현재 MVP는 `learning-wiki` 레퍼런스와 같은 로컬 우선 구조를 사용한다.
+
+```text
+Browser
+  -> Vite dev server: http://127.0.0.1:5173
+  -> /api proxy
+  -> Node API server: http://127.0.0.1:5174
+  -> SQLite: data/miso-backoffice.sqlite
+```
+
+주요 기술은 다음과 같다.
+
+- React, TypeScript, Vite
+- Node.js `http`, `node:sqlite`
+- SQLite
+- `lucide-react`
+
+`node:sqlite`를 사용하므로 Node.js 24 이상을 기준으로 한다.
+
+최초 설치:
+
+```bash
+npm ci
+```
+
+로컬 실행은 터미널 두 개를 사용한다.
+
+터미널 1:
+
+```bash
+npm run api
+```
+
+터미널 2:
+
+```bash
+npm run dev
+```
+
+DB 파일 경로는 다음 순서로 결정된다.
+
+1. 환경 변수 `MISO_BACKOFFICE_DB_PATH`
+2. 프로젝트 루트의 `miso-backoffice.local.json`
+3. 기본값 `data/miso-backoffice.sqlite`
+
+개인정보가 포함될 수 있으므로 실제 DB 파일과 개인별 설정 파일은 Git에 커밋하지 않는다. 로컬 SQLite 구조는 단일 사용자 MVP 검증을 위한 기반이며, 여러 사용자의 동시 접속이 필요해지면 인증과 서버형 데이터베이스 구조를 별도로 도입한다.
+
 ## Product Definition
 
 Miso Backoffice는 미소 노인재가복지센터의 장기요양 운영 업무 중, 먼저 `수급자 관리`를 안정적으로 정리하기 위한 백오피스 시스템이다.

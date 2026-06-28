@@ -17,3 +17,5 @@ export type Recipient = {
   updatedAt: string;
 };
 
+export type RecipientInput = Omit<Recipient, "createdAt" | "updatedAt"> &
+  Partial<Pick<Recipient, "createdAt" | "updatedAt">>;
