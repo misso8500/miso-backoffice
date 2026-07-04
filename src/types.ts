@@ -13,9 +13,10 @@ export type Recipient = {
   serviceEndDate: string;
   contractRegisteredDate: string;
   contractExpiredDate: string;
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
 
-export type RecipientInput = Omit<Recipient, "createdAt" | "updatedAt"> &
-  Partial<Pick<Recipient, "createdAt" | "updatedAt">>;
+export type RecipientInput = Omit<Recipient, "createdAt" | "updatedAt" | "enabled"> &
+  Partial<Pick<Recipient, "createdAt" | "updatedAt" | "enabled">>;

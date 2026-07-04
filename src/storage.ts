@@ -26,22 +26,30 @@ const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> 
   return response.json() as Promise<T>;
 };
 
-export const loadRecipients = () => requestJson<Recipient[]>("/api/recipients");
+const normalizeRecipient = (recipient: Recipient): Recipient => ({
+  ...recipient,
+  enabled: recipient.enabled ?? true
+});
+
+export const loadRecipients = async () => {
+  const recipients = await requestJson<Recipient[]>("/api/recipients");
+  return recipients.map(normalizeRecipient);
+};
 
 export const loadRecipient = (recipientId: string) =>
-  requestJson<Recipient>(`/api/recipients/${recipientId}`);
+  requestJson<Recipient>(`/api/recipients/${recipientId}`).then(normalizeRecipient);
 
 export const createRecipient = (recipient: RecipientInput) =>
   requestJson<Recipient>("/api/recipients", {
     method: "POST",
-    body: JSON.stringify(recipient)
-  });
+    body: JSON.stringify({ ...recipient, enabled: recipient.enabled ?? true })
+  }).then(normalizeRecipient);
 
 export const updateRecipient = (recipient: RecipientInput) =>
   requestJson<Recipient>(`/api/recipients/${recipient.id}`, {
     method: "PUT",
-    body: JSON.stringify(recipient)
-  });
+    body: JSON.stringify({ ...recipient, enabled: recipient.enabled ?? true })
+  }).then(normalizeRecipient);
 
 export const deleteRecipient = (recipientId: string) =>
   requestJson<{ ok: boolean }>(`/api/recipients/${recipientId}`, {

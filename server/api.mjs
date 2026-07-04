@@ -25,6 +25,7 @@ const sampleRecipients = [
     serviceEndDate: "2026-12-31",
     contractRegisteredDate: "2025-12-20",
     contractExpiredDate: "2026-12-31",
+    enabled: true,
     createdAt: "2026-04-29T09:00:00+09:00",
     updatedAt: "2026-04-29T09:00:00+09:00"
   },
@@ -43,6 +44,7 @@ const sampleRecipients = [
     serviceEndDate: "2027-01-31",
     contractRegisteredDate: "2026-01-25",
     contractExpiredDate: "2027-01-31",
+    enabled: true,
     createdAt: "2026-04-29T09:10:00+09:00",
     updatedAt: "2026-04-29T09:10:00+09:00"
   },
@@ -61,6 +63,7 @@ const sampleRecipients = [
     serviceEndDate: "2026-04-30",
     contractRegisteredDate: "2025-04-20",
     contractExpiredDate: "2026-04-30",
+    enabled: true,
     createdAt: "2026-04-29T09:20:00+09:00",
     updatedAt: "2026-04-29T09:20:00+09:00"
   }
@@ -105,6 +108,7 @@ db.exec(`
     service_end_date TEXT NOT NULL,
     contract_registered_date TEXT NOT NULL,
     contract_expired_date TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -112,6 +116,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_recipients_contract_expired
     ON recipients(contract_expired_date ASC);
 `);
+
+const recipientColumns = db.prepare("PRAGMA table_info(recipients)").all();
+const hasEnabledColumn = recipientColumns.some((column) => column.name === "enabled");
+
+if (!hasEnabledColumn) {
+  db.exec("ALTER TABLE recipients ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+}
 
 const recipientFromRow = (row) => ({
   id: row.id,
@@ -128,6 +139,7 @@ const recipientFromRow = (row) => ({
   serviceEndDate: row.service_end_date,
   contractRegisteredDate: row.contract_registered_date,
   contractExpiredDate: row.contract_expired_date,
+  enabled: row.enabled !== 0,
   createdAt: row.created_at,
   updatedAt: row.updated_at
 });
@@ -137,8 +149,8 @@ const insertRecipient = db.prepare(`
     id, name, birth_date, long_term_care_number, care_grade, phone, address,
     representative_name, representative_relation, representative_phone,
     service_start_date, service_end_date, contract_registered_date,
-    contract_expired_date, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    contract_expired_date, enabled, created_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 if (db.prepare("SELECT COUNT(*) AS count FROM recipients").get().count === 0) {
@@ -158,6 +170,7 @@ if (db.prepare("SELECT COUNT(*) AS count FROM recipients").get().count === 0) {
       recipient.serviceEndDate,
       recipient.contractRegisteredDate,
       recipient.contractExpiredDate,
+      recipient.enabled ? 1 : 0,
       recipient.createdAt,
       recipient.updatedAt
     );
@@ -220,6 +233,7 @@ const normalizeRecipient = (body, existing = null) => {
     serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate"),
     contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate"),
     contractExpiredDate: assertString(body.contractExpiredDate, "contractExpiredDate"),
+    enabled: typeof body.enabled === "boolean" ? body.enabled : existing?.enabled ?? true,
     createdAt: existing?.createdAt ?? body.createdAt ?? now,
     updatedAt: now
   };
@@ -280,6 +294,7 @@ const server = createServer(async (request, response) => {
         recipient.serviceEndDate,
         recipient.contractRegisteredDate,
         recipient.contractExpiredDate,
+        recipient.enabled ? 1 : 0,
         recipient.createdAt,
         recipient.updatedAt
       );
@@ -303,7 +318,7 @@ const server = createServer(async (request, response) => {
           name = ?, birth_date = ?, long_term_care_number = ?, care_grade = ?,
           phone = ?, address = ?, representative_name = ?, representative_relation = ?,
           representative_phone = ?, service_start_date = ?, service_end_date = ?,
-          contract_registered_date = ?, contract_expired_date = ?, updated_at = ?
+          contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?
         WHERE id = ?
       `).run(
         recipient.name,
@@ -319,6 +334,7 @@ const server = createServer(async (request, response) => {
         recipient.serviceEndDate,
         recipient.contractRegisteredDate,
         recipient.contractExpiredDate,
+        recipient.enabled ? 1 : 0,
         recipient.updatedAt,
         recipient.id
       );
@@ -328,8 +344,14 @@ const server = createServer(async (request, response) => {
     }
 
     if (parts[2] && request.method === "DELETE") {
-      const result = db.prepare("DELETE FROM recipients WHERE id = ?").run(parts[2]);
-      sendJson(response, result.changes > 0 ? 200 : 404, result.changes > 0 ? { ok: true } : { error: "Recipient not found" });
+      const result = db
+        .prepare("UPDATE recipients SET enabled = 0, updated_at = ? WHERE id = ?")
+        .run(new Date().toISOString(), parts[2]);
+      sendJson(
+        response,
+        result.changes > 0 ? 200 : 404,
+        result.changes > 0 ? { ok: true } : { error: "Recipient not found" }
+      );
       return;
     }
 
