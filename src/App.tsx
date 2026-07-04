@@ -5,8 +5,10 @@ import {
   CalendarClock,
   ChevronRight,
   Database,
+  ClipboardCheck,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   FileX2,
@@ -14,8 +16,14 @@ import {
   Users,
   X
 } from "lucide-react";
-import { createRecipient, loadRecipients, updateRecipient } from "./storage";
-import type { Recipient, RecipientInput } from "./types";
+import {
+  createRecipient,
+  loadRecipients,
+  restoreRecipient,
+  terminateContract,
+  updateRecipient
+} from "./storage";
+import type { ContractRestoreType, Recipient, RecipientInput } from "./types";
 
 type RecipientFormState = {
   name: string;
@@ -47,6 +55,16 @@ const emptyRecipientForm: RecipientFormState = {
   serviceEndDate: "",
   contractRegisteredDate: "",
   contractExpiredDate: ""
+};
+
+type RestoreFormState = {
+  restoreType: ContractRestoreType;
+  documentsConfirmed: boolean;
+  serviceStartDate: string;
+  serviceEndDate: string;
+  contractRegisteredDate: string;
+  contractExpiredDate: string;
+  memo: string;
 };
 
 const requiredFormFields: Array<{ key: keyof RecipientFormState; label: string }> = [
@@ -111,6 +129,7 @@ const detailSections: Array<{
         label: "유효 상태",
         value: (recipient) => (isRecipientEnabled(recipient) ? "유효함" : "비활성화")
       },
+      { label: "복구/재계약 횟수", value: (recipient) => `${recipient.recontractCount}회` },
       { label: "내부 ID", value: (recipient) => recipient.id },
       { label: "생성일시", value: (recipient) => recipient.createdAt },
       { label: "수정일시", value: (recipient) => recipient.updatedAt }
@@ -145,6 +164,10 @@ function App() {
   const [terminationExpiredDate, setTerminationExpiredDate] = useState("");
   const [terminationErrorMessage, setTerminationErrorMessage] = useState<string | null>(null);
   const [isTerminating, setIsTerminating] = useState(false);
+  const [recipientToRestore, setRecipientToRestore] = useState<Recipient | null>(null);
+  const [restoreFormState, setRestoreFormState] = useState<RestoreFormState | null>(null);
+  const [restoreErrorMessage, setRestoreErrorMessage] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
 
   const fetchRecipients = useCallback(async () => {
     setIsLoading(true);
@@ -171,6 +194,7 @@ function App() {
         setIsCreatePanelOpen(false);
         setRecipientToDeactivate(null);
         setRecipientToTerminate(null);
+        setRecipientToRestore(null);
       }
     };
 
@@ -339,10 +363,8 @@ function App() {
     setTerminationErrorMessage(null);
 
     try {
-      const updatedRecipient = await updateRecipient({
-        ...recipientToTerminate,
-        contractExpiredDate: terminationExpiredDate,
-        enabled: false
+      const updatedRecipient = await terminateContract(recipientToTerminate.id, {
+        contractExpiredDate: terminationExpiredDate
       });
 
       setRecipients((current) =>
@@ -359,6 +381,103 @@ function App() {
       );
     } finally {
       setIsTerminating(false);
+    }
+  };
+
+  const openRestoreDialog = (recipient: Recipient) => {
+    setRecipientToRestore(recipient);
+    setRestoreFormState({
+      restoreType: "paused_return",
+      documentsConfirmed: false,
+      serviceStartDate: recipient.serviceStartDate,
+      serviceEndDate: recipient.serviceEndDate,
+      contractRegisteredDate: recipient.contractRegisteredDate,
+      contractExpiredDate: recipient.contractExpiredDate,
+      memo: ""
+    });
+    setRestoreErrorMessage(null);
+  };
+
+  const closeRestoreDialog = () => {
+    setRecipientToRestore(null);
+    setRestoreFormState(null);
+    setRestoreErrorMessage(null);
+  };
+
+  const updateRestoreField = <Key extends keyof RestoreFormState>(
+    field: Key,
+    value: RestoreFormState[Key]
+  ) => {
+    setRestoreFormState((current) => (current ? { ...current, [field]: value } : current));
+    setRestoreErrorMessage(null);
+  };
+
+  const handleRestoreRecipient = async () => {
+    if (!recipientToRestore || !restoreFormState) {
+      return;
+    }
+
+    if (!restoreFormState.documentsConfirmed) {
+      setRestoreErrorMessage("장기요양급여 제공 내용을 확인해야 합니다.");
+      return;
+    }
+
+    if (restoreFormState.restoreType === "recontracted") {
+      const requiredDates = [
+        restoreFormState.serviceStartDate,
+        restoreFormState.serviceEndDate,
+        restoreFormState.contractRegisteredDate,
+        restoreFormState.contractExpiredDate
+      ];
+
+      if (requiredDates.some((value) => !value)) {
+        setRestoreErrorMessage("재계약 날짜 정보를 모두 입력하세요.");
+        return;
+      }
+
+      if (restoreFormState.serviceStartDate > restoreFormState.serviceEndDate) {
+        setRestoreErrorMessage("장기요양 제공 시작일은 종료일보다 늦을 수 없습니다.");
+        return;
+      }
+
+      if (restoreFormState.contractRegisteredDate > restoreFormState.contractExpiredDate) {
+        setRestoreErrorMessage("급여 계약 등록일은 만료일보다 늦을 수 없습니다.");
+        return;
+      }
+    }
+
+    setIsRestoring(true);
+    setRestoreErrorMessage(null);
+
+    try {
+      const updatedRecipient = await restoreRecipient(recipientToRestore.id, {
+        restoreType: restoreFormState.restoreType,
+        documentsConfirmed: restoreFormState.documentsConfirmed,
+        ...(restoreFormState.restoreType === "recontracted"
+          ? {
+              serviceStartDate: restoreFormState.serviceStartDate,
+              serviceEndDate: restoreFormState.serviceEndDate,
+              contractRegisteredDate: restoreFormState.contractRegisteredDate,
+              contractExpiredDate: restoreFormState.contractExpiredDate
+            }
+          : {}),
+        memo: restoreFormState.memo.trim() || undefined
+      });
+
+      setRecipients((current) =>
+        current.map((recipient) =>
+          recipient.id === updatedRecipient.id ? updatedRecipient : recipient
+        )
+      );
+      setSelectedRecipientId(updatedRecipient.id);
+      closeRestoreDialog();
+      setErrorMessage(null);
+    } catch (error) {
+      setRestoreErrorMessage(
+        error instanceof Error ? error.message : "계약복구 정보를 저장하지 못했습니다."
+      );
+    } finally {
+      setIsRestoring(false);
     }
   };
 
@@ -524,27 +643,38 @@ function App() {
                 목록으로
               </button>
               <div className="detail-actions">
-                <button
-                  type="button"
-                  className="warning-button"
-                  disabled={!isRecipientEnabled(selectedRecipient)}
-                  onClick={() => openTerminateDialog(selectedRecipient)}
-                >
-                  <FileX2 size={17} />
-                  계약해지
-                </button>
-                <button
-                  type="button"
-                  className="danger-button"
-                  disabled={!isRecipientEnabled(selectedRecipient)}
-                  onClick={() => {
-                    setRecipientToDeactivate(selectedRecipient);
-                    setDeactivateErrorMessage(null);
-                  }}
-                >
-                  <Trash2 size={17} />
-                  수급자 삭제
-                </button>
+                {isRecipientEnabled(selectedRecipient) ? (
+                  <>
+                    <button
+                      type="button"
+                      className="warning-button"
+                      onClick={() => openTerminateDialog(selectedRecipient)}
+                    >
+                      <FileX2 size={17} />
+                      계약해지
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      onClick={() => {
+                        setRecipientToDeactivate(selectedRecipient);
+                        setDeactivateErrorMessage(null);
+                      }}
+                    >
+                      <Trash2 size={17} />
+                      수급자 삭제
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="restore-button"
+                    onClick={() => openRestoreDialog(selectedRecipient)}
+                  >
+                    <RotateCcw size={17} />
+                    계약복구
+                  </button>
+                )}
                 <button
                   type="button"
                   className="icon-button"
@@ -883,6 +1013,149 @@ function App() {
               >
                 <FileX2 size={17} />
                 {isTerminating ? "처리 중" : "확인"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {recipientToRestore && restoreFormState && (
+        <div className="alert-backdrop" role="presentation">
+          <section
+            className="alert-dialog restore-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="restore-title"
+            aria-describedby="restore-description"
+          >
+            <div className="alert-icon restore-icon">
+              <RotateCcw size={24} />
+            </div>
+            <div>
+              <h2 id="restore-title">계약복구</h2>
+              <p id="restore-description">
+                {recipientToRestore.name} 수급자의 복구 상황을 선택하고 급여 제공 내용을
+                확인합니다.
+              </p>
+            </div>
+
+            <div className="restore-options" role="radiogroup" aria-label="계약복구 유형">
+              <label>
+                <input
+                  type="radio"
+                  name="restoreType"
+                  checked={restoreFormState.restoreType === "paused_return"}
+                  onChange={() => updateRestoreField("restoreType", "paused_return")}
+                />
+                <span>
+                  <strong>일시정지 후 복귀</strong>
+                  <small>인정서류 변경 없이 기존 급여 제공 내용으로 복구합니다.</small>
+                </span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="restoreType"
+                  checked={restoreFormState.restoreType === "recontracted"}
+                  onChange={() => updateRestoreField("restoreType", "recontracted")}
+                />
+                <span>
+                  <strong>해지 후 재계약</strong>
+                  <small>인정서류와 급여 제공 기간을 다시 확인합니다.</small>
+                </span>
+              </label>
+            </div>
+
+            {restoreFormState.restoreType === "recontracted" && (
+              <div className="restore-date-grid">
+                <label className="alert-field">
+                  <span>장기요양 제공 시작일</span>
+                  <input
+                    type="date"
+                    value={restoreFormState.serviceStartDate}
+                    onChange={(event) =>
+                      updateRestoreField("serviceStartDate", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="alert-field">
+                  <span>장기요양 제공 종료일</span>
+                  <input
+                    type="date"
+                    value={restoreFormState.serviceEndDate}
+                    onChange={(event) => updateRestoreField("serviceEndDate", event.target.value)}
+                  />
+                </label>
+                <label className="alert-field">
+                  <span>급여 계약 등록일</span>
+                  <input
+                    type="date"
+                    value={restoreFormState.contractRegisteredDate}
+                    onChange={(event) =>
+                      updateRestoreField("contractRegisteredDate", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="alert-field">
+                  <span>급여 계약 만료일</span>
+                  <input
+                    type="date"
+                    value={restoreFormState.contractExpiredDate}
+                    onChange={(event) =>
+                      updateRestoreField("contractExpiredDate", event.target.value)
+                    }
+                  />
+                </label>
+              </div>
+            )}
+
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={restoreFormState.documentsConfirmed}
+                onChange={(event) =>
+                  updateRestoreField("documentsConfirmed", event.target.checked)
+                }
+              />
+              <span>
+                <ClipboardCheck size={17} />
+                장기요양급여 인정서류와 제공 내용을 확인했습니다.
+              </span>
+            </label>
+
+            <label className="alert-field">
+              <span>메모</span>
+              <input
+                value={restoreFormState.memo}
+                onChange={(event) => updateRestoreField("memo", event.target.value)}
+                placeholder="복구 사유나 확인 내용을 입력"
+              />
+            </label>
+
+            {restoreErrorMessage && (
+              <div className="form-error" role="alert">
+                <AlertTriangle size={18} />
+                {restoreErrorMessage}
+              </div>
+            )}
+
+            <div className="alert-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={closeRestoreDialog}
+                disabled={isRestoring}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="restore-button"
+                onClick={() => void handleRestoreRecipient()}
+                disabled={isRestoring}
+              >
+                <RotateCcw size={17} />
+                {isRestoring ? "복구 중" : "복구"}
               </button>
             </div>
           </section>

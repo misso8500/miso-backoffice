@@ -115,6 +115,23 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_recipients_contract_expired
     ON recipients(contract_expired_date ASC);
+
+  CREATE TABLE IF NOT EXISTS recipient_contract_events (
+    id TEXT PRIMARY KEY,
+    recipient_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    documents_confirmed INTEGER NOT NULL DEFAULT 0,
+    service_start_date TEXT,
+    service_end_date TEXT,
+    contract_registered_date TEXT,
+    contract_expired_date TEXT,
+    memo TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (recipient_id) REFERENCES recipients(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_recipient_contract_events_recipient
+    ON recipient_contract_events(recipient_id, created_at DESC);
 `);
 
 const recipientColumns = db.prepare("PRAGMA table_info(recipients)").all();
@@ -140,6 +157,7 @@ const recipientFromRow = (row) => ({
   contractRegisteredDate: row.contract_registered_date,
   contractExpiredDate: row.contract_expired_date,
   enabled: row.enabled !== 0,
+  recontractCount: Number(row.recontract_count ?? 0),
   createdAt: row.created_at,
   updatedAt: row.updated_at
 });
@@ -152,6 +170,56 @@ const insertRecipient = db.prepare(`
     contract_expired_date, enabled, created_at, updated_at
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
+
+const createEventId = () => `contract-event-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+const insertContractEvent = db.prepare(`
+  INSERT INTO recipient_contract_events (
+    id, recipient_id, type, documents_confirmed, service_start_date, service_end_date,
+    contract_registered_date, contract_expired_date, memo, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const selectRecipientById = db.prepare(`
+  SELECT
+    recipients.*,
+    (
+      SELECT COUNT(*)
+      FROM recipient_contract_events
+      WHERE recipient_id = recipients.id AND type IN ('restored', 'recontracted')
+    ) AS recontract_count
+  FROM recipients
+  WHERE id = ?
+`);
+
+const readRecipient = (recipientId) => {
+  const row = selectRecipientById.get(recipientId);
+  return row ? recipientFromRow(row) : null;
+};
+
+const insertEvent = ({
+  recipientId,
+  type,
+  documentsConfirmed = false,
+  serviceStartDate = null,
+  serviceEndDate = null,
+  contractRegisteredDate = null,
+  contractExpiredDate = null,
+  memo = null
+}) => {
+  insertContractEvent.run(
+    createEventId(),
+    recipientId,
+    type,
+    documentsConfirmed ? 1 : 0,
+    serviceStartDate,
+    serviceEndDate,
+    contractRegisteredDate,
+    contractExpiredDate,
+    memo,
+    new Date().toISOString()
+  );
+};
 
 if (db.prepare("SELECT COUNT(*) AS count FROM recipients").get().count === 0) {
   for (const recipient of sampleRecipients) {
@@ -249,6 +317,42 @@ const normalizeRecipient = (body, existing = null) => {
   return recipient;
 };
 
+const assertBoolean = (value, field) => {
+  if (typeof value !== "boolean") {
+    throw new Error(`${field} must be checked`);
+  }
+
+  return value;
+};
+
+const applyRecipientUpdate = (recipient) => {
+  db.prepare(`
+    UPDATE recipients SET
+      name = ?, birth_date = ?, long_term_care_number = ?, care_grade = ?,
+      phone = ?, address = ?, representative_name = ?, representative_relation = ?,
+      representative_phone = ?, service_start_date = ?, service_end_date = ?,
+      contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?
+    WHERE id = ?
+  `).run(
+    recipient.name,
+    recipient.birthDate,
+    recipient.longTermCareNumber,
+    recipient.careGrade,
+    recipient.phone,
+    recipient.address,
+    recipient.representativeName,
+    recipient.representativeRelation,
+    recipient.representativePhone,
+    recipient.serviceStartDate,
+    recipient.serviceEndDate,
+    recipient.contractRegisteredDate,
+    recipient.contractExpiredDate,
+    recipient.enabled ? 1 : 0,
+    recipient.updatedAt,
+    recipient.id
+  );
+};
+
 const server = createServer(async (request, response) => {
   if (request.method === "OPTIONS") {
     sendJson(response, 204, {});
@@ -265,15 +369,57 @@ const server = createServer(async (request, response) => {
 
     if (!parts[2] && request.method === "GET") {
       const rows = db
-        .prepare("SELECT * FROM recipients ORDER BY contract_expired_date ASC, name ASC")
+        .prepare(`
+          SELECT
+            recipients.*,
+            (
+              SELECT COUNT(*)
+              FROM recipient_contract_events
+              WHERE recipient_id = recipients.id AND type IN ('restored', 'recontracted')
+            ) AS recontract_count
+          FROM recipients
+          ORDER BY contract_expired_date ASC, name ASC
+        `)
         .all();
       sendJson(response, 200, rows.map(recipientFromRow));
       return;
     }
 
-    if (parts[2] && request.method === "GET") {
-      const row = db.prepare("SELECT * FROM recipients WHERE id = ?").get(parts[2]);
-      sendJson(response, row ? 200 : 404, row ? recipientFromRow(row) : { error: "Recipient not found" });
+    if (parts[2] && !parts[3] && request.method === "GET") {
+      const recipient = readRecipient(parts[2]);
+      sendJson(response, recipient ? 200 : 404, recipient ?? { error: "Recipient not found" });
+      return;
+    }
+
+    if (parts[2] && parts[3] === "contract-events" && request.method === "GET") {
+      const recipient = readRecipient(parts[2]);
+
+      if (!recipient) {
+        sendJson(response, 404, { error: "Recipient not found" });
+        return;
+      }
+
+      const rows = db
+        .prepare(
+          "SELECT * FROM recipient_contract_events WHERE recipient_id = ? ORDER BY created_at DESC"
+        )
+        .all(parts[2]);
+      sendJson(
+        response,
+        200,
+        rows.map((row) => ({
+          id: row.id,
+          recipientId: row.recipient_id,
+          type: row.type,
+          documentsConfirmed: Boolean(row.documents_confirmed),
+          serviceStartDate: row.service_start_date,
+          serviceEndDate: row.service_end_date,
+          contractRegisteredDate: row.contract_registered_date,
+          contractExpiredDate: row.contract_expired_date,
+          memo: row.memo,
+          createdAt: row.created_at
+        }))
+      );
       return;
     }
 
@@ -302,44 +448,105 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    if (parts[2] && request.method === "PUT") {
-      const row = db.prepare("SELECT * FROM recipients WHERE id = ?").get(parts[2]);
+    if (parts[2] && !parts[3] && request.method === "PUT") {
+      const existing = readRecipient(parts[2]);
 
-      if (!row) {
+      if (!existing) {
         sendJson(response, 404, { error: "Recipient not found" });
         return;
       }
 
-      const existing = recipientFromRow(row);
       const recipient = normalizeRecipient({ ...(await readBody(request)), id: parts[2] }, existing);
 
-      db.prepare(`
-        UPDATE recipients SET
-          name = ?, birth_date = ?, long_term_care_number = ?, care_grade = ?,
-          phone = ?, address = ?, representative_name = ?, representative_relation = ?,
-          representative_phone = ?, service_start_date = ?, service_end_date = ?,
-          contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?
-        WHERE id = ?
-      `).run(
-        recipient.name,
-        recipient.birthDate,
-        recipient.longTermCareNumber,
-        recipient.careGrade,
-        recipient.phone,
-        recipient.address,
-        recipient.representativeName,
-        recipient.representativeRelation,
-        recipient.representativePhone,
-        recipient.serviceStartDate,
-        recipient.serviceEndDate,
-        recipient.contractRegisteredDate,
-        recipient.contractExpiredDate,
-        recipient.enabled ? 1 : 0,
-        recipient.updatedAt,
-        recipient.id
-      );
+      applyRecipientUpdate(recipient);
 
-      sendJson(response, 200, recipient);
+      sendJson(response, 200, readRecipient(recipient.id));
+      return;
+    }
+
+    if (parts[2] && parts[3] === "terminate" && request.method === "POST") {
+      const existing = readRecipient(parts[2]);
+
+      if (!existing) {
+        sendJson(response, 404, { error: "Recipient not found" });
+        return;
+      }
+
+      const body = await readBody(request);
+      const contractExpiredDate = assertString(body.contractExpiredDate, "contractExpiredDate");
+
+      if (contractExpiredDate < existing.contractRegisteredDate) {
+        throw new Error("contractExpiredDate must not be earlier than contractRegisteredDate");
+      }
+
+      const recipient = normalizeRecipient(
+        { ...existing, contractExpiredDate, enabled: false },
+        existing
+      );
+      applyRecipientUpdate(recipient);
+      insertEvent({
+        recipientId: recipient.id,
+        type: "terminated",
+        contractExpiredDate
+      });
+
+      sendJson(response, 200, readRecipient(recipient.id));
+      return;
+    }
+
+    if (parts[2] && parts[3] === "restore" && request.method === "POST") {
+      const existing = readRecipient(parts[2]);
+
+      if (!existing) {
+        sendJson(response, 404, { error: "Recipient not found" });
+        return;
+      }
+
+      const body = await readBody(request);
+      const restoreType = assertString(body.restoreType, "restoreType");
+
+      if (!["paused_return", "recontracted"].includes(restoreType)) {
+        throw new Error("restoreType is invalid");
+      }
+
+      const documentsConfirmed = assertBoolean(body.documentsConfirmed, "documentsConfirmed");
+
+      if (!documentsConfirmed) {
+        throw new Error("documentsConfirmed must be checked");
+      }
+
+      const nextBody =
+        restoreType === "recontracted"
+          ? {
+              ...existing,
+              serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate"),
+              serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate"),
+              contractRegisteredDate: assertString(
+                body.contractRegisteredDate,
+                "contractRegisteredDate"
+              ),
+              contractExpiredDate: assertString(body.contractExpiredDate, "contractExpiredDate"),
+              enabled: true
+            }
+          : {
+              ...existing,
+              enabled: true
+            };
+
+      const recipient = normalizeRecipient(nextBody, existing);
+      applyRecipientUpdate(recipient);
+      insertEvent({
+        recipientId: recipient.id,
+        type: restoreType === "recontracted" ? "recontracted" : "restored",
+        documentsConfirmed,
+        serviceStartDate: recipient.serviceStartDate,
+        serviceEndDate: recipient.serviceEndDate,
+        contractRegisteredDate: recipient.contractRegisteredDate,
+        contractExpiredDate: recipient.contractExpiredDate,
+        memo: typeof body.memo === "string" ? body.memo.trim() || null : null
+      });
+
+      sendJson(response, 200, readRecipient(recipient.id));
       return;
     }
 
@@ -347,6 +554,12 @@ const server = createServer(async (request, response) => {
       const result = db
         .prepare("UPDATE recipients SET enabled = 0, updated_at = ? WHERE id = ?")
         .run(new Date().toISOString(), parts[2]);
+      if (result.changes > 0) {
+        insertEvent({
+          recipientId: parts[2],
+          type: "deactivated"
+        });
+      }
       sendJson(
         response,
         result.changes > 0 ? 200 : 404,

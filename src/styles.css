@@ -65,6 +65,7 @@ button {
 .primary-button,
 .secondary-button,
 .warning-button,
+.restore-button,
 .danger-button,
 .form-error,
 .form-actions,
@@ -167,6 +168,7 @@ p {
 .primary-button,
 .secondary-button,
 .warning-button,
+.restore-button,
 .danger-button {
   min-height: 42px;
   gap: 8px;
@@ -210,6 +212,21 @@ p {
 }
 
 .warning-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.restore-button {
+  border-color: #b7ddf5;
+  background: var(--surface-blue);
+  color: var(--accent-strong);
+}
+
+.restore-button:hover {
+  background: var(--surface-blue-strong);
+}
+
+.restore-button:disabled {
   cursor: not-allowed;
   opacity: 0.58;
 }
@@ -690,6 +707,16 @@ p {
   color: var(--sub-accent-strong);
 }
 
+.restore-icon {
+  border: 1px solid #b7ddf5;
+  background: var(--surface-blue);
+  color: var(--accent-strong);
+}
+
+.restore-dialog {
+  width: min(620px, 100%);
+}
+
 .alert-dialog h2 {
   margin-bottom: 8px;
   font-size: 22px;
@@ -730,6 +757,51 @@ p {
 .alert-field input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(90, 169, 230, 0.16);
+}
+
+.restore-options {
+  display: grid;
+  gap: 10px;
+}
+
+.restore-options label,
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border);
+  background: #fbfdff;
+  padding: 12px;
+}
+
+.restore-options input,
+.check-row input {
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  accent-color: var(--accent-strong);
+}
+
+.restore-options span {
+  display: grid;
+  gap: 3px;
+}
+
+.restore-options small {
+  color: var(--muted);
+}
+
+.restore-date-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.check-row span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 800;
 }
 
 .sr-only {
@@ -805,9 +877,14 @@ p {
   .primary-button,
   .secondary-button,
   .warning-button,
+  .restore-button,
   .danger-button {
     justify-content: center;
     width: 100%;
+  }
+
+  .restore-date-grid {
+    grid-template-columns: 1fr;
   }
 
   .detail-backdrop {
