@@ -31,7 +31,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -59,7 +60,12 @@ button {
 .search-box,
 .expiry,
 .back-button,
-.error-banner {
+.error-banner,
+.heading-actions,
+.primary-button,
+.secondary-button,
+.form-error,
+.form-actions {
   display: flex;
   align-items: center;
 }
@@ -146,6 +152,43 @@ p {
   border-left: 4px solid var(--accent);
   background: var(--surface-blue);
   padding: 14px 18px;
+}
+
+.heading-actions {
+  gap: 12px;
+}
+
+.primary-button,
+.secondary-button {
+  min-height: 42px;
+  gap: 8px;
+  border: 1px solid transparent;
+  padding: 0 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.primary-button {
+  background: var(--accent-strong);
+  color: #ffffff;
+}
+
+.primary-button:hover {
+  background: #1d669e;
+}
+
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.secondary-button {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.secondary-button:hover {
+  background: #eef8ff;
 }
 
 .summary-card span {
@@ -434,6 +477,85 @@ p {
   font-weight: 650;
 }
 
+.recipient-form {
+  display: grid;
+  gap: 24px;
+  padding: 30px;
+}
+
+.form-heading h2 {
+  margin: 7px 0 0;
+  font-size: 30px;
+}
+
+.form-error {
+  gap: 9px;
+  border: 1px solid #e5bbbb;
+  background: #fff3f3;
+  color: #8a2d2d;
+  padding: 12px 14px;
+  font-weight: 700;
+}
+
+.form-section {
+  display: grid;
+  gap: 12px;
+}
+
+.form-section h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 16px;
+}
+
+.form-grid label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.form-grid label span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.form-grid input,
+.form-grid select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  background: #fbfdff;
+  color: #172033;
+  padding: 0 11px;
+  outline: 0;
+}
+
+.form-grid input:focus,
+.form-grid select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(90, 169, 230, 0.16);
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.form-actions {
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -494,6 +616,18 @@ p {
     width: 100%;
   }
 
+  .heading-actions,
+  .form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .primary-button,
+  .secondary-button {
+    justify-content: center;
+    width: 100%;
+  }
+
   .detail-backdrop {
     padding: 0;
   }
@@ -503,11 +637,13 @@ p {
   }
 
   .recipient-hero,
-  .detail-sections {
+  .detail-sections,
+  .recipient-form {
     padding: 22px 18px;
   }
 
-  .detail-sections dl {
+  .detail-sections dl,
+  .form-grid {
     grid-template-columns: 1fr;
   }
 
