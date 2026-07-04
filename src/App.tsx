@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  FileX2,
   Trash2,
   Users,
   X
@@ -140,6 +141,10 @@ function App() {
   const [recipientToDeactivate, setRecipientToDeactivate] = useState<Recipient | null>(null);
   const [deactivateErrorMessage, setDeactivateErrorMessage] = useState<string | null>(null);
   const [isDeactivating, setIsDeactivating] = useState(false);
+  const [recipientToTerminate, setRecipientToTerminate] = useState<Recipient | null>(null);
+  const [terminationExpiredDate, setTerminationExpiredDate] = useState("");
+  const [terminationErrorMessage, setTerminationErrorMessage] = useState<string | null>(null);
+  const [isTerminating, setIsTerminating] = useState(false);
 
   const fetchRecipients = useCallback(async () => {
     setIsLoading(true);
@@ -165,6 +170,7 @@ function App() {
         setSelectedRecipientId(null);
         setIsCreatePanelOpen(false);
         setRecipientToDeactivate(null);
+        setRecipientToTerminate(null);
       }
     };
 
@@ -299,6 +305,60 @@ function App() {
       );
     } finally {
       setIsDeactivating(false);
+    }
+  };
+
+  const openTerminateDialog = (recipient: Recipient) => {
+    setRecipientToTerminate(recipient);
+    setTerminationExpiredDate(recipient.contractExpiredDate);
+    setTerminationErrorMessage(null);
+  };
+
+  const closeTerminateDialog = () => {
+    setRecipientToTerminate(null);
+    setTerminationExpiredDate("");
+    setTerminationErrorMessage(null);
+  };
+
+  const handleTerminateContract = async () => {
+    if (!recipientToTerminate) {
+      return;
+    }
+
+    if (!terminationExpiredDate) {
+      setTerminationErrorMessage("급여 계약 만료일을 입력하세요.");
+      return;
+    }
+
+    if (terminationExpiredDate < recipientToTerminate.contractRegisteredDate) {
+      setTerminationErrorMessage("급여 계약 만료일은 계약 등록일보다 빠를 수 없습니다.");
+      return;
+    }
+
+    setIsTerminating(true);
+    setTerminationErrorMessage(null);
+
+    try {
+      const updatedRecipient = await updateRecipient({
+        ...recipientToTerminate,
+        contractExpiredDate: terminationExpiredDate,
+        enabled: false
+      });
+
+      setRecipients((current) =>
+        current.map((recipient) =>
+          recipient.id === updatedRecipient.id ? updatedRecipient : recipient
+        )
+      );
+      setSelectedRecipientId(updatedRecipient.id);
+      closeTerminateDialog();
+      setErrorMessage(null);
+    } catch (error) {
+      setTerminationErrorMessage(
+        error instanceof Error ? error.message : "계약해지 정보를 저장하지 못했습니다."
+      );
+    } finally {
+      setIsTerminating(false);
     }
   };
 
@@ -464,6 +524,15 @@ function App() {
                 목록으로
               </button>
               <div className="detail-actions">
+                <button
+                  type="button"
+                  className="warning-button"
+                  disabled={!isRecipientEnabled(selectedRecipient)}
+                  onClick={() => openTerminateDialog(selectedRecipient)}
+                >
+                  <FileX2 size={17} />
+                  계약해지
+                </button>
                 <button
                   type="button"
                   className="danger-button"
@@ -752,6 +821,68 @@ function App() {
               >
                 <Trash2 size={17} />
                 {isDeactivating ? "처리 중" : "확인"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {recipientToTerminate && (
+        <div className="alert-backdrop" role="presentation">
+          <section
+            className="alert-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="terminate-title"
+            aria-describedby="terminate-description"
+          >
+            <div className="alert-icon warning-icon">
+              <FileX2 size={24} />
+            </div>
+            <div>
+              <h2 id="terminate-title">계약해지 처리</h2>
+              <p id="terminate-description">
+                {recipientToTerminate.name} 수급자의 급여 계약 만료일을 기록하고 비활성화합니다.
+              </p>
+            </div>
+
+            <label className="alert-field">
+              <span>급여 계약 만료일</span>
+              <input
+                type="date"
+                value={terminationExpiredDate}
+                min={recipientToTerminate.contractRegisteredDate}
+                onChange={(event) => {
+                  setTerminationExpiredDate(event.target.value);
+                  setTerminationErrorMessage(null);
+                }}
+              />
+            </label>
+
+            {terminationErrorMessage && (
+              <div className="form-error" role="alert">
+                <AlertTriangle size={18} />
+                {terminationErrorMessage}
+              </div>
+            )}
+
+            <div className="alert-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={closeTerminateDialog}
+                disabled={isTerminating}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="warning-button"
+                onClick={() => void handleTerminateContract()}
+                disabled={isTerminating}
+              >
+                <FileX2 size={17} />
+                {isTerminating ? "처리 중" : "확인"}
               </button>
             </div>
           </section>

@@ -64,6 +64,7 @@ button {
 .heading-actions,
 .primary-button,
 .secondary-button,
+.warning-button,
 .danger-button,
 .form-error,
 .form-actions,
@@ -165,6 +166,7 @@ p {
 
 .primary-button,
 .secondary-button,
+.warning-button,
 .danger-button {
   min-height: 42px;
   gap: 8px;
@@ -195,6 +197,21 @@ p {
 
 .secondary-button:hover {
   background: #eef8ff;
+}
+
+.warning-button {
+  border-color: #ead56a;
+  background: var(--surface-yellow);
+  color: var(--sub-accent-strong);
+}
+
+.warning-button:hover {
+  background: #fff0a1;
+}
+
+.warning-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .danger-button {
@@ -667,6 +684,12 @@ p {
   color: #8a2d2d;
 }
 
+.warning-icon {
+  border: 1px solid #ead56a;
+  background: var(--surface-yellow);
+  color: var(--sub-accent-strong);
+}
+
 .alert-dialog h2 {
   margin-bottom: 8px;
   font-size: 22px;
@@ -681,6 +704,32 @@ p {
 .alert-actions {
   justify-content: flex-end;
   gap: 10px;
+}
+
+.alert-field {
+  display: grid;
+  gap: 7px;
+}
+
+.alert-field span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.alert-field input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  background: #fbfdff;
+  color: #172033;
+  padding: 0 11px;
+  outline: 0;
+}
+
+.alert-field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(90, 169, 230, 0.16);
 }
 
 .sr-only {
@@ -755,6 +804,7 @@ p {
 
   .primary-button,
   .secondary-button,
+  .warning-button,
   .danger-button {
     justify-content: center;
     width: 100%;
