@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type FormEvent
+} from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -7,6 +14,7 @@ import {
   ChevronRight,
   Database,
   ClipboardCheck,
+  Download,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -14,6 +22,7 @@ import {
   Search,
   FileX2,
   Trash2,
+  Upload,
   Users,
   X
 } from "lucide-react";
@@ -195,6 +204,228 @@ const formatResidentNumberInput = (value: string) => {
 
 const formatBankAccountNumberInput = (value: string) =>
   value.replace(/[^\d-]/g, "").replace(/-{2,}/g, "-").slice(0, 32);
+
+const escapeCsvValue = (value: string | number | boolean | null | undefined) => {
+  const stringValue = value === null || value === undefined ? "" : String(value);
+
+  if (/[",\n\r]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+
+  return stringValue;
+};
+
+const downloadCsv = (
+  filename: string,
+  headers: string[],
+  rows: Array<Array<string | number | boolean | null | undefined>>
+) => {
+  const csv = [headers, ...rows]
+    .map((row) => row.map((value) => escapeCsvValue(value)).join(","))
+    .join("\r\n");
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+const downloadRecipientCsvExample = () => {
+  downloadCsv(
+    "miso-recipient-example.csv",
+    [
+      "id",
+      "name",
+      "birthDate",
+      "longTermCareNumber",
+      "careGrade",
+      "phone",
+      "address",
+      "representativeName",
+      "representativeRelation",
+      "representativePhone",
+      "serviceStartDate",
+      "serviceEndDate",
+      "contractRegisteredDate",
+      "contractExpiredDate",
+      "enabled"
+    ],
+    [
+      [
+        "recipient-import-001",
+        "김예시",
+        "1944-05-10",
+        "LTC-2026-9001",
+        "3등급",
+        "010-1234-5678",
+        "서울시 강서구 예시로 100",
+        "박보호",
+        "자녀",
+        "010-2222-3333",
+        "2026-01-01",
+        "2026-12-31",
+        "2025-12-20",
+        "2026-12-31",
+        "false"
+      ]
+    ]
+  );
+};
+
+const downloadEmploymentContractCsvExample = () => {
+  downloadCsv(
+    "miso-employment-contract-example.csv",
+    [
+      "workerGroupId",
+      "workerName",
+      "residentRegistrationNumber",
+      "workerPhone",
+      "primaryBank",
+      "bankAccountNumber",
+      "termOrder",
+      "wageType",
+      "wageAmount",
+      "nonTaxableMealAllowance",
+      "nonTaxableVehicleAllowance",
+      "otherNonTaxablePay",
+      "enabled"
+    ],
+    [
+      [
+        "worker-import-001",
+        "이근로",
+        "941025-1234567",
+        "010-1234-1234",
+        "국민은행",
+        "123-456-789012",
+        1,
+        "월급",
+        2300000,
+        200000,
+        100000,
+        0,
+        "false"
+      ],
+      [
+        "worker-import-001",
+        "이근로",
+        "941025-1234567",
+        "010-1234-1234",
+        "국민은행",
+        "123-456-789012",
+        2,
+        "시급",
+        14000,
+        0,
+        50000,
+        0,
+        "false"
+      ]
+    ]
+  );
+};
+
+type CsvRow = Record<string, string>;
+
+const parseCsv = (text: string) => {
+  const normalizedText = text.replace(/^\uFEFF/, "");
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentValue = "";
+  let isInsideQuote = false;
+
+  for (let index = 0; index < normalizedText.length; index += 1) {
+    const character = normalizedText[index];
+    const nextCharacter = normalizedText[index + 1];
+
+    if (character === '"' && isInsideQuote && nextCharacter === '"') {
+      currentValue += '"';
+      index += 1;
+      continue;
+    }
+
+    if (character === '"') {
+      isInsideQuote = !isInsideQuote;
+      continue;
+    }
+
+    if (character === "," && !isInsideQuote) {
+      currentRow.push(currentValue.trim());
+      currentValue = "";
+      continue;
+    }
+
+    if ((character === "\n" || character === "\r") && !isInsideQuote) {
+      if (character === "\r" && nextCharacter === "\n") {
+        index += 1;
+      }
+
+      currentRow.push(currentValue.trim());
+      rows.push(currentRow);
+      currentRow = [];
+      currentValue = "";
+      continue;
+    }
+
+    currentValue += character;
+  }
+
+  currentRow.push(currentValue.trim());
+  rows.push(currentRow);
+
+  const [headers = [], ...bodyRows] = rows.filter((row) =>
+    row.some((value) => value.trim().length > 0)
+  );
+
+  return bodyRows.map((row) =>
+    headers.reduce<CsvRow>((accumulator, header, index) => {
+      accumulator[header.trim()] = row[index]?.trim() ?? "";
+      return accumulator;
+    }, {})
+  );
+};
+
+const readCsvFile = (file: File) =>
+  new Promise<CsvRow[]>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(parseCsv(String(reader.result ?? "")));
+    reader.onerror = () => reject(new Error("CSV 파일을 읽지 못했습니다."));
+    reader.readAsText(file, "utf-8");
+  });
+
+const parseCsvBoolean = (value: string | undefined, defaultValue = false) => {
+  if (!value) {
+    return defaultValue;
+  }
+
+  return ["true", "1", "yes", "y", "활성", "유효"].includes(value.trim().toLocaleLowerCase());
+};
+
+const parseCsvNumber = (value: string | undefined, field: string) => {
+  const numericValue = Number(String(value ?? "").replace(/,/g, ""));
+
+  if (!Number.isFinite(numericValue)) {
+    throw new Error(`${field} 값은 숫자여야 합니다.`);
+  }
+
+  return numericValue;
+};
+
+const requireCsvValue = (row: CsvRow, field: string) => {
+  const value = row[field]?.trim();
+
+  if (!value) {
+    throw new Error(`${field} 값을 입력하세요.`);
+  }
+
+  return value;
+};
 
 const deriveBirthDateFromResidentNumber = (residentRegistrationNumber: string) => {
   const digits = residentRegistrationNumber.replace(/\D/g, "");
@@ -769,6 +1000,182 @@ function App() {
     }
   };
 
+  const handleRecipientCsvUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage(null);
+
+    try {
+      const rows = await readCsvFile(file);
+
+      if (rows.length === 0) {
+        throw new Error("CSV에 등록할 수급자 행이 없습니다.");
+      }
+
+      const createdRecipients: Recipient[] = [];
+
+      for (const [index, row] of rows.entries()) {
+        const rowNumber = index + 2;
+        const serviceStartDate = requireCsvValue(row, "serviceStartDate");
+        const serviceEndDate = requireCsvValue(row, "serviceEndDate");
+        const contractRegisteredDate = requireCsvValue(row, "contractRegisteredDate");
+        const contractExpiredDate = requireCsvValue(row, "contractExpiredDate");
+
+        if (serviceStartDate > serviceEndDate) {
+          throw new Error(`${rowNumber}행: serviceStartDate는 serviceEndDate보다 늦을 수 없습니다.`);
+        }
+
+        if (contractRegisteredDate > contractExpiredDate) {
+          throw new Error(
+            `${rowNumber}행: contractRegisteredDate는 contractExpiredDate보다 늦을 수 없습니다.`
+          );
+        }
+
+        const recipientInput: RecipientInput = {
+          id: row.id || createRecipientId(),
+          name: requireCsvValue(row, "name"),
+          birthDate: requireCsvValue(row, "birthDate"),
+          longTermCareNumber: requireCsvValue(row, "longTermCareNumber"),
+          careGrade: requireCsvValue(row, "careGrade"),
+          ...(row.phone ? { phone: formatPhoneNumberInput(row.phone) } : {}),
+          address: requireCsvValue(row, "address"),
+          representativeName: requireCsvValue(row, "representativeName"),
+          representativeRelation: requireCsvValue(row, "representativeRelation"),
+          representativePhone: formatPhoneNumberInput(requireCsvValue(row, "representativePhone")),
+          serviceStartDate,
+          serviceEndDate,
+          contractRegisteredDate,
+          contractExpiredDate,
+          enabled: parseCsvBoolean(row.enabled, false)
+        };
+
+        createdRecipients.push(await createRecipient(recipientInput));
+      }
+
+      setRecipients((current) => [...current, ...createdRecipients]);
+      setShowEnabledOnly(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "수급자 CSV 업로드에 실패했습니다.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleEmploymentContractCsvUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    setIsEmploymentSaving(true);
+    setEmploymentErrorMessage(null);
+
+    try {
+      const rows = await readCsvFile(file);
+
+      if (rows.length === 0) {
+        throw new Error("CSV에 등록할 근로계약 행이 없습니다.");
+      }
+
+      const groupedRows = rows.reduce<Map<string, CsvRow[]>>((groups, row, index) => {
+        const workerGroupId =
+          row.workerGroupId?.trim() ||
+          `${row.workerName?.trim() ?? "worker"}-${row.residentRegistrationNumber?.trim() ?? index}`;
+        const groupRows = groups.get(workerGroupId) ?? [];
+        groupRows.push(row);
+        groups.set(workerGroupId, groupRows);
+        return groups;
+      }, new Map<string, CsvRow[]>());
+      const createdContracts: EmploymentContract[] = [];
+
+      for (const [workerGroupId, groupRows] of groupedRows.entries()) {
+        const firstRow = groupRows[0];
+        const residentRegistrationNumber = formatResidentNumberInput(
+          requireCsvValue(firstRow, "residentRegistrationNumber")
+        );
+        const workerBirthDate = deriveBirthDateFromResidentNumber(residentRegistrationNumber);
+
+        if (!workerBirthDate) {
+          throw new Error(`${workerGroupId}: 주민번호 앞 7자리를 확인하세요.`);
+        }
+
+        const contractTerms = groupRows
+          .sort((a, b) => Number(a.termOrder || 0) - Number(b.termOrder || 0))
+          .map((row, index) => {
+            const wageType = requireCsvValue(row, "wageType");
+
+            if (!["월급", "시급"].includes(wageType)) {
+              throw new Error(`${workerGroupId} ${index + 1}번째 계약: wageType은 월급 또는 시급이어야 합니다.`);
+            }
+
+            return {
+              wageType: wageType as "월급" | "시급",
+              wageAmount: parseCsvNumber(row.wageAmount, "wageAmount"),
+              nonTaxableMealAllowance: parseCsvNumber(
+                row.nonTaxableMealAllowance || "0",
+                "nonTaxableMealAllowance"
+              ),
+              nonTaxableVehicleAllowance: parseCsvNumber(
+                row.nonTaxableVehicleAllowance || "0",
+                "nonTaxableVehicleAllowance"
+              ),
+              otherNonTaxablePay: parseCsvNumber(row.otherNonTaxablePay || "0", "otherNonTaxablePay")
+            };
+          });
+        const firstTerm = contractTerms[0];
+        const contractInput: EmploymentContractInput = {
+          id: workerGroupId || createEmploymentContractId(),
+          workerName: requireCsvValue(firstRow, "workerName"),
+          workerBirthDate,
+          residentRegistrationNumber,
+          workerPhone: formatPhoneNumberInput(requireCsvValue(firstRow, "workerPhone")),
+          primaryBank: requireCsvValue(firstRow, "primaryBank"),
+          bankAccountNumber: formatBankAccountNumberInput(requireCsvValue(firstRow, "bankAccountNumber")),
+          workerAddress: "미입력",
+          jobTitle: "근로자",
+          employmentType: "근로계약 묶음",
+          workplaceType: "office",
+          workplace: "미입력",
+          recipientAssignments: [],
+          contractStartDate: new Date().toISOString().slice(0, 10),
+          workDays: "미입력",
+          workStartTime: "09:00",
+          workEndTime: "18:00",
+          breakMinutes: 0,
+          wageType: firstTerm.wageType,
+          wageAmount: firstTerm.wageAmount,
+          nonTaxableVehicleAllowance: firstTerm.nonTaxableVehicleAllowance,
+          nonTaxableMealAllowance: firstTerm.nonTaxableMealAllowance,
+          taxableExtraPay: firstTerm.otherNonTaxablePay,
+          paymentDate: "미입력",
+          insuranceStatus: "별도 관리",
+          insuranceSnapshots: [],
+          contractTerms,
+          enabled: parseCsvBoolean(firstRow.enabled, false)
+        };
+
+        createdContracts.push(await createEmploymentContract(contractInput));
+      }
+
+      setEmploymentContracts((current) => [...current, ...createdContracts]);
+      setShowEnabledEmploymentOnly(false);
+    } catch (error) {
+      setEmploymentErrorMessage(
+        error instanceof Error ? error.message : "근로계약 CSV 업로드에 실패했습니다."
+      );
+    } finally {
+      setIsEmploymentSaving(false);
+    }
+  };
+
   const handleDeactivateRecipient = async () => {
     if (!recipientToDeactivate) {
       return;
@@ -1038,6 +1445,24 @@ function App() {
           <div className="heading-actions">
             <button
               type="button"
+              className="secondary-button"
+              onClick={downloadRecipientCsvExample}
+            >
+              <Download size={18} />
+              CSV 예제
+            </button>
+            <label className="secondary-button">
+              <Upload size={18} />
+              CSV 업로드
+              <input
+                className="sr-only"
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => void handleRecipientCsvUpload(event)}
+              />
+            </label>
+            <button
+              type="button"
               className="primary-button"
               onClick={() => {
                 setSelectedRecipientId(null);
@@ -1162,6 +1587,24 @@ function App() {
                 <p>근로자의 계약 기간, 근무시간, 임금과 보험 정보를 기록하고 확인합니다.</p>
               </div>
               <div className="heading-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={downloadEmploymentContractCsvExample}
+                >
+                  <Download size={18} />
+                  CSV 예제
+                </button>
+                <label className="secondary-button">
+                  <Upload size={18} />
+                  CSV 업로드
+                  <input
+                    className="sr-only"
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(event) => void handleEmploymentContractCsvUpload(event)}
+                  />
+                </label>
                 <button
                   type="button"
                   className="primary-button"
