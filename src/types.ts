@@ -40,3 +40,57 @@ export type RestoreRecipientInput = {
 export type TerminateContractInput = {
   contractExpiredDate: string;
 };
+
+export type EmploymentContract = {
+  id: string;
+  workerName: string;
+  workerBirthDate: string;
+  workerPhone?: string;
+  workerAddress: string;
+  jobTitle: string;
+  employmentType: string;
+  workplaceType: "office" | "recipient_home";
+  workplace: string;
+  recipientAssignments: EmploymentRecipientAssignment[];
+  contractStartDate: string;
+  contractEndDate?: string;
+  workDays: string;
+  workStartTime: string;
+  workEndTime: string;
+  breakMinutes: number;
+  wageType: string;
+  wageAmount: number;
+  nonTaxableVehicleAllowance: number;
+  nonTaxableMealAllowance: number;
+  taxableExtraPay: number;
+  allowanceMemo?: string;
+  paymentDate: string;
+  insuranceStatus: string;
+  insuranceSnapshots: EmploymentInsuranceSnapshot[];
+  memo?: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EmploymentRecipientAssignment = {
+  recipientId: string;
+  recipientName?: string;
+  careGrade?: string;
+  workplaceAddress?: string;
+};
+
+export type EmploymentInsuranceSnapshot = {
+  id?: string;
+  status: string;
+  effectiveStartDate: string;
+  effectiveEndDate?: string;
+  weeklyHours: number;
+  memo?: string;
+};
+
+export type EmploymentContractInput = Omit<
+  EmploymentContract,
+  "createdAt" | "updatedAt" | "enabled"
+> &
+  Partial<Pick<EmploymentContract, "createdAt" | "updatedAt" | "enabled">>;

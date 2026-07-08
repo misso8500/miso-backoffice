@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import {
   AlertTriangle,
   ArrowLeft,
+  Briefcase,
   CalendarClock,
   ChevronRight,
   Database,
@@ -17,13 +18,22 @@ import {
   X
 } from "lucide-react";
 import {
+  createEmploymentContract,
   createRecipient,
+  loadEmploymentContracts,
   loadRecipients,
   restoreRecipient,
   terminateContract,
+  updateEmploymentContract,
   updateRecipient
 } from "./storage";
-import type { ContractRestoreType, Recipient, RecipientInput } from "./types";
+import type {
+  ContractRestoreType,
+  EmploymentContract,
+  EmploymentContractInput,
+  Recipient,
+  RecipientInput
+} from "./types";
 
 type RecipientFormState = {
   name: string;
@@ -67,6 +77,68 @@ type RestoreFormState = {
   memo: string;
 };
 
+type EmploymentContractFormState = {
+  workerName: string;
+  workerBirthDate: string;
+  workerPhone: string;
+  workerAddress: string;
+  jobTitle: string;
+  employmentType: string;
+  workplaceType: "office" | "recipient_home";
+  workplace: string;
+  recipientAssignmentIds: string[];
+  contractStartDate: string;
+  contractEndDate: string;
+  workDays: string;
+  workStartTime: string;
+  workEndTime: string;
+  breakMinutes: string;
+  wageType: string;
+  wageAmount: string;
+  nonTaxableVehicleAllowance: string;
+  nonTaxableMealAllowance: string;
+  taxableExtraPay: string;
+  allowanceMemo: string;
+  paymentDate: string;
+  insuranceStatus: string;
+  insuranceEffectiveStartDate: string;
+  insuranceEffectiveEndDate: string;
+  insuranceWeeklyHours: string;
+  insuranceMemo: string;
+  memo: string;
+};
+
+const emptyEmploymentContractForm: EmploymentContractFormState = {
+  workerName: "",
+  workerBirthDate: "",
+  workerPhone: "",
+  workerAddress: "",
+  jobTitle: "요양보호사",
+  employmentType: "기간의 정함이 있는 근로계약",
+  workplaceType: "office",
+  workplace: "",
+  recipientAssignmentIds: [],
+  contractStartDate: "",
+  contractEndDate: "",
+  workDays: "월,화,수,목,금",
+  workStartTime: "09:00",
+  workEndTime: "18:00",
+  breakMinutes: "60",
+  wageType: "월급",
+  wageAmount: "",
+  nonTaxableVehicleAllowance: "0",
+  nonTaxableMealAllowance: "0",
+  taxableExtraPay: "0",
+  allowanceMemo: "",
+  paymentDate: "매월 10일",
+  insuranceStatus: "4대보험 가입",
+  insuranceEffectiveStartDate: "",
+  insuranceEffectiveEndDate: "",
+  insuranceWeeklyHours: "40",
+  insuranceMemo: "",
+  memo: ""
+};
+
 const requiredFormFields: Array<{ key: keyof RecipientFormState; label: string }> = [
   { key: "name", label: "수급자 이름" },
   { key: "birthDate", label: "생년월일" },
@@ -82,12 +154,42 @@ const requiredFormFields: Array<{ key: keyof RecipientFormState; label: string }
   { key: "contractExpiredDate", label: "급여 계약 만료일" }
 ];
 
+const requiredEmploymentContractFields: Array<{
+  key: keyof EmploymentContractFormState;
+  label: string;
+}> = [
+  { key: "workerName", label: "근로자 이름" },
+  { key: "workerBirthDate", label: "근로자 생년월일" },
+  { key: "workerAddress", label: "근로자 주소" },
+  { key: "jobTitle", label: "직무" },
+  { key: "employmentType", label: "계약 형태" },
+  { key: "contractStartDate", label: "계약 시작일" },
+  { key: "workDays", label: "근무일" },
+  { key: "workStartTime", label: "근무 시작시각" },
+  { key: "workEndTime", label: "근무 종료시각" },
+  { key: "breakMinutes", label: "휴게시간" },
+  { key: "wageType", label: "임금 형태" },
+  { key: "wageAmount", label: "임금 금액" },
+  { key: "paymentDate", label: "임금 지급일" },
+  { key: "insuranceStatus", label: "사회보험 적용" },
+  { key: "insuranceEffectiveStartDate", label: "보험 적용 시작일" },
+  { key: "insuranceWeeklyHours", label: "보험 산정 주당 근무시간" }
+];
+
 const createRecipientId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
   }
 
   return `recipient-${Date.now()}`;
+};
+
+const createEmploymentContractId = () => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `employment-contract-${Date.now()}`;
 };
 
 const detailSections: Array<{
@@ -137,6 +239,80 @@ const detailSections: Array<{
   }
 ];
 
+const employmentContractDetailSections: Array<{
+  title: string;
+  fields: Array<{ label: string; value: (contract: EmploymentContract) => string | undefined }>;
+}> = [
+  {
+    title: "근로자 정보",
+    fields: [
+      { label: "근로자 이름", value: (contract) => contract.workerName },
+      { label: "생년월일", value: (contract) => contract.workerBirthDate },
+      { label: "연락처", value: (contract) => contract.workerPhone },
+      { label: "주소", value: (contract) => contract.workerAddress }
+    ]
+  },
+  {
+    title: "계약 정보",
+    fields: [
+      { label: "직무", value: (contract) => contract.jobTitle },
+      { label: "계약 형태", value: (contract) => contract.employmentType },
+      {
+        label: "근무 장소 유형",
+        value: (contract) => (contract.workplaceType === "recipient_home" ? "수급자 댁" : "사무실")
+      },
+      { label: "근무 장소", value: (contract) => contract.workplace },
+      { label: "매핑 수급자", value: (contract) => formatRecipientAssignments(contract) },
+      { label: "계약 시작일", value: (contract) => contract.contractStartDate },
+      { label: "계약 종료일", value: (contract) => contract.contractEndDate }
+    ]
+  },
+  {
+    title: "근무 및 임금",
+    fields: [
+      { label: "근무일", value: (contract) => contract.workDays },
+      {
+        label: "근무시간",
+        value: (contract) => `${contract.workStartTime} - ${contract.workEndTime}`
+      },
+      { label: "휴게시간", value: (contract) => `${contract.breakMinutes}분` },
+      {
+        label: "임금",
+        value: (contract) =>
+          `${contract.wageType} ${contract.wageAmount.toLocaleString("ko-KR")}원`
+      },
+      {
+        label: "비과세 차량수당",
+        value: (contract) => formatCurrency(contract.nonTaxableVehicleAllowance)
+      },
+      {
+        label: "비과세 식대",
+        value: (contract) => formatCurrency(contract.nonTaxableMealAllowance)
+      },
+      { label: "기타 과세수당", value: (contract) => formatCurrency(contract.taxableExtraPay) },
+      { label: "수당 메모", value: (contract) => contract.allowanceMemo },
+      { label: "임금 지급일", value: (contract) => contract.paymentDate },
+      { label: "현재 사회보험 적용", value: (contract) => contract.insuranceStatus }
+    ]
+  },
+  {
+    title: "보험 상태 기록",
+    fields: [
+      { label: "보험 스냅샷", value: (contract) => formatInsuranceSnapshots(contract) }
+    ]
+  },
+  {
+    title: "시스템 정보",
+    fields: [
+      { label: "유효 상태", value: (contract) => (contract.enabled ? "유효함" : "비활성화") },
+      { label: "메모", value: (contract) => contract.memo },
+      { label: "내부 ID", value: (contract) => contract.id },
+      { label: "생성일시", value: (contract) => contract.createdAt },
+      { label: "수정일시", value: (contract) => contract.updatedAt }
+    ]
+  }
+];
+
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat("ko-KR", {
     year: "numeric",
@@ -144,9 +320,33 @@ const formatDate = (value: string) =>
     day: "numeric"
   }).format(new Date(value));
 
+const formatCurrency = (value: number) => `${value.toLocaleString("ko-KR")}원`;
+
+const formatRecipientAssignments = (contract: EmploymentContract) =>
+  contract.recipientAssignments.length > 0
+    ? contract.recipientAssignments
+        .map((assignment) => assignment.recipientName ?? assignment.recipientId)
+        .join(", ")
+    : undefined;
+
+const formatInsuranceSnapshots = (contract: EmploymentContract) =>
+  contract.insuranceSnapshots.length > 0
+    ? contract.insuranceSnapshots
+        .map((snapshot) => {
+          const period = snapshot.effectiveEndDate
+            ? `${snapshot.effectiveStartDate} ~ ${snapshot.effectiveEndDate}`
+            : `${snapshot.effectiveStartDate} ~`;
+          return `${period} · ${snapshot.status} · 주 ${snapshot.weeklyHours}시간`;
+        })
+        .join("\n")
+    : undefined;
+
 const isRecipientEnabled = (recipient: Recipient) => recipient.enabled !== false;
 
 function App() {
+  const [activeView, setActiveView] = useState<"recipients" | "employmentContracts">(
+    "recipients"
+  );
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -168,6 +368,27 @@ function App() {
   const [restoreFormState, setRestoreFormState] = useState<RestoreFormState | null>(null);
   const [restoreErrorMessage, setRestoreErrorMessage] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [employmentContracts, setEmploymentContracts] = useState<EmploymentContract[]>([]);
+  const [selectedEmploymentContractId, setSelectedEmploymentContractId] = useState<string | null>(
+    null
+  );
+  const [employmentSearchQuery, setEmploymentSearchQuery] = useState("");
+  const [showEnabledEmploymentOnly, setShowEnabledEmploymentOnly] = useState(true);
+  const [isEmploymentLoading, setIsEmploymentLoading] = useState(true);
+  const [employmentErrorMessage, setEmploymentErrorMessage] = useState<string | null>(null);
+  const [isEmploymentCreatePanelOpen, setIsEmploymentCreatePanelOpen] = useState(false);
+  const [employmentFormState, setEmploymentFormState] =
+    useState<EmploymentContractFormState>(emptyEmploymentContractForm);
+  const [employmentFormErrorMessage, setEmploymentFormErrorMessage] = useState<string | null>(
+    null
+  );
+  const [isEmploymentSaving, setIsEmploymentSaving] = useState(false);
+  const [employmentContractToDeactivate, setEmploymentContractToDeactivate] =
+    useState<EmploymentContract | null>(null);
+  const [employmentDeactivateErrorMessage, setEmploymentDeactivateErrorMessage] = useState<
+    string | null
+  >(null);
+  const [isEmploymentDeactivating, setIsEmploymentDeactivating] = useState(false);
 
   const fetchRecipients = useCallback(async () => {
     setIsLoading(true);
@@ -183,9 +404,26 @@ function App() {
     }
   }, []);
 
+  const fetchEmploymentContracts = useCallback(async () => {
+    setIsEmploymentLoading(true);
+
+    try {
+      const loadedContracts = await loadEmploymentContracts();
+      setEmploymentContracts(loadedContracts);
+      setEmploymentErrorMessage(null);
+    } catch (error) {
+      setEmploymentErrorMessage(
+        error instanceof Error ? error.message : "근로계약 정보를 불러오지 못했습니다."
+      );
+    } finally {
+      setIsEmploymentLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void fetchRecipients();
-  }, [fetchRecipients]);
+    void fetchEmploymentContracts();
+  }, [fetchEmploymentContracts, fetchRecipients]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -195,6 +433,9 @@ function App() {
         setRecipientToDeactivate(null);
         setRecipientToTerminate(null);
         setRecipientToRestore(null);
+        setSelectedEmploymentContractId(null);
+        setIsEmploymentCreatePanelOpen(false);
+        setEmploymentContractToDeactivate(null);
       }
     };
 
@@ -234,16 +475,74 @@ function App() {
   const selectedRecipient =
     recipients.find((recipient) => recipient.id === selectedRecipientId) ?? null;
   const enabledRecipientCount = recipients.filter(isRecipientEnabled).length;
+  const filteredEmploymentContracts = useMemo(() => {
+    const query = employmentSearchQuery.trim().toLocaleLowerCase();
+
+    return [...employmentContracts]
+      .filter((contract) => {
+        if (showEnabledEmploymentOnly && !contract.enabled) {
+          return false;
+        }
+
+        if (!query) {
+          return true;
+        }
+
+        return [
+          contract.workerName,
+          contract.workerPhone,
+          contract.jobTitle,
+          contract.employmentType,
+          contract.workplace,
+          ...contract.recipientAssignments.map(
+            (assignment) => assignment.recipientName ?? assignment.recipientId
+          ),
+          contract.insuranceStatus
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(query);
+      })
+      .sort((a, b) => b.contractStartDate.localeCompare(a.contractStartDate));
+  }, [employmentContracts, employmentSearchQuery, showEnabledEmploymentOnly]);
+  const selectedEmploymentContract =
+    employmentContracts.find((contract) => contract.id === selectedEmploymentContractId) ?? null;
+  const enabledEmploymentContractCount = employmentContracts.filter(
+    (contract) => contract.enabled
+  ).length;
 
   const updateFormField = (field: keyof RecipientFormState, value: string) => {
     setFormState((current) => ({ ...current, [field]: value }));
     setFormErrorMessage(null);
   };
 
+  const updateEmploymentFormField = (field: keyof EmploymentContractFormState, value: string) => {
+    setEmploymentFormState((current) => ({ ...current, [field]: value }));
+    setEmploymentFormErrorMessage(null);
+  };
+
+  const toggleEmploymentRecipientAssignment = (recipientId: string) => {
+    setEmploymentFormState((current) => {
+      const recipientAssignmentIds = current.recipientAssignmentIds.includes(recipientId)
+        ? current.recipientAssignmentIds.filter((id) => id !== recipientId)
+        : [...current.recipientAssignmentIds, recipientId];
+
+      return { ...current, recipientAssignmentIds };
+    });
+    setEmploymentFormErrorMessage(null);
+  };
+
   const closeCreatePanel = () => {
     setIsCreatePanelOpen(false);
     setFormState(emptyRecipientForm);
     setFormErrorMessage(null);
+  };
+
+  const closeEmploymentCreatePanel = () => {
+    setIsEmploymentCreatePanelOpen(false);
+    setEmploymentFormState(emptyEmploymentContractForm);
+    setEmploymentFormErrorMessage(null);
   };
 
   const handleCreateRecipient = async (event: FormEvent<HTMLFormElement>) => {
@@ -301,6 +600,160 @@ function App() {
     }
   };
 
+  const handleCreateEmploymentContract = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const missingField = requiredEmploymentContractFields.find(({ key }) => {
+      const value = employmentFormState[key];
+      return typeof value !== "string" || !value.trim();
+    });
+
+    if (missingField) {
+      setEmploymentFormErrorMessage(`${missingField.label}을(를) 입력하세요.`);
+      return;
+    }
+
+    if (employmentFormState.workplaceType === "office" && !employmentFormState.workplace.trim()) {
+      setEmploymentFormErrorMessage("사무실 근무 장소를 입력하세요.");
+      return;
+    }
+
+    if (
+      employmentFormState.workplaceType === "recipient_home" &&
+      employmentFormState.recipientAssignmentIds.length === 0
+    ) {
+      setEmploymentFormErrorMessage("수급자 댁 근무는 관련 수급자를 1명 이상 선택하세요.");
+      return;
+    }
+
+    if (
+      employmentFormState.contractEndDate &&
+      employmentFormState.contractStartDate > employmentFormState.contractEndDate
+    ) {
+      setEmploymentFormErrorMessage("계약 시작일은 종료일보다 늦을 수 없습니다.");
+      return;
+    }
+
+    if (employmentFormState.workStartTime >= employmentFormState.workEndTime) {
+      setEmploymentFormErrorMessage("근무 시작시각은 종료시각보다 빨라야 합니다.");
+      return;
+    }
+
+    const breakMinutes = Number(employmentFormState.breakMinutes);
+    const wageAmount = Number(employmentFormState.wageAmount);
+    const nonTaxableVehicleAllowance = Number(employmentFormState.nonTaxableVehicleAllowance || 0);
+    const nonTaxableMealAllowance = Number(employmentFormState.nonTaxableMealAllowance || 0);
+    const taxableExtraPay = Number(employmentFormState.taxableExtraPay || 0);
+    const insuranceWeeklyHours = Number(employmentFormState.insuranceWeeklyHours);
+
+    if (!Number.isFinite(breakMinutes) || breakMinutes < 0) {
+      setEmploymentFormErrorMessage("휴게시간은 0분 이상의 숫자로 입력하세요.");
+      return;
+    }
+
+    if (!Number.isFinite(wageAmount) || wageAmount <= 0) {
+      setEmploymentFormErrorMessage("임금 금액은 0보다 큰 숫자로 입력하세요.");
+      return;
+    }
+
+    if (
+      [nonTaxableVehicleAllowance, nonTaxableMealAllowance, taxableExtraPay].some(
+        (value) => !Number.isFinite(value) || value < 0
+      )
+    ) {
+      setEmploymentFormErrorMessage("수당 금액은 0 이상의 숫자로 입력하세요.");
+      return;
+    }
+
+    if (!Number.isFinite(insuranceWeeklyHours) || insuranceWeeklyHours < 0) {
+      setEmploymentFormErrorMessage("보험 산정 주당 근무시간은 0 이상의 숫자로 입력하세요.");
+      return;
+    }
+
+    if (
+      employmentFormState.insuranceEffectiveEndDate &&
+      employmentFormState.insuranceEffectiveStartDate > employmentFormState.insuranceEffectiveEndDate
+    ) {
+      setEmploymentFormErrorMessage("보험 적용 시작일은 종료일보다 늦을 수 없습니다.");
+      return;
+    }
+
+    const mappedRecipientNames = recipients
+      .filter((recipient) => employmentFormState.recipientAssignmentIds.includes(recipient.id))
+      .map((recipient) => recipient.name);
+
+    const newContract: EmploymentContractInput = {
+      id: createEmploymentContractId(),
+      workerName: employmentFormState.workerName.trim(),
+      workerBirthDate: employmentFormState.workerBirthDate,
+      ...(employmentFormState.workerPhone.trim()
+        ? { workerPhone: employmentFormState.workerPhone.trim() }
+        : {}),
+      workerAddress: employmentFormState.workerAddress.trim(),
+      jobTitle: employmentFormState.jobTitle.trim(),
+      employmentType: employmentFormState.employmentType.trim(),
+      workplaceType: employmentFormState.workplaceType,
+      workplace:
+        employmentFormState.workplaceType === "recipient_home"
+          ? mappedRecipientNames.length > 0
+            ? `${mappedRecipientNames.join(", ")} 수급자 댁`
+            : "수급자 댁"
+          : employmentFormState.workplace.trim(),
+      recipientAssignments: employmentFormState.recipientAssignmentIds.map((recipientId) => ({
+        recipientId
+      })),
+      contractStartDate: employmentFormState.contractStartDate,
+      ...(employmentFormState.contractEndDate
+        ? { contractEndDate: employmentFormState.contractEndDate }
+        : {}),
+      workDays: employmentFormState.workDays.trim(),
+      workStartTime: employmentFormState.workStartTime,
+      workEndTime: employmentFormState.workEndTime,
+      breakMinutes,
+      wageType: employmentFormState.wageType.trim(),
+      wageAmount,
+      nonTaxableVehicleAllowance,
+      nonTaxableMealAllowance,
+      taxableExtraPay,
+      ...(employmentFormState.allowanceMemo.trim()
+        ? { allowanceMemo: employmentFormState.allowanceMemo.trim() }
+        : {}),
+      paymentDate: employmentFormState.paymentDate.trim(),
+      insuranceStatus: employmentFormState.insuranceStatus.trim(),
+      insuranceSnapshots: [
+        {
+          status: employmentFormState.insuranceStatus.trim(),
+          effectiveStartDate: employmentFormState.insuranceEffectiveStartDate,
+          ...(employmentFormState.insuranceEffectiveEndDate
+            ? { effectiveEndDate: employmentFormState.insuranceEffectiveEndDate }
+            : {}),
+          weeklyHours: insuranceWeeklyHours,
+          ...(employmentFormState.insuranceMemo.trim()
+            ? { memo: employmentFormState.insuranceMemo.trim() }
+            : {})
+        }
+      ],
+      ...(employmentFormState.memo.trim() ? { memo: employmentFormState.memo.trim() } : {}),
+      enabled: true
+    };
+
+    setIsEmploymentSaving(true);
+
+    try {
+      const createdContract = await createEmploymentContract(newContract);
+      setEmploymentContracts((current) => [...current, createdContract]);
+      setSelectedEmploymentContractId(createdContract.id);
+      closeEmploymentCreatePanel();
+      setEmploymentErrorMessage(null);
+    } catch (error) {
+      setEmploymentFormErrorMessage(
+        error instanceof Error ? error.message : "근로계약 정보를 저장하지 못했습니다."
+      );
+    } finally {
+      setIsEmploymentSaving(false);
+    }
+  };
+
   const handleDeactivateRecipient = async () => {
     if (!recipientToDeactivate) {
       return;
@@ -329,6 +782,37 @@ function App() {
       );
     } finally {
       setIsDeactivating(false);
+    }
+  };
+
+  const handleDeactivateEmploymentContract = async () => {
+    if (!employmentContractToDeactivate) {
+      return;
+    }
+
+    setIsEmploymentDeactivating(true);
+    setEmploymentDeactivateErrorMessage(null);
+
+    try {
+      const updatedContract = await updateEmploymentContract({
+        ...employmentContractToDeactivate,
+        enabled: false
+      });
+
+      setEmploymentContracts((current) =>
+        current.map((contract) =>
+          contract.id === updatedContract.id ? updatedContract : contract
+        )
+      );
+      setSelectedEmploymentContractId(updatedContract.id);
+      setEmploymentContractToDeactivate(null);
+      setEmploymentErrorMessage(null);
+    } catch (error) {
+      setEmploymentDeactivateErrorMessage(
+        error instanceof Error ? error.message : "근로계약을 비활성화하지 못했습니다."
+      );
+    } finally {
+      setIsEmploymentDeactivating(false);
     }
   };
 
@@ -490,16 +974,46 @@ function App() {
           </span>
           <div>
             <strong>Miso Backoffice</strong>
-            <span>수급자 관리 MVP</span>
+            <span>운영 정보 관리 MVP</span>
           </div>
         </div>
-        <div className="runtime-badge">
-          <Database size={16} />
-          로컬 SQLite
+        <div className="header-actions">
+          <nav className="view-tabs" aria-label="관리 메뉴">
+            <button
+              type="button"
+              className={activeView === "recipients" ? "is-active" : ""}
+              onClick={() => {
+                setActiveView("recipients");
+                setSelectedEmploymentContractId(null);
+                setIsEmploymentCreatePanelOpen(false);
+              }}
+            >
+              <Users size={16} />
+              수급자
+            </button>
+            <button
+              type="button"
+              className={activeView === "employmentContracts" ? "is-active" : ""}
+              onClick={() => {
+                setActiveView("employmentContracts");
+                setSelectedRecipientId(null);
+                setIsCreatePanelOpen(false);
+              }}
+            >
+              <Briefcase size={16} />
+              근로계약
+            </button>
+          </nav>
+          <div className="runtime-badge">
+            <Database size={16} />
+            로컬 SQLite
+          </div>
         </div>
       </header>
 
       <main className="main-content">
+        {activeView === "recipients" ? (
+          <>
         <section className="page-heading">
           <div>
             <span className="eyebrow">Recipients</span>
@@ -623,6 +1137,138 @@ function App() {
             </div>
           )}
         </section>
+          </>
+        ) : (
+          <>
+            <section className="page-heading">
+              <div>
+                <span className="eyebrow">Employment contracts</span>
+                <h1>근로계약 관리</h1>
+                <p>근로자의 계약 기간, 근무시간, 임금과 보험 정보를 기록하고 확인합니다.</p>
+              </div>
+              <div className="heading-actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    setSelectedEmploymentContractId(null);
+                    setIsEmploymentCreatePanelOpen(true);
+                  }}
+                >
+                  <Plus size={18} />
+                  근로계약 등록
+                </button>
+                <div className="summary-card">
+                  <span>유효 계약</span>
+                  <strong>{enabledEmploymentContractCount}건</strong>
+                </div>
+              </div>
+            </section>
+
+            {employmentErrorMessage && (
+              <div className="error-banner" role="alert">
+                <AlertTriangle size={20} />
+                <div>
+                  <strong>API 서버 연결을 확인하세요.</strong>
+                  <p>{employmentErrorMessage}</p>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => void fetchEmploymentContracts()}
+                >
+                  <RefreshCw size={18} />
+                  <span className="sr-only">다시 시도</span>
+                </button>
+              </div>
+            )}
+
+            <section aria-labelledby="employment-contract-list-title">
+              <div className="list-toolbar">
+                <div>
+                  <h2 id="employment-contract-list-title">근로계약 목록</h2>
+                  <span>계약 시작일 최신순</span>
+                </div>
+                <div className="toolbar-controls">
+                  <label className="valid-toggle">
+                    <input
+                      type="checkbox"
+                      checked={showEnabledEmploymentOnly}
+                      onChange={(event) => setShowEnabledEmploymentOnly(event.target.checked)}
+                    />
+                    <span>유효함</span>
+                  </label>
+                  <label className="search-box">
+                    <Search size={18} />
+                    <input
+                      type="search"
+                      value={employmentSearchQuery}
+                      onChange={(event) => setEmploymentSearchQuery(event.target.value)}
+                      placeholder="이름, 직무, 수급자 검색"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {isEmploymentLoading ? (
+                <div className="empty-state">
+                  <RefreshCw className="spin" size={28} />
+                  <p>근로계약 정보를 불러오는 중입니다.</p>
+                </div>
+              ) : filteredEmploymentContracts.length === 0 ? (
+                <div className="empty-state">
+                  <Briefcase size={30} />
+                  <p>{employmentSearchQuery ? "검색 결과가 없습니다." : "표시할 근로계약이 없습니다."}</p>
+                </div>
+              ) : (
+                <div className="recipient-table employment-table">
+                  <div className="table-head">
+                    <span>근로자</span>
+                    <span>직무</span>
+                    <span>계약 형태</span>
+                    <span>근무 장소</span>
+                    <span>계약 시작일</span>
+                    <span aria-hidden="true" />
+                  </div>
+                  <ul>
+                    {filteredEmploymentContracts.map((contract) => (
+                      <li key={contract.id}>
+                        <button
+                          type="button"
+                          className={`recipient-row ${contract.enabled ? "" : "is-disabled"}`}
+                          onClick={() => setSelectedEmploymentContractId(contract.id)}
+                        >
+                          <span className="recipient-name">
+                            <strong>{contract.workerName}</strong>
+                            <small>
+                              {contract.workerPhone ?? "연락처 미등록"}
+                              {!contract.enabled && <em className="status-chip">비활성화</em>}
+                            </small>
+                          </span>
+                          <span>{contract.jobTitle}</span>
+                          <span>{contract.employmentType}</span>
+                          <span>
+                            {contract.workplace}
+                            <small>
+                              {contract.workplaceType === "recipient_home"
+                                ? formatRecipientAssignments(contract) ?? contract.workDays
+                                : contract.workDays}
+                            </small>
+                          </span>
+                          <span className="expiry">
+                            <CalendarClock size={15} />
+                            {contract.contractStartDate}
+                          </span>
+                          <ChevronRight size={18} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </main>
 
       {selectedRecipient && (
@@ -711,6 +1357,84 @@ function App() {
                       <div key={field.label}>
                         <dt>{field.label}</dt>
                         <dd>{field.value(selectedRecipient) ?? "미등록"}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))}
+            </div>
+          </article>
+        </div>
+      )}
+
+      {selectedEmploymentContract && (
+        <div className="detail-backdrop" role="presentation">
+          <article
+            className={`detail-panel ${
+              selectedEmploymentContract.enabled ? "" : "is-disabled-detail"
+            }`}
+            aria-label={`${selectedEmploymentContract.workerName} 근로계약 상세 정보`}
+          >
+            <div className="detail-header">
+              <button
+                type="button"
+                className="back-button"
+                onClick={() => setSelectedEmploymentContractId(null)}
+              >
+                <ArrowLeft size={17} />
+                목록으로
+              </button>
+              <div className="detail-actions">
+                {selectedEmploymentContract.enabled && (
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() => {
+                      setEmploymentContractToDeactivate(selectedEmploymentContract);
+                      setEmploymentDeactivateErrorMessage(null);
+                    }}
+                  >
+                    <Trash2 size={17} />
+                    계약 삭제
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setSelectedEmploymentContractId(null)}
+                >
+                  <X size={20} />
+                  <span className="sr-only">닫기</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="recipient-hero employment-hero">
+              <span>{selectedEmploymentContract.employmentType}</span>
+              <h2>{selectedEmploymentContract.workerName}</h2>
+              <p>
+                {selectedEmploymentContract.jobTitle} · {selectedEmploymentContract.workplace}
+                {selectedEmploymentContract.workplaceType === "recipient_home" &&
+                  ` · ${formatRecipientAssignments(selectedEmploymentContract) ?? "수급자 미매핑"}`}
+                {!selectedEmploymentContract.enabled && (
+                  <strong className="inactive-inline">비활성화된 계약</strong>
+                )}
+              </p>
+              <div>
+                <small>계약 시작일</small>
+                <strong>{formatDate(selectedEmploymentContract.contractStartDate)}</strong>
+              </div>
+            </div>
+
+            <div className="detail-sections">
+              {employmentContractDetailSections.map((section) => (
+                <section key={section.title}>
+                  <h3>{section.title}</h3>
+                  <dl>
+                    {section.fields.map((field) => (
+                      <div key={field.label}>
+                        <dt>{field.label}</dt>
+                        <dd>{field.value(selectedEmploymentContract) ?? "미등록"}</dd>
                       </div>
                     ))}
                   </dl>
@@ -907,6 +1631,412 @@ function App() {
         </div>
       )}
 
+      {isEmploymentCreatePanelOpen && (
+        <div className="detail-backdrop" role="presentation">
+          <article className="detail-panel" aria-label="근로계약 등록">
+            <div className="detail-header">
+              <button type="button" className="back-button" onClick={closeEmploymentCreatePanel}>
+                <ArrowLeft size={17} />
+                목록으로
+              </button>
+              <button type="button" className="icon-button" onClick={closeEmploymentCreatePanel}>
+                <X size={20} />
+                <span className="sr-only">닫기</span>
+              </button>
+            </div>
+
+            <form className="recipient-form" onSubmit={handleCreateEmploymentContract}>
+              <div className="form-heading">
+                <span className="eyebrow">New employment contract</span>
+                <h2>근로계약 등록</h2>
+              </div>
+
+              {employmentFormErrorMessage && (
+                <div className="form-error" role="alert">
+                  <AlertTriangle size={18} />
+                  {employmentFormErrorMessage}
+                </div>
+              )}
+
+              <section className="form-section" aria-labelledby="worker-form-title">
+                <h3 id="worker-form-title">근로자 정보</h3>
+                <div className="form-grid">
+                  <label>
+                    <span>근로자 이름</span>
+                    <input
+                      value={employmentFormState.workerName}
+                      onChange={(event) =>
+                        updateEmploymentFormField("workerName", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>생년월일</span>
+                    <input
+                      type="date"
+                      value={employmentFormState.workerBirthDate}
+                      onChange={(event) =>
+                        updateEmploymentFormField("workerBirthDate", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>연락처</span>
+                    <input
+                      value={employmentFormState.workerPhone}
+                      onChange={(event) =>
+                        updateEmploymentFormField("workerPhone", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="wide-field">
+                    <span>주소</span>
+                    <input
+                      value={employmentFormState.workerAddress}
+                      onChange={(event) =>
+                        updateEmploymentFormField("workerAddress", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="form-section" aria-labelledby="employment-form-title">
+                <h3 id="employment-form-title">계약 정보</h3>
+                <div className="form-grid">
+                  <label>
+                    <span>직무</span>
+                    <input
+                      value={employmentFormState.jobTitle}
+                      onChange={(event) =>
+                        updateEmploymentFormField("jobTitle", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>계약 형태</span>
+                    <select
+                      value={employmentFormState.employmentType}
+                      onChange={(event) =>
+                        updateEmploymentFormField("employmentType", event.target.value)
+                      }
+                      required
+                    >
+                      <option>기간의 정함이 있는 근로계약</option>
+                      <option>기간의 정함이 없는 근로계약</option>
+                      <option>단시간 근로계약</option>
+                      <option>일용 근로계약</option>
+                    </select>
+                  </label>
+                  <label className="wide-field">
+                    <span>근무 장소 유형</span>
+                    <div className="segmented-control">
+                      <button
+                        type="button"
+                        className={employmentFormState.workplaceType === "office" ? "is-active" : ""}
+                        onClick={() => updateEmploymentFormField("workplaceType", "office")}
+                      >
+                        사무실
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          employmentFormState.workplaceType === "recipient_home" ? "is-active" : ""
+                        }
+                        onClick={() =>
+                          updateEmploymentFormField("workplaceType", "recipient_home")
+                        }
+                      >
+                        수급자 댁
+                      </button>
+                    </div>
+                  </label>
+                  {employmentFormState.workplaceType === "office" ? (
+                    <label className="wide-field">
+                      <span>사무실 근무 장소</span>
+                      <input
+                        value={employmentFormState.workplace}
+                        onChange={(event) =>
+                          updateEmploymentFormField("workplace", event.target.value)
+                        }
+                        required
+                      />
+                    </label>
+                  ) : (
+                    <div className="wide-field recipient-picker">
+                      <span>관련 수급자</span>
+                      <div>
+                        {recipients.filter(isRecipientEnabled).map((recipient) => (
+                          <label key={recipient.id}>
+                            <input
+                              type="checkbox"
+                              checked={employmentFormState.recipientAssignmentIds.includes(
+                                recipient.id
+                              )}
+                              onChange={() => toggleEmploymentRecipientAssignment(recipient.id)}
+                            />
+                            <span>
+                              <strong>{recipient.name}</strong>
+                              <small>
+                                {recipient.careGrade} · {recipient.address}
+                              </small>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <label>
+                    <span>계약 시작일</span>
+                    <input
+                      type="date"
+                      value={employmentFormState.contractStartDate}
+                      onChange={(event) =>
+                        updateEmploymentFormField("contractStartDate", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>계약 종료일</span>
+                    <input
+                      type="date"
+                      value={employmentFormState.contractEndDate}
+                      onChange={(event) =>
+                        updateEmploymentFormField("contractEndDate", event.target.value)
+                      }
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="form-section" aria-labelledby="work-form-title">
+                <h3 id="work-form-title">근무시간</h3>
+                <div className="form-grid">
+                  <label className="wide-field">
+                    <span>근무일</span>
+                    <input
+                      value={employmentFormState.workDays}
+                      onChange={(event) =>
+                        updateEmploymentFormField("workDays", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>시작시각</span>
+                    <input
+                      type="time"
+                      value={employmentFormState.workStartTime}
+                      onChange={(event) =>
+                        updateEmploymentFormField("workStartTime", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>종료시각</span>
+                    <input
+                      type="time"
+                      value={employmentFormState.workEndTime}
+                      onChange={(event) =>
+                        updateEmploymentFormField("workEndTime", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>휴게시간(분)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={employmentFormState.breakMinutes}
+                      onChange={(event) =>
+                        updateEmploymentFormField("breakMinutes", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="form-section" aria-labelledby="wage-form-title">
+                <h3 id="wage-form-title">임금 및 보험</h3>
+                <div className="form-grid">
+                  <label>
+                    <span>임금 형태</span>
+                    <select
+                      value={employmentFormState.wageType}
+                      onChange={(event) =>
+                        updateEmploymentFormField("wageType", event.target.value)
+                      }
+                      required
+                    >
+                      <option>월급</option>
+                      <option>시급</option>
+                      <option>일급</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>임금 금액</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={employmentFormState.wageAmount}
+                      onChange={(event) =>
+                        updateEmploymentFormField("wageAmount", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>비과세 차량수당</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={employmentFormState.nonTaxableVehicleAllowance}
+                      onChange={(event) =>
+                        updateEmploymentFormField(
+                          "nonTaxableVehicleAllowance",
+                          event.target.value
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>비과세 식대</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={employmentFormState.nonTaxableMealAllowance}
+                      onChange={(event) =>
+                        updateEmploymentFormField("nonTaxableMealAllowance", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>기타 과세수당</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={employmentFormState.taxableExtraPay}
+                      onChange={(event) =>
+                        updateEmploymentFormField("taxableExtraPay", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>임금 지급일</span>
+                    <input
+                      value={employmentFormState.paymentDate}
+                      onChange={(event) =>
+                        updateEmploymentFormField("paymentDate", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>사회보험 적용</span>
+                    <select
+                      value={employmentFormState.insuranceStatus}
+                      onChange={(event) =>
+                        updateEmploymentFormField("insuranceStatus", event.target.value)
+                      }
+                      required
+                    >
+                      <option>4대보험 가입</option>
+                      <option>고용/산재보험 가입</option>
+                      <option>대상 아님</option>
+                      <option>확인 필요</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>보험 적용 시작일</span>
+                    <input
+                      type="date"
+                      value={employmentFormState.insuranceEffectiveStartDate}
+                      onChange={(event) =>
+                        updateEmploymentFormField(
+                          "insuranceEffectiveStartDate",
+                          event.target.value
+                        )
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>보험 적용 종료일</span>
+                    <input
+                      type="date"
+                      value={employmentFormState.insuranceEffectiveEndDate}
+                      onChange={(event) =>
+                        updateEmploymentFormField("insuranceEffectiveEndDate", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>보험 산정 주당 근무시간</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={employmentFormState.insuranceWeeklyHours}
+                      onChange={(event) =>
+                        updateEmploymentFormField("insuranceWeeklyHours", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="wide-field">
+                    <span>수당 메모</span>
+                    <input
+                      value={employmentFormState.allowanceMemo}
+                      onChange={(event) =>
+                        updateEmploymentFormField("allowanceMemo", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="wide-field">
+                    <span>보험 기록 메모</span>
+                    <input
+                      value={employmentFormState.insuranceMemo}
+                      onChange={(event) =>
+                        updateEmploymentFormField("insuranceMemo", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="wide-field">
+                    <span>메모</span>
+                    <textarea
+                      value={employmentFormState.memo}
+                      onChange={(event) => updateEmploymentFormField("memo", event.target.value)}
+                      rows={3}
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={closeEmploymentCreatePanel}
+                >
+                  취소
+                </button>
+                <button type="submit" className="primary-button" disabled={isEmploymentSaving}>
+                  <Save size={18} />
+                  {isEmploymentSaving ? "저장 중" : "저장"}
+                </button>
+              </div>
+            </form>
+          </article>
+        </div>
+      )}
+
       {recipientToDeactivate && (
         <div className="alert-backdrop" role="presentation">
           <section
@@ -951,6 +2081,56 @@ function App() {
               >
                 <Trash2 size={17} />
                 {isDeactivating ? "처리 중" : "확인"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {employmentContractToDeactivate && (
+        <div className="alert-backdrop" role="presentation">
+          <section
+            className="alert-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="employment-deactivate-title"
+            aria-describedby="employment-deactivate-description"
+          >
+            <div className="alert-icon">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <h2 id="employment-deactivate-title">근로계약을 삭제 처리할까요?</h2>
+              <p id="employment-deactivate-description">
+                {employmentContractToDeactivate.workerName} 근로계약은 실제로 삭제되지 않고
+                비활성화 상태로 표시됩니다.
+              </p>
+            </div>
+
+            {employmentDeactivateErrorMessage && (
+              <div className="form-error" role="alert">
+                <AlertTriangle size={18} />
+                {employmentDeactivateErrorMessage}
+              </div>
+            )}
+
+            <div className="alert-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setEmploymentContractToDeactivate(null)}
+                disabled={isEmploymentDeactivating}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() => void handleDeactivateEmploymentContract()}
+                disabled={isEmploymentDeactivating}
+              >
+                <Trash2 size={17} />
+                {isEmploymentDeactivating ? "처리 중" : "확인"}
               </button>
             </div>
           </section>

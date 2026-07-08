@@ -1,4 +1,6 @@
 import type {
+  EmploymentContract,
+  EmploymentContractInput,
   Recipient,
   RecipientInput,
   RestoreRecipientInput,
@@ -89,3 +91,33 @@ export const deleteRecipient = (recipientId: string) =>
   requestJson<{ ok: boolean }>(`/api/recipients/${recipientId}`, {
     method: "DELETE"
   });
+
+const normalizeEmploymentContract = (contract: EmploymentContract): EmploymentContract => ({
+  ...contract,
+  enabled: contract.enabled ?? true,
+  breakMinutes: Number(contract.breakMinutes ?? 0),
+  wageAmount: Number(contract.wageAmount ?? 0),
+  nonTaxableVehicleAllowance: Number(contract.nonTaxableVehicleAllowance ?? 0),
+  nonTaxableMealAllowance: Number(contract.nonTaxableMealAllowance ?? 0),
+  taxableExtraPay: Number(contract.taxableExtraPay ?? 0),
+  workplaceType: contract.workplaceType ?? "office",
+  recipientAssignments: contract.recipientAssignments ?? [],
+  insuranceSnapshots: contract.insuranceSnapshots ?? []
+});
+
+export const loadEmploymentContracts = async () => {
+  const contracts = await requestJson<EmploymentContract[]>("/api/employment-contracts");
+  return contracts.map(normalizeEmploymentContract);
+};
+
+export const createEmploymentContract = (contract: EmploymentContractInput) =>
+  requestJson<EmploymentContract>("/api/employment-contracts", {
+    method: "POST",
+    body: JSON.stringify({ ...contract, enabled: contract.enabled ?? true })
+  }).then(normalizeEmploymentContract);
+
+export const updateEmploymentContract = (contract: EmploymentContractInput) =>
+  requestJson<EmploymentContract>(`/api/employment-contracts/${contract.id}`, {
+    method: "PUT",
+    body: JSON.stringify({ ...contract, enabled: contract.enabled ?? true })
+  }).then(normalizeEmploymentContract);

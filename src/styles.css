@@ -32,7 +32,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -56,7 +57,9 @@ button {
 
 .brand,
 .brand-mark,
+.header-actions,
 .runtime-badge,
+.view-tabs,
 .search-box,
 .expiry,
 .back-button,
@@ -79,6 +82,36 @@ button {
 
 .brand {
   gap: 12px;
+}
+
+.header-actions {
+  gap: 12px;
+}
+
+.view-tabs {
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: #f7fcff;
+  padding: 4px;
+}
+
+.view-tabs button {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.view-tabs button:hover,
+.view-tabs button.is-active {
+  background: var(--surface-blue);
+  color: var(--accent-strong);
 }
 
 .brand-mark {
@@ -336,6 +369,11 @@ p {
   background: var(--surface);
 }
 
+.employment-table .table-head,
+.employment-table .recipient-row {
+  grid-template-columns: 1.05fr 0.7fr 1.1fr 1fr 0.85fr 28px;
+}
+
 .table-head,
 .recipient-row {
   display: grid;
@@ -498,6 +536,10 @@ p {
   padding: 30px;
 }
 
+.employment-hero {
+  background: #eefaf3;
+}
+
 .detail-panel.is-disabled-detail {
   filter: grayscale(0.82);
 }
@@ -588,6 +630,7 @@ p {
 }
 
 .detail-sections dd {
+  white-space: pre-line;
   overflow-wrap: anywhere;
   margin: 8px 0 0;
   font-weight: 650;
@@ -638,14 +681,88 @@ p {
   min-width: 0;
 }
 
-.form-grid label span {
+.form-grid label > span,
+.recipient-picker > span {
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
 }
 
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--border);
+  background: #fbfdff;
+  padding: 4px;
+}
+
+.segmented-control button {
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.segmented-control button.is-active,
+.segmented-control button:hover {
+  background: var(--surface-blue);
+  color: var(--accent-strong);
+}
+
+.recipient-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.recipient-picker > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  max-height: 168px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: #fbfdff;
+}
+
+.recipient-picker label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 54px;
+  border-bottom: 1px solid #edf3f8;
+  padding: 8px 10px;
+}
+
+.recipient-picker label:last-child {
+  border-bottom: 0;
+}
+
+.recipient-picker input {
+  flex: 0 0 auto;
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: var(--accent-strong);
+}
+
+.recipient-picker label span {
+  display: grid;
+  gap: 3px;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.recipient-picker small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .form-grid input,
-.form-grid select {
+.form-grid select,
+.form-grid textarea {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--border);
@@ -655,10 +772,24 @@ p {
   outline: 0;
 }
 
+.form-grid textarea {
+  min-height: 90px;
+  resize: vertical;
+  padding-top: 10px;
+}
+
 .form-grid input:focus,
-.form-grid select:focus {
+.form-grid select:focus,
+.form-grid textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(90, 169, 230, 0.16);
+}
+
+.form-grid .recipient-picker input {
+  width: 18px;
+  min-height: 18px;
+  padding: 0;
+  box-shadow: none;
 }
 
 .wide-field {
@@ -841,11 +972,26 @@ p {
 
 @media (max-width: 620px) {
   .app-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
     padding: 0 18px;
+    padding-bottom: 14px;
+    padding-top: 14px;
   }
 
   .runtime-badge {
     display: none;
+  }
+
+  .header-actions,
+  .view-tabs {
+    width: 100%;
+  }
+
+  .view-tabs button {
+    flex: 1;
+    justify-content: center;
   }
 
   .main-content {

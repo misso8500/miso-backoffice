@@ -69,6 +69,48 @@ const sampleRecipients = [
   }
 ];
 
+const sampleEmploymentContracts = [
+  {
+    id: "employment-contract-001",
+    workerName: "오하늘",
+    workerBirthDate: "1988-06-12",
+    workerPhone: "010-7777-8888",
+    workerAddress: "서울시 강서구 근로로 14",
+    jobTitle: "요양보호사",
+    employmentType: "기간의 정함이 있는 근로계약",
+    workplaceType: "recipient_home",
+    workplace: "미소방문요양 강서센터",
+    recipientAssignments: ["recipient-001"],
+    contractStartDate: "2026-07-01",
+    contractEndDate: "2027-06-30",
+    workDays: "월,화,수,목,금",
+    workStartTime: "09:00",
+    workEndTime: "18:00",
+    breakMinutes: 60,
+    wageType: "월급",
+    wageAmount: 2300000,
+    nonTaxableVehicleAllowance: 100000,
+    nonTaxableMealAllowance: 0,
+    taxableExtraPay: 0,
+    allowanceMemo: "수급자 댁 방문 교통비 보전",
+    paymentDate: "매월 10일",
+    insuranceStatus: "4대보험 가입",
+    insuranceSnapshots: [
+      {
+        status: "4대보험 가입",
+        effectiveStartDate: "2026-07-01",
+        effectiveEndDate: "2027-06-30",
+        weeklyHours: 40,
+        memo: "김미소 수급자 방문 근무 기준"
+      }
+    ],
+    memo: "신규 입사 근로계약",
+    enabled: true,
+    createdAt: "2026-07-01T09:00:00+09:00",
+    updatedAt: "2026-07-01T09:00:00+09:00"
+  }
+];
+
 const readConfiguredDbPath = () => {
   if (process.env.MISO_BACKOFFICE_DB_PATH) {
     return process.env.MISO_BACKOFFICE_DB_PATH;
@@ -132,6 +174,66 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_recipient_contract_events_recipient
     ON recipient_contract_events(recipient_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS employment_contracts (
+    id TEXT PRIMARY KEY,
+    worker_name TEXT NOT NULL,
+    worker_birth_date TEXT NOT NULL,
+    worker_phone TEXT,
+    worker_address TEXT NOT NULL,
+    job_title TEXT NOT NULL,
+    employment_type TEXT NOT NULL,
+    workplace_type TEXT NOT NULL DEFAULT 'office',
+    workplace TEXT NOT NULL,
+    contract_start_date TEXT NOT NULL,
+    contract_end_date TEXT,
+    work_days TEXT NOT NULL,
+    work_start_time TEXT NOT NULL,
+    work_end_time TEXT NOT NULL,
+    break_minutes INTEGER NOT NULL DEFAULT 0,
+    wage_type TEXT NOT NULL,
+    wage_amount INTEGER NOT NULL,
+    non_taxable_vehicle_allowance INTEGER NOT NULL DEFAULT 0,
+    non_taxable_meal_allowance INTEGER NOT NULL DEFAULT 0,
+    taxable_extra_pay INTEGER NOT NULL DEFAULT 0,
+    allowance_memo TEXT,
+    payment_date TEXT NOT NULL,
+    insurance_status TEXT NOT NULL,
+    memo TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_employment_contracts_start_date
+    ON employment_contracts(contract_start_date DESC, worker_name ASC);
+
+  CREATE TABLE IF NOT EXISTS employment_contract_recipient_assignments (
+    employment_contract_id TEXT NOT NULL,
+    recipient_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (employment_contract_id, recipient_id),
+    FOREIGN KEY (employment_contract_id) REFERENCES employment_contracts(id) ON DELETE CASCADE,
+    FOREIGN KEY (recipient_id) REFERENCES recipients(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_employment_assignments_recipient
+    ON employment_contract_recipient_assignments(recipient_id);
+
+  CREATE TABLE IF NOT EXISTS employment_insurance_snapshots (
+    id TEXT PRIMARY KEY,
+    employment_contract_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    effective_start_date TEXT NOT NULL,
+    effective_end_date TEXT,
+    weekly_hours INTEGER NOT NULL DEFAULT 0,
+    memo TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (employment_contract_id) REFERENCES employment_contracts(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_employment_insurance_snapshots_contract
+    ON employment_insurance_snapshots(employment_contract_id, effective_start_date DESC);
 `);
 
 const recipientColumns = db.prepare("PRAGMA table_info(recipients)").all();
@@ -140,6 +242,20 @@ const hasEnabledColumn = recipientColumns.some((column) => column.name === "enab
 if (!hasEnabledColumn) {
   db.exec("ALTER TABLE recipients ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
 }
+
+const ensureEmploymentColumn = (name, definition) => {
+  const columns = db.prepare("PRAGMA table_info(employment_contracts)").all();
+
+  if (!columns.some((column) => column.name === name)) {
+    db.exec(`ALTER TABLE employment_contracts ADD COLUMN ${name} ${definition}`);
+  }
+};
+
+ensureEmploymentColumn("workplace_type", "TEXT NOT NULL DEFAULT 'office'");
+ensureEmploymentColumn("non_taxable_vehicle_allowance", "INTEGER NOT NULL DEFAULT 0");
+ensureEmploymentColumn("non_taxable_meal_allowance", "INTEGER NOT NULL DEFAULT 0");
+ensureEmploymentColumn("taxable_extra_pay", "INTEGER NOT NULL DEFAULT 0");
+ensureEmploymentColumn("allowance_memo", "TEXT");
 
 const recipientFromRow = (row) => ({
   id: row.id,
@@ -162,6 +278,81 @@ const recipientFromRow = (row) => ({
   updatedAt: row.updated_at
 });
 
+const employmentAssignmentsForContract = (contractId) =>
+  db
+    .prepare(
+      `
+        SELECT
+          recipients.id AS recipient_id,
+          recipients.name AS recipient_name,
+          recipients.care_grade,
+          recipients.address
+        FROM employment_contract_recipient_assignments
+        JOIN recipients ON recipients.id = employment_contract_recipient_assignments.recipient_id
+        WHERE employment_contract_id = ?
+        ORDER BY recipients.name ASC
+      `
+    )
+    .all(contractId)
+    .map((row) => ({
+      recipientId: row.recipient_id,
+      recipientName: row.recipient_name,
+      careGrade: row.care_grade,
+      workplaceAddress: row.address
+    }));
+
+const insuranceSnapshotsForContract = (contractId) =>
+  db
+    .prepare(
+      `
+        SELECT *
+        FROM employment_insurance_snapshots
+        WHERE employment_contract_id = ?
+        ORDER BY effective_start_date DESC, created_at DESC
+      `
+    )
+    .all(contractId)
+    .map((row) => ({
+      id: row.id,
+      status: row.status,
+      effectiveStartDate: row.effective_start_date,
+      ...(row.effective_end_date ? { effectiveEndDate: row.effective_end_date } : {}),
+      weeklyHours: Number(row.weekly_hours ?? 0),
+      ...(row.memo ? { memo: row.memo } : {})
+    }));
+
+const employmentContractFromRow = (row) => ({
+  id: row.id,
+  workerName: row.worker_name,
+  workerBirthDate: row.worker_birth_date,
+  ...(row.worker_phone ? { workerPhone: row.worker_phone } : {}),
+  workerAddress: row.worker_address,
+  jobTitle: row.job_title,
+  employmentType: row.employment_type,
+  workplaceType: row.workplace_type === "recipient_home" ? "recipient_home" : "office",
+  workplace: row.workplace,
+  recipientAssignments: employmentAssignmentsForContract(row.id),
+  contractStartDate: row.contract_start_date,
+  ...(row.contract_end_date ? { contractEndDate: row.contract_end_date } : {}),
+  workDays: row.work_days,
+  workStartTime: row.work_start_time,
+  workEndTime: row.work_end_time,
+  breakMinutes: Number(row.break_minutes ?? 0),
+  wageType: row.wage_type,
+  wageAmount: Number(row.wage_amount ?? 0),
+  nonTaxableVehicleAllowance: Number(row.non_taxable_vehicle_allowance ?? 0),
+  nonTaxableMealAllowance: Number(row.non_taxable_meal_allowance ?? 0),
+  taxableExtraPay: Number(row.taxable_extra_pay ?? 0),
+  ...(row.allowance_memo ? { allowanceMemo: row.allowance_memo } : {}),
+  paymentDate: row.payment_date,
+  insuranceStatus: row.insurance_status,
+  insuranceSnapshots: insuranceSnapshotsForContract(row.id),
+  ...(row.memo ? { memo: row.memo } : {}),
+  enabled: row.enabled !== 0,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+});
+
 const insertRecipient = db.prepare(`
   INSERT INTO recipients (
     id, name, birth_date, long_term_care_number, care_grade, phone, address,
@@ -169,6 +360,29 @@ const insertRecipient = db.prepare(`
     service_start_date, service_end_date, contract_registered_date,
     contract_expired_date, enabled, created_at, updated_at
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const insertEmploymentContract = db.prepare(`
+  INSERT INTO employment_contracts (
+    id, worker_name, worker_birth_date, worker_phone, worker_address, job_title,
+    employment_type, workplace_type, workplace, contract_start_date, contract_end_date, work_days,
+    work_start_time, work_end_time, break_minutes, wage_type, wage_amount,
+    non_taxable_vehicle_allowance, non_taxable_meal_allowance, taxable_extra_pay,
+    allowance_memo, payment_date, insurance_status, memo, enabled, created_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const insertEmploymentAssignment = db.prepare(`
+  INSERT OR IGNORE INTO employment_contract_recipient_assignments (
+    employment_contract_id, recipient_id, created_at
+  ) VALUES (?, ?, ?)
+`);
+
+const insertInsuranceSnapshot = db.prepare(`
+  INSERT INTO employment_insurance_snapshots (
+    id, employment_contract_id, status, effective_start_date, effective_end_date,
+    weekly_hours, memo, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const createEventId = () => `contract-event-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -245,6 +459,55 @@ if (db.prepare("SELECT COUNT(*) AS count FROM recipients").get().count === 0) {
   }
 }
 
+if (db.prepare("SELECT COUNT(*) AS count FROM employment_contracts").get().count === 0) {
+  for (const contract of sampleEmploymentContracts) {
+    insertEmploymentContract.run(
+      contract.id,
+      contract.workerName,
+      contract.workerBirthDate,
+      contract.workerPhone,
+      contract.workerAddress,
+      contract.jobTitle,
+      contract.employmentType,
+      contract.workplaceType,
+      contract.workplace,
+      contract.contractStartDate,
+      contract.contractEndDate,
+      contract.workDays,
+      contract.workStartTime,
+      contract.workEndTime,
+      contract.breakMinutes,
+      contract.wageType,
+      contract.wageAmount,
+      contract.nonTaxableVehicleAllowance,
+      contract.nonTaxableMealAllowance,
+      contract.taxableExtraPay,
+      contract.allowanceMemo,
+      contract.paymentDate,
+      contract.insuranceStatus,
+      contract.memo,
+      contract.enabled ? 1 : 0,
+      contract.createdAt,
+      contract.updatedAt
+    );
+    for (const recipientId of contract.recipientAssignments) {
+      insertEmploymentAssignment.run(contract.id, recipientId, new Date().toISOString());
+    }
+    for (const snapshot of contract.insuranceSnapshots) {
+      insertInsuranceSnapshot.run(
+        `insurance-snapshot-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        contract.id,
+        snapshot.status,
+        snapshot.effectiveStartDate,
+        snapshot.effectiveEndDate ?? null,
+        snapshot.weeklyHours,
+        snapshot.memo ?? null,
+        new Date().toISOString()
+      );
+    }
+  }
+}
+
 const sendJson = (response, statusCode, payload) => {
   response.writeHead(statusCode, {
     "Access-Control-Allow-Origin": "http://127.0.0.1:5173",
@@ -317,6 +580,107 @@ const normalizeRecipient = (body, existing = null) => {
   return recipient;
 };
 
+const assertNumber = (value, field, { min = 0 } = {}) => {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue) || numericValue < min) {
+    throw new Error(`${field} must be a number greater than or equal to ${min}`);
+  }
+
+  return Math.round(numericValue);
+};
+
+const normalizeEmploymentContract = (body, existing = null) => {
+  const now = new Date().toISOString();
+  const workplaceType = assertString(body.workplaceType ?? "office", "workplaceType");
+
+  if (!["office", "recipient_home"].includes(workplaceType)) {
+    throw new Error("workplaceType is invalid");
+  }
+
+  const recipientAssignments = Array.isArray(body.recipientAssignments)
+    ? body.recipientAssignments.map((assignment) =>
+        typeof assignment === "string"
+          ? assignment
+          : assertString(assignment.recipientId, "recipientId")
+      )
+    : [];
+
+  const insuranceSnapshots = Array.isArray(body.insuranceSnapshots)
+    ? body.insuranceSnapshots.map((snapshot) => {
+        const effectiveStartDate = assertString(
+          snapshot.effectiveStartDate,
+          "insuranceSnapshot.effectiveStartDate"
+        );
+        const effectiveEndDate = assertString(snapshot.effectiveEndDate, "effectiveEndDate", {
+          optional: true
+        });
+
+        if (effectiveEndDate && effectiveStartDate > effectiveEndDate) {
+          throw new Error("insurance effectiveStartDate must not be later than effectiveEndDate");
+        }
+
+        return {
+          id:
+            typeof snapshot.id === "string" && snapshot.id.trim()
+              ? snapshot.id.trim()
+              : `insurance-snapshot-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          status: assertString(snapshot.status, "insuranceSnapshot.status"),
+          effectiveStartDate,
+          effectiveEndDate,
+          weeklyHours: assertNumber(snapshot.weeklyHours, "insuranceSnapshot.weeklyHours"),
+          memo: assertString(snapshot.memo, "insuranceSnapshot.memo", { optional: true })
+        };
+      })
+    : [];
+
+  const contract = {
+    id: assertString(body.id ?? existing?.id, "id"),
+    workerName: assertString(body.workerName, "workerName"),
+    workerBirthDate: assertString(body.workerBirthDate, "workerBirthDate"),
+    workerPhone: assertString(body.workerPhone, "workerPhone", { optional: true }),
+    workerAddress: assertString(body.workerAddress, "workerAddress"),
+    jobTitle: assertString(body.jobTitle, "jobTitle"),
+    employmentType: assertString(body.employmentType, "employmentType"),
+    workplaceType,
+    workplace: assertString(body.workplace, "workplace"),
+    recipientAssignments,
+    contractStartDate: assertString(body.contractStartDate, "contractStartDate"),
+    contractEndDate: assertString(body.contractEndDate, "contractEndDate", { optional: true }),
+    workDays: assertString(body.workDays, "workDays"),
+    workStartTime: assertString(body.workStartTime, "workStartTime"),
+    workEndTime: assertString(body.workEndTime, "workEndTime"),
+    breakMinutes: assertNumber(body.breakMinutes, "breakMinutes"),
+    wageType: assertString(body.wageType, "wageType"),
+    wageAmount: assertNumber(body.wageAmount, "wageAmount", { min: 1 }),
+    nonTaxableVehicleAllowance: assertNumber(body.nonTaxableVehicleAllowance ?? 0, "nonTaxableVehicleAllowance"),
+    nonTaxableMealAllowance: assertNumber(body.nonTaxableMealAllowance ?? 0, "nonTaxableMealAllowance"),
+    taxableExtraPay: assertNumber(body.taxableExtraPay ?? 0, "taxableExtraPay"),
+    allowanceMemo: assertString(body.allowanceMemo, "allowanceMemo", { optional: true }),
+    paymentDate: assertString(body.paymentDate, "paymentDate"),
+    insuranceStatus: assertString(body.insuranceStatus, "insuranceStatus"),
+    insuranceSnapshots,
+    memo: assertString(body.memo, "memo", { optional: true }),
+    enabled: typeof body.enabled === "boolean" ? body.enabled : existing?.enabled ?? true,
+    createdAt: existing?.createdAt ?? body.createdAt ?? now,
+    updatedAt: now
+  };
+
+  if (contract.contractEndDate && contract.contractStartDate > contract.contractEndDate) {
+    throw new Error("contractStartDate must not be later than contractEndDate");
+  }
+
+  if (contract.workStartTime >= contract.workEndTime) {
+    throw new Error("workStartTime must be earlier than workEndTime");
+  }
+
+  if (contract.workplaceType === "recipient_home" && contract.recipientAssignments.length === 0) {
+    throw new Error("recipientAssignments is required when workplaceType is recipient_home");
+  }
+
+  return contract;
+};
+
 const assertBoolean = (value, field) => {
   if (typeof value !== "boolean") {
     throw new Error(`${field} must be checked`);
@@ -353,6 +717,75 @@ const applyRecipientUpdate = (recipient) => {
   );
 };
 
+const applyEmploymentContractUpdate = (contract) => {
+  db.prepare(`
+    UPDATE employment_contracts SET
+      worker_name = ?, worker_birth_date = ?, worker_phone = ?, worker_address = ?,
+      job_title = ?, employment_type = ?, workplace_type = ?, workplace = ?,
+      contract_start_date = ?, contract_end_date = ?, work_days = ?, work_start_time = ?,
+      work_end_time = ?, break_minutes = ?, wage_type = ?, wage_amount = ?,
+      non_taxable_vehicle_allowance = ?, non_taxable_meal_allowance = ?,
+      taxable_extra_pay = ?, allowance_memo = ?, payment_date = ?, insurance_status = ?,
+      memo = ?, enabled = ?, updated_at = ?
+    WHERE id = ?
+  `).run(
+    contract.workerName,
+    contract.workerBirthDate,
+    contract.workerPhone,
+    contract.workerAddress,
+    contract.jobTitle,
+    contract.employmentType,
+    contract.workplaceType,
+    contract.workplace,
+    contract.contractStartDate,
+    contract.contractEndDate,
+    contract.workDays,
+    contract.workStartTime,
+    contract.workEndTime,
+    contract.breakMinutes,
+    contract.wageType,
+    contract.wageAmount,
+    contract.nonTaxableVehicleAllowance,
+    contract.nonTaxableMealAllowance,
+    contract.taxableExtraPay,
+    contract.allowanceMemo,
+    contract.paymentDate,
+    contract.insuranceStatus,
+    contract.memo,
+    contract.enabled ? 1 : 0,
+    contract.updatedAt,
+    contract.id
+  );
+};
+
+const replaceEmploymentContractChildren = (contract) => {
+  db.prepare("DELETE FROM employment_contract_recipient_assignments WHERE employment_contract_id = ?").run(
+    contract.id
+  );
+  db.prepare("DELETE FROM employment_insurance_snapshots WHERE employment_contract_id = ?").run(
+    contract.id
+  );
+
+  const now = new Date().toISOString();
+
+  for (const recipientId of contract.recipientAssignments) {
+    insertEmploymentAssignment.run(contract.id, recipientId, now);
+  }
+
+  for (const snapshot of contract.insuranceSnapshots) {
+    insertInsuranceSnapshot.run(
+      snapshot.id,
+      contract.id,
+      snapshot.status,
+      snapshot.effectiveStartDate,
+      snapshot.effectiveEndDate,
+      snapshot.weeklyHours,
+      snapshot.memo,
+      now
+    );
+  }
+};
+
 const server = createServer(async (request, response) => {
   if (request.method === "OPTIONS") {
     sendJson(response, 204, {});
@@ -362,7 +795,102 @@ const server = createServer(async (request, response) => {
   try {
     const parts = parsePath(request.url ?? "/");
 
-    if (parts[0] !== "api" || parts[1] !== "recipients") {
+    if (parts[0] !== "api" || !["recipients", "employment-contracts"].includes(parts[1])) {
+      sendJson(response, 404, { error: "Not found" });
+      return;
+    }
+
+    if (parts[1] === "employment-contracts") {
+      if (!parts[2] && request.method === "GET") {
+        const rows = db
+          .prepare(
+            "SELECT * FROM employment_contracts ORDER BY contract_start_date DESC, worker_name ASC"
+          )
+          .all();
+        sendJson(response, 200, rows.map(employmentContractFromRow));
+        return;
+      }
+
+      if (parts[2] && !parts[3] && request.method === "GET") {
+        const row = db.prepare("SELECT * FROM employment_contracts WHERE id = ?").get(parts[2]);
+        sendJson(
+          response,
+          row ? 200 : 404,
+          row ? employmentContractFromRow(row) : { error: "Employment contract not found" }
+        );
+        return;
+      }
+
+      if (!parts[2] && request.method === "POST") {
+        const contract = normalizeEmploymentContract(await readBody(request));
+        insertEmploymentContract.run(
+          contract.id,
+          contract.workerName,
+          contract.workerBirthDate,
+          contract.workerPhone,
+          contract.workerAddress,
+          contract.jobTitle,
+          contract.employmentType,
+          contract.workplaceType,
+          contract.workplace,
+          contract.contractStartDate,
+          contract.contractEndDate,
+          contract.workDays,
+          contract.workStartTime,
+          contract.workEndTime,
+          contract.breakMinutes,
+          contract.wageType,
+          contract.wageAmount,
+          contract.nonTaxableVehicleAllowance,
+          contract.nonTaxableMealAllowance,
+          contract.taxableExtraPay,
+          contract.allowanceMemo,
+          contract.paymentDate,
+          contract.insuranceStatus,
+          contract.memo,
+          contract.enabled ? 1 : 0,
+          contract.createdAt,
+          contract.updatedAt
+        );
+        replaceEmploymentContractChildren(contract);
+        sendJson(response, 201, contract);
+        return;
+      }
+
+      if (parts[2] && !parts[3] && request.method === "PUT") {
+        const row = db.prepare("SELECT * FROM employment_contracts WHERE id = ?").get(parts[2]);
+
+        if (!row) {
+          sendJson(response, 404, { error: "Employment contract not found" });
+          return;
+        }
+
+        const existing = employmentContractFromRow(row);
+        const contract = normalizeEmploymentContract(
+          { ...(await readBody(request)), id: parts[2] },
+          existing
+        );
+
+        applyEmploymentContractUpdate(contract);
+        replaceEmploymentContractChildren(contract);
+
+        const updatedRow = db.prepare("SELECT * FROM employment_contracts WHERE id = ?").get(parts[2]);
+        sendJson(response, 200, employmentContractFromRow(updatedRow));
+        return;
+      }
+
+      if (parts[2] && request.method === "DELETE") {
+        const result = db
+          .prepare("UPDATE employment_contracts SET enabled = 0, updated_at = ? WHERE id = ?")
+          .run(new Date().toISOString(), parts[2]);
+        sendJson(
+          response,
+          result.changes > 0 ? 200 : 404,
+          result.changes > 0 ? { ok: true } : { error: "Employment contract not found" }
+        );
+        return;
+      }
+
       sendJson(response, 404, { error: "Not found" });
       return;
     }
