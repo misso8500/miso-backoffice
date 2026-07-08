@@ -23,6 +23,7 @@ Browser
 - React, TypeScript, Vite
 - Node.js `http`, `node:sqlite`
 - SQLite
+- Postgres schema bootstrap via `pg`
 - `lucide-react`
 
 `node:sqlite`를 사용하므로 Node.js 24 이상을 기준으로 한다.
@@ -54,6 +55,18 @@ DB 파일 경로는 다음 순서로 결정된다.
 3. 기본값 `data/miso-backoffice.sqlite`
 
 개인정보가 포함될 수 있으므로 실제 DB 파일과 개인별 설정 파일은 Git에 커밋하지 않는다. 로컬 SQLite 구조는 단일 사용자 MVP 검증을 위한 기반이며, 여러 사용자의 동시 접속이 필요해지면 인증과 서버형 데이터베이스 구조를 별도로 도입한다.
+
+### Postgres 준비
+
+여러 사용자가 같은 데이터를 보려면 중앙 Postgres DB를 준비한다. `npm run api`는 `DATABASE_URL`이 있으면 Postgres API를, 없으면 기존 SQLite API를 실행한다.
+
+```bash
+cp .env.example .env
+npm run db:postgres:init
+npm run api
+```
+
+`.env`에 `DATABASE_URL`을 넣으면 스크립트가 자동으로 읽는다. Supabase처럼 SSL이 필요한 호스팅을 쓰면 `DATABASE_URL`에 `sslmode=require`를 붙이거나 `PGSSLMODE=require`를 설정한다.
 
 ## Product Definition
 

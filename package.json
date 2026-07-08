@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "api": "node server/api.mjs",
+    "api": "node server/api-router.mjs",
+    "api:sqlite": "node server/api.mjs",
+    "api:postgres": "node server/postgres/api.mjs",
+    "db:postgres:init": "node server/postgres/init.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
@@ -13,6 +16,7 @@
   "dependencies": {
     "@vitejs/plugin-react": "^6.0.2",
     "lucide-react": "^0.561.0",
+    "pg": "^8.22.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "vite": "^8.0.16"
