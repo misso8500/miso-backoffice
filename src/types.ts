@@ -45,7 +45,10 @@ export type EmploymentContract = {
   id: string;
   workerName: string;
   workerBirthDate: string;
+  residentRegistrationNumber: string;
   workerPhone?: string;
+  primaryBank: string;
+  bankAccountNumber: string;
   workerAddress: string;
   jobTitle: string;
   employmentType: string;
@@ -67,10 +70,20 @@ export type EmploymentContract = {
   paymentDate: string;
   insuranceStatus: string;
   insuranceSnapshots: EmploymentInsuranceSnapshot[];
+  contractTerms: EmploymentContractTerm[];
   memo?: string;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type EmploymentContractTerm = {
+  id?: string;
+  wageType: "월급" | "시급";
+  wageAmount: number;
+  nonTaxableMealAllowance: number;
+  nonTaxableVehicleAllowance: number;
+  otherNonTaxablePay: number;
 };
 
 export type EmploymentRecipientAssignment = {

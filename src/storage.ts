@@ -102,7 +102,8 @@ const normalizeEmploymentContract = (contract: EmploymentContract): EmploymentCo
   taxableExtraPay: Number(contract.taxableExtraPay ?? 0),
   workplaceType: contract.workplaceType ?? "office",
   recipientAssignments: contract.recipientAssignments ?? [],
-  insuranceSnapshots: contract.insuranceSnapshots ?? []
+  insuranceSnapshots: contract.insuranceSnapshots ?? [],
+  contractTerms: contract.contractTerms ?? []
 });
 
 export const loadEmploymentContracts = async () => {

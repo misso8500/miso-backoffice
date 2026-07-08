@@ -666,6 +666,13 @@ p {
   font-size: 17px;
 }
 
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -794,6 +801,79 @@ p {
 
 .wide-field {
   grid-column: 1 / -1;
+}
+
+.computed-field-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.computed-field-row > div {
+  border-left: 4px solid var(--accent);
+  background: var(--surface-blue);
+  padding: 11px 13px;
+}
+
+.computed-field-row span,
+.computed-field-row strong {
+  display: block;
+}
+
+.computed-field-row span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.computed-field-row strong {
+  margin-top: 4px;
+  color: #172033;
+}
+
+.contract-term-list {
+  display: grid;
+  gap: 10px;
+}
+
+.contract-term-row {
+  display: grid;
+  grid-template-columns: 32px minmax(96px, 0.7fr) repeat(4, minmax(120px, 1fr)) 42px;
+  align-items: end;
+  gap: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 12px;
+}
+
+.contract-term-row > strong {
+  display: grid;
+  min-height: 42px;
+  place-items: center;
+  color: var(--accent-strong);
+}
+
+.contract-term-row label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.contract-term-row label span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.contract-term-row input,
+.contract-term-row select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  background: #fbfdff;
+  color: #172033;
+  padding: 0 10px;
 }
 
 .form-actions {
@@ -1033,6 +1113,12 @@ p {
     grid-template-columns: 1fr;
   }
 
+  .section-title-row,
+  .contract-term-row {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
   .detail-backdrop {
     padding: 0;
   }
@@ -1048,7 +1134,8 @@ p {
   }
 
   .detail-sections dl,
-  .form-grid {
+  .form-grid,
+  .computed-field-row {
     grid-template-columns: 1fr;
   }
 

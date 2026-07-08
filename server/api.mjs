@@ -74,7 +74,10 @@ const sampleEmploymentContracts = [
     id: "employment-contract-001",
     workerName: "오하늘",
     workerBirthDate: "1988-06-12",
+    residentRegistrationNumber: "880612-2******",
     workerPhone: "010-7777-8888",
+    primaryBank: "국민은행",
+    bankAccountNumber: "123-456-789012",
     workerAddress: "서울시 강서구 근로로 14",
     jobTitle: "요양보호사",
     employmentType: "기간의 정함이 있는 근로계약",
@@ -102,6 +105,15 @@ const sampleEmploymentContracts = [
         effectiveEndDate: "2027-06-30",
         weeklyHours: 40,
         memo: "김미소 수급자 방문 근무 기준"
+      }
+    ],
+    contractTerms: [
+      {
+        wageType: "월급",
+        wageAmount: 2300000,
+        nonTaxableMealAllowance: 0,
+        nonTaxableVehicleAllowance: 100000,
+        otherNonTaxablePay: 0
       }
     ],
     memo: "신규 입사 근로계약",
@@ -179,7 +191,10 @@ db.exec(`
     id TEXT PRIMARY KEY,
     worker_name TEXT NOT NULL,
     worker_birth_date TEXT NOT NULL,
+    resident_registration_number TEXT NOT NULL DEFAULT '',
     worker_phone TEXT,
+    primary_bank TEXT NOT NULL DEFAULT '',
+    bank_account_number TEXT NOT NULL DEFAULT '',
     worker_address TEXT NOT NULL,
     job_title TEXT NOT NULL,
     employment_type TEXT NOT NULL,
@@ -234,6 +249,21 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_employment_insurance_snapshots_contract
     ON employment_insurance_snapshots(employment_contract_id, effective_start_date DESC);
+
+  CREATE TABLE IF NOT EXISTS employment_contract_terms (
+    id TEXT PRIMARY KEY,
+    employment_contract_id TEXT NOT NULL,
+    wage_type TEXT NOT NULL,
+    wage_amount INTEGER NOT NULL,
+    non_taxable_meal_allowance INTEGER NOT NULL DEFAULT 0,
+    non_taxable_vehicle_allowance INTEGER NOT NULL DEFAULT 0,
+    other_non_taxable_pay INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (employment_contract_id) REFERENCES employment_contracts(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_employment_contract_terms_contract
+    ON employment_contract_terms(employment_contract_id, created_at ASC);
 `);
 
 const recipientColumns = db.prepare("PRAGMA table_info(recipients)").all();
@@ -252,6 +282,9 @@ const ensureEmploymentColumn = (name, definition) => {
 };
 
 ensureEmploymentColumn("workplace_type", "TEXT NOT NULL DEFAULT 'office'");
+ensureEmploymentColumn("resident_registration_number", "TEXT NOT NULL DEFAULT ''");
+ensureEmploymentColumn("primary_bank", "TEXT NOT NULL DEFAULT ''");
+ensureEmploymentColumn("bank_account_number", "TEXT NOT NULL DEFAULT ''");
 ensureEmploymentColumn("non_taxable_vehicle_allowance", "INTEGER NOT NULL DEFAULT 0");
 ensureEmploymentColumn("non_taxable_meal_allowance", "INTEGER NOT NULL DEFAULT 0");
 ensureEmploymentColumn("taxable_extra_pay", "INTEGER NOT NULL DEFAULT 0");
@@ -321,11 +354,50 @@ const insuranceSnapshotsForContract = (contractId) =>
       ...(row.memo ? { memo: row.memo } : {})
     }));
 
+const contractTermsForContract = (contractId, row) => {
+  const terms = db
+    .prepare(
+      `
+        SELECT *
+        FROM employment_contract_terms
+        WHERE employment_contract_id = ?
+        ORDER BY created_at ASC
+      `
+    )
+    .all(contractId)
+    .map((term) => ({
+      id: term.id,
+      wageType: term.wage_type,
+      wageAmount: Number(term.wage_amount ?? 0),
+      nonTaxableMealAllowance: Number(term.non_taxable_meal_allowance ?? 0),
+      nonTaxableVehicleAllowance: Number(term.non_taxable_vehicle_allowance ?? 0),
+      otherNonTaxablePay: Number(term.other_non_taxable_pay ?? 0)
+    }));
+
+  if (terms.length > 0) {
+    return terms;
+  }
+
+  return [
+    {
+      id: `${contractId}-legacy-term`,
+      wageType: row.wage_type,
+      wageAmount: Number(row.wage_amount ?? 0),
+      nonTaxableMealAllowance: Number(row.non_taxable_meal_allowance ?? 0),
+      nonTaxableVehicleAllowance: Number(row.non_taxable_vehicle_allowance ?? 0),
+      otherNonTaxablePay: Number(row.taxable_extra_pay ?? 0)
+    }
+  ];
+};
+
 const employmentContractFromRow = (row) => ({
   id: row.id,
   workerName: row.worker_name,
   workerBirthDate: row.worker_birth_date,
+  residentRegistrationNumber: row.resident_registration_number,
   ...(row.worker_phone ? { workerPhone: row.worker_phone } : {}),
+  primaryBank: row.primary_bank,
+  bankAccountNumber: row.bank_account_number,
   workerAddress: row.worker_address,
   jobTitle: row.job_title,
   employmentType: row.employment_type,
@@ -347,6 +419,7 @@ const employmentContractFromRow = (row) => ({
   paymentDate: row.payment_date,
   insuranceStatus: row.insurance_status,
   insuranceSnapshots: insuranceSnapshotsForContract(row.id),
+  contractTerms: contractTermsForContract(row.id, row),
   ...(row.memo ? { memo: row.memo } : {}),
   enabled: row.enabled !== 0,
   createdAt: row.created_at,
@@ -364,12 +437,13 @@ const insertRecipient = db.prepare(`
 
 const insertEmploymentContract = db.prepare(`
   INSERT INTO employment_contracts (
-    id, worker_name, worker_birth_date, worker_phone, worker_address, job_title,
+    id, worker_name, worker_birth_date, resident_registration_number, worker_phone,
+    primary_bank, bank_account_number, worker_address, job_title,
     employment_type, workplace_type, workplace, contract_start_date, contract_end_date, work_days,
     work_start_time, work_end_time, break_minutes, wage_type, wage_amount,
     non_taxable_vehicle_allowance, non_taxable_meal_allowance, taxable_extra_pay,
     allowance_memo, payment_date, insurance_status, memo, enabled, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertEmploymentAssignment = db.prepare(`
@@ -382,6 +456,13 @@ const insertInsuranceSnapshot = db.prepare(`
   INSERT INTO employment_insurance_snapshots (
     id, employment_contract_id, status, effective_start_date, effective_end_date,
     weekly_hours, memo, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const insertEmploymentContractTerm = db.prepare(`
+  INSERT INTO employment_contract_terms (
+    id, employment_contract_id, wage_type, wage_amount, non_taxable_meal_allowance,
+    non_taxable_vehicle_allowance, other_non_taxable_pay, created_at
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
@@ -465,7 +546,10 @@ if (db.prepare("SELECT COUNT(*) AS count FROM employment_contracts").get().count
       contract.id,
       contract.workerName,
       contract.workerBirthDate,
+      contract.residentRegistrationNumber,
       contract.workerPhone,
+      contract.primaryBank,
+      contract.bankAccountNumber,
       contract.workerAddress,
       contract.jobTitle,
       contract.employmentType,
@@ -502,6 +586,18 @@ if (db.prepare("SELECT COUNT(*) AS count FROM employment_contracts").get().count
         snapshot.effectiveEndDate ?? null,
         snapshot.weeklyHours,
         snapshot.memo ?? null,
+        new Date().toISOString()
+      );
+    }
+    for (const term of contract.contractTerms) {
+      insertEmploymentContractTerm.run(
+        `employment-term-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        contract.id,
+        term.wageType,
+        term.wageAmount,
+        term.nonTaxableMealAllowance,
+        term.nonTaxableVehicleAllowance,
+        term.otherNonTaxablePay,
         new Date().toISOString()
       );
     }
@@ -545,6 +641,50 @@ const assertString = (value, field, { optional = false } = {}) => {
   }
 
   return value.trim();
+};
+
+const deriveBirthDateFromResidentNumber = (residentRegistrationNumber) => {
+  const digits =
+    typeof residentRegistrationNumber === "string"
+      ? residentRegistrationNumber.replace(/\D/g, "")
+      : "";
+
+  if (digits.length < 7) {
+    return null;
+  }
+
+  const yearPart = Number(digits.slice(0, 2));
+  const monthPart = Number(digits.slice(2, 4));
+  const dayPart = Number(digits.slice(4, 6));
+  const centuryCode = digits[6];
+  const century =
+    centuryCode === "9" || centuryCode === "0"
+      ? 1800
+      : ["1", "2", "5", "6"].includes(centuryCode)
+        ? 1900
+        : ["3", "4", "7", "8"].includes(centuryCode)
+          ? 2000
+          : null;
+
+  if (!century) {
+    return null;
+  }
+
+  const birthDate = new Date(century + yearPart, monthPart - 1, dayPart);
+
+  if (
+    birthDate.getFullYear() !== century + yearPart ||
+    birthDate.getMonth() !== monthPart - 1 ||
+    birthDate.getDate() !== dayPart
+  ) {
+    return null;
+  }
+
+  return [
+    birthDate.getFullYear(),
+    String(birthDate.getMonth() + 1).padStart(2, "0"),
+    String(birthDate.getDate()).padStart(2, "0")
+  ].join("-");
 };
 
 const normalizeRecipient = (body, existing = null) => {
@@ -634,11 +774,52 @@ const normalizeEmploymentContract = (body, existing = null) => {
       })
     : [];
 
+  const contractTerms = Array.isArray(body.contractTerms)
+    ? body.contractTerms.map((term) => ({
+        id:
+          typeof term.id === "string" && term.id.trim()
+            ? term.id.trim()
+            : `employment-term-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        wageType: assertString(term.wageType, "contractTerm.wageType"),
+        wageAmount: assertNumber(term.wageAmount, "contractTerm.wageAmount", { min: 1 }),
+        nonTaxableMealAllowance: assertNumber(
+          term.nonTaxableMealAllowance ?? 0,
+          "contractTerm.nonTaxableMealAllowance"
+        ),
+        nonTaxableVehicleAllowance: assertNumber(
+          term.nonTaxableVehicleAllowance ?? 0,
+          "contractTerm.nonTaxableVehicleAllowance"
+        ),
+        otherNonTaxablePay: assertNumber(term.otherNonTaxablePay ?? 0, "contractTerm.otherNonTaxablePay")
+      }))
+    : [];
+
+  if (contractTerms.some((term) => !["월급", "시급"].includes(term.wageType))) {
+    throw new Error("contractTerm.wageType is invalid");
+  }
+
+  const primaryTerm = contractTerms[0] ?? null;
+
+  const residentRegistrationNumber = assertString(
+    body.residentRegistrationNumber,
+    "residentRegistrationNumber"
+  );
+  const workerBirthDate =
+    assertString(body.workerBirthDate, "workerBirthDate", { optional: true }) ??
+    deriveBirthDateFromResidentNumber(residentRegistrationNumber);
+
+  if (!workerBirthDate) {
+    throw new Error("residentRegistrationNumber is invalid");
+  }
+
   const contract = {
     id: assertString(body.id ?? existing?.id, "id"),
     workerName: assertString(body.workerName, "workerName"),
-    workerBirthDate: assertString(body.workerBirthDate, "workerBirthDate"),
+    workerBirthDate,
+    residentRegistrationNumber,
     workerPhone: assertString(body.workerPhone, "workerPhone", { optional: true }),
+    primaryBank: assertString(body.primaryBank, "primaryBank"),
+    bankAccountNumber: assertString(body.bankAccountNumber, "bankAccountNumber"),
     workerAddress: assertString(body.workerAddress, "workerAddress"),
     jobTitle: assertString(body.jobTitle, "jobTitle"),
     employmentType: assertString(body.employmentType, "employmentType"),
@@ -651,15 +832,21 @@ const normalizeEmploymentContract = (body, existing = null) => {
     workStartTime: assertString(body.workStartTime, "workStartTime"),
     workEndTime: assertString(body.workEndTime, "workEndTime"),
     breakMinutes: assertNumber(body.breakMinutes, "breakMinutes"),
-    wageType: assertString(body.wageType, "wageType"),
-    wageAmount: assertNumber(body.wageAmount, "wageAmount", { min: 1 }),
-    nonTaxableVehicleAllowance: assertNumber(body.nonTaxableVehicleAllowance ?? 0, "nonTaxableVehicleAllowance"),
-    nonTaxableMealAllowance: assertNumber(body.nonTaxableMealAllowance ?? 0, "nonTaxableMealAllowance"),
-    taxableExtraPay: assertNumber(body.taxableExtraPay ?? 0, "taxableExtraPay"),
+    wageType: primaryTerm?.wageType ?? assertString(body.wageType, "wageType"),
+    wageAmount: primaryTerm?.wageAmount ?? assertNumber(body.wageAmount, "wageAmount", { min: 1 }),
+    nonTaxableVehicleAllowance:
+      primaryTerm?.nonTaxableVehicleAllowance ??
+      assertNumber(body.nonTaxableVehicleAllowance ?? 0, "nonTaxableVehicleAllowance"),
+    nonTaxableMealAllowance:
+      primaryTerm?.nonTaxableMealAllowance ??
+      assertNumber(body.nonTaxableMealAllowance ?? 0, "nonTaxableMealAllowance"),
+    taxableExtraPay:
+      primaryTerm?.otherNonTaxablePay ?? assertNumber(body.taxableExtraPay ?? 0, "taxableExtraPay"),
     allowanceMemo: assertString(body.allowanceMemo, "allowanceMemo", { optional: true }),
     paymentDate: assertString(body.paymentDate, "paymentDate"),
     insuranceStatus: assertString(body.insuranceStatus, "insuranceStatus"),
     insuranceSnapshots,
+    contractTerms,
     memo: assertString(body.memo, "memo", { optional: true }),
     enabled: typeof body.enabled === "boolean" ? body.enabled : existing?.enabled ?? true,
     createdAt: existing?.createdAt ?? body.createdAt ?? now,
@@ -720,8 +907,10 @@ const applyRecipientUpdate = (recipient) => {
 const applyEmploymentContractUpdate = (contract) => {
   db.prepare(`
     UPDATE employment_contracts SET
-      worker_name = ?, worker_birth_date = ?, worker_phone = ?, worker_address = ?,
-      job_title = ?, employment_type = ?, workplace_type = ?, workplace = ?,
+      worker_name = ?, worker_birth_date = ?, resident_registration_number = ?,
+      worker_phone = ?, primary_bank = ?, bank_account_number = ?, worker_address = ?,
+      job_title = ?, employment_type = ?,
+      workplace_type = ?, workplace = ?,
       contract_start_date = ?, contract_end_date = ?, work_days = ?, work_start_time = ?,
       work_end_time = ?, break_minutes = ?, wage_type = ?, wage_amount = ?,
       non_taxable_vehicle_allowance = ?, non_taxable_meal_allowance = ?,
@@ -731,7 +920,10 @@ const applyEmploymentContractUpdate = (contract) => {
   `).run(
     contract.workerName,
     contract.workerBirthDate,
+    contract.residentRegistrationNumber,
     contract.workerPhone,
+    contract.primaryBank,
+    contract.bankAccountNumber,
     contract.workerAddress,
     contract.jobTitle,
     contract.employmentType,
@@ -765,6 +957,9 @@ const replaceEmploymentContractChildren = (contract) => {
   db.prepare("DELETE FROM employment_insurance_snapshots WHERE employment_contract_id = ?").run(
     contract.id
   );
+  db.prepare("DELETE FROM employment_contract_terms WHERE employment_contract_id = ?").run(
+    contract.id
+  );
 
   const now = new Date().toISOString();
 
@@ -781,6 +976,19 @@ const replaceEmploymentContractChildren = (contract) => {
       snapshot.effectiveEndDate,
       snapshot.weeklyHours,
       snapshot.memo,
+      now
+    );
+  }
+
+  for (const term of contract.contractTerms) {
+    insertEmploymentContractTerm.run(
+      term.id,
+      contract.id,
+      term.wageType,
+      term.wageAmount,
+      term.nonTaxableMealAllowance,
+      term.nonTaxableVehicleAllowance,
+      term.otherNonTaxablePay,
       now
     );
   }
@@ -827,7 +1035,10 @@ const server = createServer(async (request, response) => {
           contract.id,
           contract.workerName,
           contract.workerBirthDate,
+          contract.residentRegistrationNumber,
           contract.workerPhone,
+          contract.primaryBank,
+          contract.bankAccountNumber,
           contract.workerAddress,
           contract.jobTitle,
           contract.employmentType,

@@ -79,64 +79,38 @@ type RestoreFormState = {
 
 type EmploymentContractFormState = {
   workerName: string;
-  workerBirthDate: string;
+  residentRegistrationNumber: string;
   workerPhone: string;
-  workerAddress: string;
-  jobTitle: string;
-  employmentType: string;
-  workplaceType: "office" | "recipient_home";
-  workplace: string;
-  recipientAssignmentIds: string[];
-  contractStartDate: string;
-  contractEndDate: string;
-  workDays: string;
-  workStartTime: string;
-  workEndTime: string;
-  breakMinutes: string;
-  wageType: string;
-  wageAmount: string;
-  nonTaxableVehicleAllowance: string;
-  nonTaxableMealAllowance: string;
-  taxableExtraPay: string;
-  allowanceMemo: string;
-  paymentDate: string;
-  insuranceStatus: string;
-  insuranceEffectiveStartDate: string;
-  insuranceEffectiveEndDate: string;
-  insuranceWeeklyHours: string;
-  insuranceMemo: string;
-  memo: string;
+  primaryBank: string;
+  bankAccountNumber: string;
+  terms: EmploymentContractTermFormState[];
 };
+
+type EmploymentContractTermFormState = {
+  id: string;
+  wageType: "월급" | "시급";
+  wageAmount: string;
+  nonTaxableMealAllowance: string;
+  nonTaxableVehicleAllowance: string;
+  otherNonTaxablePay: string;
+};
+
+const createEmptyEmploymentTerm = (): EmploymentContractTermFormState => ({
+  id: `employment-term-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  wageType: "월급",
+  wageAmount: "",
+  nonTaxableMealAllowance: "0",
+  nonTaxableVehicleAllowance: "0",
+  otherNonTaxablePay: "0"
+});
 
 const emptyEmploymentContractForm: EmploymentContractFormState = {
   workerName: "",
-  workerBirthDate: "",
+  residentRegistrationNumber: "",
   workerPhone: "",
-  workerAddress: "",
-  jobTitle: "요양보호사",
-  employmentType: "기간의 정함이 있는 근로계약",
-  workplaceType: "office",
-  workplace: "",
-  recipientAssignmentIds: [],
-  contractStartDate: "",
-  contractEndDate: "",
-  workDays: "월,화,수,목,금",
-  workStartTime: "09:00",
-  workEndTime: "18:00",
-  breakMinutes: "60",
-  wageType: "월급",
-  wageAmount: "",
-  nonTaxableVehicleAllowance: "0",
-  nonTaxableMealAllowance: "0",
-  taxableExtraPay: "0",
-  allowanceMemo: "",
-  paymentDate: "매월 10일",
-  insuranceStatus: "4대보험 가입",
-  insuranceEffectiveStartDate: "",
-  insuranceEffectiveEndDate: "",
-  insuranceWeeklyHours: "40",
-  insuranceMemo: "",
-  memo: ""
+  primaryBank: "",
+  bankAccountNumber: "",
+  terms: [createEmptyEmploymentTerm()]
 };
 
 const requiredFormFields: Array<{ key: keyof RecipientFormState; label: string }> = [
@@ -159,21 +133,10 @@ const requiredEmploymentContractFields: Array<{
   label: string;
 }> = [
   { key: "workerName", label: "근로자 이름" },
-  { key: "workerBirthDate", label: "근로자 생년월일" },
-  { key: "workerAddress", label: "근로자 주소" },
-  { key: "jobTitle", label: "직무" },
-  { key: "employmentType", label: "계약 형태" },
-  { key: "contractStartDate", label: "계약 시작일" },
-  { key: "workDays", label: "근무일" },
-  { key: "workStartTime", label: "근무 시작시각" },
-  { key: "workEndTime", label: "근무 종료시각" },
-  { key: "breakMinutes", label: "휴게시간" },
-  { key: "wageType", label: "임금 형태" },
-  { key: "wageAmount", label: "임금 금액" },
-  { key: "paymentDate", label: "임금 지급일" },
-  { key: "insuranceStatus", label: "사회보험 적용" },
-  { key: "insuranceEffectiveStartDate", label: "보험 적용 시작일" },
-  { key: "insuranceWeeklyHours", label: "보험 산정 주당 근무시간" }
+  { key: "residentRegistrationNumber", label: "주민번호" },
+  { key: "workerPhone", label: "전화번호" },
+  { key: "primaryBank", label: "주거래 은행" },
+  { key: "bankAccountNumber", label: "계좌번호" }
 ];
 
 const createRecipientId = () => {
@@ -190,6 +153,118 @@ const createEmploymentContractId = () => {
   }
 
   return `employment-contract-${Date.now()}`;
+};
+
+const formatPhoneNumberInput = (value: string) => {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+
+  if (digits.startsWith("02")) {
+    if (digits.length <= 2) {
+      return digits;
+    }
+
+    if (digits.length <= 6) {
+      return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    }
+
+    if (digits.length <= 10) {
+      return `${digits.slice(0, 2)}-${digits.slice(2, digits.length - 4)}-${digits.slice(-4)}`;
+    }
+  }
+
+  if (digits.length <= 3) {
+    return digits;
+  }
+
+  if (digits.length <= 7) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+};
+
+const formatResidentNumberInput = (value: string) => {
+  const digits = value.replace(/\D/g, "").slice(0, 13);
+
+  if (digits.length <= 6) {
+    return digits;
+  }
+
+  return `${digits.slice(0, 6)}-${digits.slice(6)}`;
+};
+
+const formatBankAccountNumberInput = (value: string) =>
+  value.replace(/[^\d-]/g, "").replace(/-{2,}/g, "-").slice(0, 32);
+
+const deriveBirthDateFromResidentNumber = (residentRegistrationNumber: string) => {
+  const digits = residentRegistrationNumber.replace(/\D/g, "");
+
+  if (digits.length < 7) {
+    return null;
+  }
+
+  const yearPart = Number(digits.slice(0, 2));
+  const monthPart = Number(digits.slice(2, 4));
+  const dayPart = Number(digits.slice(4, 6));
+  const centuryCode = digits[6];
+  const century =
+    centuryCode === "9" || centuryCode === "0"
+      ? 1800
+      : centuryCode === "1" || centuryCode === "2" || centuryCode === "5" || centuryCode === "6"
+        ? 1900
+        : centuryCode === "3" || centuryCode === "4" || centuryCode === "7" || centuryCode === "8"
+          ? 2000
+          : null;
+
+  if (!century) {
+    return null;
+  }
+
+  const birthDate = new Date(century + yearPart, monthPart - 1, dayPart);
+
+  if (
+    birthDate.getFullYear() !== century + yearPart ||
+    birthDate.getMonth() !== monthPart - 1 ||
+    birthDate.getDate() !== dayPart
+  ) {
+    return null;
+  }
+
+  return [
+    birthDate.getFullYear(),
+    String(birthDate.getMonth() + 1).padStart(2, "0"),
+    String(birthDate.getDate()).padStart(2, "0")
+  ].join("-");
+};
+
+const calculateAgeFromBirthDate = (birthDate: string) => {
+  const parsedBirthDate = new Date(`${birthDate}T00:00:00`);
+
+  if (Number.isNaN(parsedBirthDate.getTime())) {
+    return null;
+  }
+
+  const today = new Date();
+  let age = today.getFullYear() - parsedBirthDate.getFullYear();
+  const hasBirthdayPassedThisYear =
+    today.getMonth() > parsedBirthDate.getMonth() ||
+    (today.getMonth() === parsedBirthDate.getMonth() &&
+      today.getDate() >= parsedBirthDate.getDate());
+
+  if (!hasBirthdayPassedThisYear) {
+    age -= 1;
+  }
+
+  return age >= 0 ? age : null;
+};
+
+const getEmploymentBirthDate = (contract: EmploymentContract) =>
+  deriveBirthDateFromResidentNumber(contract.residentRegistrationNumber) ?? contract.workerBirthDate;
+
+const formatEmploymentAge = (contract: EmploymentContract) => {
+  const birthDate = getEmploymentBirthDate(contract);
+  const age = calculateAgeFromBirthDate(birthDate);
+  return age === null ? undefined : `만 ${age}세`;
 };
 
 const detailSections: Array<{
@@ -244,61 +319,24 @@ const employmentContractDetailSections: Array<{
   fields: Array<{ label: string; value: (contract: EmploymentContract) => string | undefined }>;
 }> = [
   {
-    title: "근로자 정보",
+    title: "개인정보",
     fields: [
       { label: "근로자 이름", value: (contract) => contract.workerName },
-      { label: "생년월일", value: (contract) => contract.workerBirthDate },
-      { label: "연락처", value: (contract) => contract.workerPhone },
-      { label: "주소", value: (contract) => contract.workerAddress }
+      { label: "주민번호", value: (contract) => contract.residentRegistrationNumber },
+      { label: "생년월일", value: (contract) => getEmploymentBirthDate(contract) },
+      { label: "나이", value: (contract) => formatEmploymentAge(contract) },
+      { label: "전화번호", value: (contract) => contract.workerPhone },
+      { label: "주거래 은행", value: (contract) => contract.primaryBank },
+      { label: "계좌번호", value: (contract) => contract.bankAccountNumber }
     ]
   },
   {
-    title: "계약 정보",
+    title: "계약 묶음",
     fields: [
-      { label: "직무", value: (contract) => contract.jobTitle },
-      { label: "계약 형태", value: (contract) => contract.employmentType },
       {
-        label: "근무 장소 유형",
-        value: (contract) => (contract.workplaceType === "recipient_home" ? "수급자 댁" : "사무실")
-      },
-      { label: "근무 장소", value: (contract) => contract.workplace },
-      { label: "매핑 수급자", value: (contract) => formatRecipientAssignments(contract) },
-      { label: "계약 시작일", value: (contract) => contract.contractStartDate },
-      { label: "계약 종료일", value: (contract) => contract.contractEndDate }
-    ]
-  },
-  {
-    title: "근무 및 임금",
-    fields: [
-      { label: "근무일", value: (contract) => contract.workDays },
-      {
-        label: "근무시간",
-        value: (contract) => `${contract.workStartTime} - ${contract.workEndTime}`
-      },
-      { label: "휴게시간", value: (contract) => `${contract.breakMinutes}분` },
-      {
-        label: "임금",
-        value: (contract) =>
-          `${contract.wageType} ${contract.wageAmount.toLocaleString("ko-KR")}원`
-      },
-      {
-        label: "비과세 차량수당",
-        value: (contract) => formatCurrency(contract.nonTaxableVehicleAllowance)
-      },
-      {
-        label: "비과세 식대",
-        value: (contract) => formatCurrency(contract.nonTaxableMealAllowance)
-      },
-      { label: "기타 과세수당", value: (contract) => formatCurrency(contract.taxableExtraPay) },
-      { label: "수당 메모", value: (contract) => contract.allowanceMemo },
-      { label: "임금 지급일", value: (contract) => contract.paymentDate },
-      { label: "현재 사회보험 적용", value: (contract) => contract.insuranceStatus }
-    ]
-  },
-  {
-    title: "보험 상태 기록",
-    fields: [
-      { label: "보험 스냅샷", value: (contract) => formatInsuranceSnapshots(contract) }
+        label: "계약 조건",
+        value: (contract) => formatContractTerms(contract)
+      }
     ]
   },
   {
@@ -322,24 +360,31 @@ const formatDate = (value: string) =>
 
 const formatCurrency = (value: number) => `${value.toLocaleString("ko-KR")}원`;
 
-const formatRecipientAssignments = (contract: EmploymentContract) =>
-  contract.recipientAssignments.length > 0
-    ? contract.recipientAssignments
-        .map((assignment) => assignment.recipientName ?? assignment.recipientId)
-        .join(", ")
-    : undefined;
+const formatContractTerms = (contract: EmploymentContract) => {
+  const terms =
+    contract.contractTerms.length > 0
+      ? contract.contractTerms
+      : [
+          {
+            wageType: contract.wageType as "월급" | "시급",
+            wageAmount: contract.wageAmount,
+            nonTaxableMealAllowance: contract.nonTaxableMealAllowance,
+            nonTaxableVehicleAllowance: contract.nonTaxableVehicleAllowance,
+            otherNonTaxablePay: contract.taxableExtraPay
+          }
+        ];
 
-const formatInsuranceSnapshots = (contract: EmploymentContract) =>
-  contract.insuranceSnapshots.length > 0
-    ? contract.insuranceSnapshots
-        .map((snapshot) => {
-          const period = snapshot.effectiveEndDate
-            ? `${snapshot.effectiveStartDate} ~ ${snapshot.effectiveEndDate}`
-            : `${snapshot.effectiveStartDate} ~`;
-          return `${period} · ${snapshot.status} · 주 ${snapshot.weeklyHours}시간`;
-        })
-        .join("\n")
-    : undefined;
+  return terms
+    .map(
+      (term, index) =>
+        `${index + 1}. ${term.wageType} ${formatCurrency(term.wageAmount)} · 식대 ${formatCurrency(
+          term.nonTaxableMealAllowance
+        )} · 차량 ${formatCurrency(term.nonTaxableVehicleAllowance)} · 기타 ${formatCurrency(
+          term.otherNonTaxablePay
+        )}`
+    )
+    .join("\n");
+};
 
 const isRecipientEnabled = (recipient: Recipient) => recipient.enabled !== false;
 
@@ -491,13 +536,12 @@ function App() {
         return [
           contract.workerName,
           contract.workerPhone,
-          contract.jobTitle,
-          contract.employmentType,
-          contract.workplace,
-          ...contract.recipientAssignments.map(
-            (assignment) => assignment.recipientName ?? assignment.recipientId
-          ),
-          contract.insuranceStatus
+          contract.residentRegistrationNumber,
+          contract.primaryBank,
+          contract.bankAccountNumber,
+          ...contract.contractTerms.map(
+            (term) => `${term.wageType} ${term.wageAmount} ${term.nonTaxableMealAllowance}`
+          )
         ]
           .filter(Boolean)
           .join(" ")
@@ -522,14 +566,37 @@ function App() {
     setEmploymentFormErrorMessage(null);
   };
 
-  const toggleEmploymentRecipientAssignment = (recipientId: string) => {
+  const updateEmploymentTermField = (
+    termId: string,
+    field: keyof Omit<EmploymentContractTermFormState, "id">,
+    value: string
+  ) => {
     setEmploymentFormState((current) => {
-      const recipientAssignmentIds = current.recipientAssignmentIds.includes(recipientId)
-        ? current.recipientAssignmentIds.filter((id) => id !== recipientId)
-        : [...current.recipientAssignmentIds, recipientId];
+      const terms = current.terms.map((term) =>
+        term.id === termId ? { ...term, [field]: value } : term
+      );
 
-      return { ...current, recipientAssignmentIds };
+      return { ...current, terms };
     });
+    setEmploymentFormErrorMessage(null);
+  };
+
+  const addEmploymentTerm = () => {
+    setEmploymentFormState((current) => ({
+      ...current,
+      terms: [...current.terms, createEmptyEmploymentTerm()]
+    }));
+    setEmploymentFormErrorMessage(null);
+  };
+
+  const removeEmploymentTerm = (termId: string) => {
+    setEmploymentFormState((current) => ({
+      ...current,
+      terms:
+        current.terms.length > 1
+          ? current.terms.filter((term) => term.id !== termId)
+          : current.terms
+    }));
     setEmploymentFormErrorMessage(null);
   };
 
@@ -571,11 +638,13 @@ function App() {
       birthDate: formState.birthDate,
       longTermCareNumber: formState.longTermCareNumber.trim(),
       careGrade: formState.careGrade.trim(),
-      ...(formState.phone.trim() ? { phone: formState.phone.trim() } : {}),
+      ...(formState.phone.trim()
+        ? { phone: formatPhoneNumberInput(formState.phone.trim()) }
+        : {}),
       address: formState.address.trim(),
       representativeName: formState.representativeName.trim(),
       representativeRelation: formState.representativeRelation.trim(),
-      representativePhone: formState.representativePhone.trim(),
+      representativePhone: formatPhoneNumberInput(formState.representativePhone.trim()),
       serviceStartDate: formState.serviceStartDate,
       serviceEndDate: formState.serviceEndDate,
       contractRegisteredDate: formState.contractRegisteredDate,
@@ -613,127 +682,73 @@ function App() {
       return;
     }
 
-    if (employmentFormState.workplaceType === "office" && !employmentFormState.workplace.trim()) {
-      setEmploymentFormErrorMessage("사무실 근무 장소를 입력하세요.");
+    const derivedWorkerBirthDate = deriveBirthDateFromResidentNumber(
+      employmentFormState.residentRegistrationNumber
+    );
+
+    if (!derivedWorkerBirthDate) {
+      setEmploymentFormErrorMessage("주민번호 앞 7자리를 확인하세요.");
       return;
     }
 
-    if (
-      employmentFormState.workplaceType === "recipient_home" &&
-      employmentFormState.recipientAssignmentIds.length === 0
-    ) {
-      setEmploymentFormErrorMessage("수급자 댁 근무는 관련 수급자를 1명 이상 선택하세요.");
+    const contractTerms = employmentFormState.terms.map((term) => ({
+      wageType: term.wageType,
+      wageAmount: Number(term.wageAmount),
+      nonTaxableMealAllowance: Number(term.nonTaxableMealAllowance || 0),
+      nonTaxableVehicleAllowance: Number(term.nonTaxableVehicleAllowance || 0),
+      otherNonTaxablePay: Number(term.otherNonTaxablePay || 0)
+    }));
+
+    const invalidTermIndex = contractTerms.findIndex(
+      (term) =>
+        !Number.isFinite(term.wageAmount) ||
+        term.wageAmount <= 0 ||
+        [term.nonTaxableMealAllowance, term.nonTaxableVehicleAllowance, term.otherNonTaxablePay].some(
+          (value) => !Number.isFinite(value) || value < 0
+        )
+    );
+
+    if (invalidTermIndex >= 0) {
+      setEmploymentFormErrorMessage(
+        `${invalidTermIndex + 1}번째 계약 조건의 금액을 확인하세요.`
+      );
       return;
     }
 
-    if (
-      employmentFormState.contractEndDate &&
-      employmentFormState.contractStartDate > employmentFormState.contractEndDate
-    ) {
-      setEmploymentFormErrorMessage("계약 시작일은 종료일보다 늦을 수 없습니다.");
-      return;
-    }
-
-    if (employmentFormState.workStartTime >= employmentFormState.workEndTime) {
-      setEmploymentFormErrorMessage("근무 시작시각은 종료시각보다 빨라야 합니다.");
-      return;
-    }
-
-    const breakMinutes = Number(employmentFormState.breakMinutes);
-    const wageAmount = Number(employmentFormState.wageAmount);
-    const nonTaxableVehicleAllowance = Number(employmentFormState.nonTaxableVehicleAllowance || 0);
-    const nonTaxableMealAllowance = Number(employmentFormState.nonTaxableMealAllowance || 0);
-    const taxableExtraPay = Number(employmentFormState.taxableExtraPay || 0);
-    const insuranceWeeklyHours = Number(employmentFormState.insuranceWeeklyHours);
-
-    if (!Number.isFinite(breakMinutes) || breakMinutes < 0) {
-      setEmploymentFormErrorMessage("휴게시간은 0분 이상의 숫자로 입력하세요.");
-      return;
-    }
-
-    if (!Number.isFinite(wageAmount) || wageAmount <= 0) {
-      setEmploymentFormErrorMessage("임금 금액은 0보다 큰 숫자로 입력하세요.");
-      return;
-    }
-
-    if (
-      [nonTaxableVehicleAllowance, nonTaxableMealAllowance, taxableExtraPay].some(
-        (value) => !Number.isFinite(value) || value < 0
-      )
-    ) {
-      setEmploymentFormErrorMessage("수당 금액은 0 이상의 숫자로 입력하세요.");
-      return;
-    }
-
-    if (!Number.isFinite(insuranceWeeklyHours) || insuranceWeeklyHours < 0) {
-      setEmploymentFormErrorMessage("보험 산정 주당 근무시간은 0 이상의 숫자로 입력하세요.");
-      return;
-    }
-
-    if (
-      employmentFormState.insuranceEffectiveEndDate &&
-      employmentFormState.insuranceEffectiveStartDate > employmentFormState.insuranceEffectiveEndDate
-    ) {
-      setEmploymentFormErrorMessage("보험 적용 시작일은 종료일보다 늦을 수 없습니다.");
-      return;
-    }
-
-    const mappedRecipientNames = recipients
-      .filter((recipient) => employmentFormState.recipientAssignmentIds.includes(recipient.id))
-      .map((recipient) => recipient.name);
+    const firstTerm = contractTerms[0];
 
     const newContract: EmploymentContractInput = {
       id: createEmploymentContractId(),
       workerName: employmentFormState.workerName.trim(),
-      workerBirthDate: employmentFormState.workerBirthDate,
+      workerBirthDate: derivedWorkerBirthDate,
+      residentRegistrationNumber: formatResidentNumberInput(
+        employmentFormState.residentRegistrationNumber.trim()
+      ),
       ...(employmentFormState.workerPhone.trim()
-        ? { workerPhone: employmentFormState.workerPhone.trim() }
+        ? { workerPhone: formatPhoneNumberInput(employmentFormState.workerPhone.trim()) }
         : {}),
-      workerAddress: employmentFormState.workerAddress.trim(),
-      jobTitle: employmentFormState.jobTitle.trim(),
-      employmentType: employmentFormState.employmentType.trim(),
-      workplaceType: employmentFormState.workplaceType,
-      workplace:
-        employmentFormState.workplaceType === "recipient_home"
-          ? mappedRecipientNames.length > 0
-            ? `${mappedRecipientNames.join(", ")} 수급자 댁`
-            : "수급자 댁"
-          : employmentFormState.workplace.trim(),
-      recipientAssignments: employmentFormState.recipientAssignmentIds.map((recipientId) => ({
-        recipientId
-      })),
-      contractStartDate: employmentFormState.contractStartDate,
-      ...(employmentFormState.contractEndDate
-        ? { contractEndDate: employmentFormState.contractEndDate }
-        : {}),
-      workDays: employmentFormState.workDays.trim(),
-      workStartTime: employmentFormState.workStartTime,
-      workEndTime: employmentFormState.workEndTime,
-      breakMinutes,
-      wageType: employmentFormState.wageType.trim(),
-      wageAmount,
-      nonTaxableVehicleAllowance,
-      nonTaxableMealAllowance,
-      taxableExtraPay,
-      ...(employmentFormState.allowanceMemo.trim()
-        ? { allowanceMemo: employmentFormState.allowanceMemo.trim() }
-        : {}),
-      paymentDate: employmentFormState.paymentDate.trim(),
-      insuranceStatus: employmentFormState.insuranceStatus.trim(),
-      insuranceSnapshots: [
-        {
-          status: employmentFormState.insuranceStatus.trim(),
-          effectiveStartDate: employmentFormState.insuranceEffectiveStartDate,
-          ...(employmentFormState.insuranceEffectiveEndDate
-            ? { effectiveEndDate: employmentFormState.insuranceEffectiveEndDate }
-            : {}),
-          weeklyHours: insuranceWeeklyHours,
-          ...(employmentFormState.insuranceMemo.trim()
-            ? { memo: employmentFormState.insuranceMemo.trim() }
-            : {})
-        }
-      ],
-      ...(employmentFormState.memo.trim() ? { memo: employmentFormState.memo.trim() } : {}),
+      primaryBank: employmentFormState.primaryBank.trim(),
+      bankAccountNumber: formatBankAccountNumberInput(employmentFormState.bankAccountNumber.trim()),
+      workerAddress: "미입력",
+      jobTitle: "근로자",
+      employmentType: "근로계약 묶음",
+      workplaceType: "office",
+      workplace: "미입력",
+      recipientAssignments: [],
+      contractStartDate: new Date().toISOString().slice(0, 10),
+      workDays: "미입력",
+      workStartTime: "09:00",
+      workEndTime: "18:00",
+      breakMinutes: 0,
+      wageType: firstTerm.wageType,
+      wageAmount: firstTerm.wageAmount,
+      nonTaxableVehicleAllowance: firstTerm.nonTaxableVehicleAllowance,
+      nonTaxableMealAllowance: firstTerm.nonTaxableMealAllowance,
+      taxableExtraPay: firstTerm.otherNonTaxablePay,
+      paymentDate: "미입력",
+      insuranceStatus: "별도 관리",
+      insuranceSnapshots: [],
+      contractTerms,
       enabled: true
     };
 
@@ -1204,7 +1219,7 @@ function App() {
                       type="search"
                       value={employmentSearchQuery}
                       onChange={(event) => setEmploymentSearchQuery(event.target.value)}
-                      placeholder="이름, 직무, 수급자 검색"
+                      placeholder="이름, 주민번호, 전화번호 검색"
                     />
                   </label>
                 </div>
@@ -1224,10 +1239,10 @@ function App() {
                 <div className="recipient-table employment-table">
                   <div className="table-head">
                     <span>근로자</span>
-                    <span>직무</span>
-                    <span>계약 형태</span>
-                    <span>근무 장소</span>
-                    <span>계약 시작일</span>
+                    <span>주민번호</span>
+                    <span>전화번호</span>
+                    <span>계약 조건</span>
+                    <span>대표 금액</span>
                     <span aria-hidden="true" />
                   </div>
                   <ul>
@@ -1245,19 +1260,14 @@ function App() {
                               {!contract.enabled && <em className="status-chip">비활성화</em>}
                             </small>
                           </span>
-                          <span>{contract.jobTitle}</span>
-                          <span>{contract.employmentType}</span>
+                          <span>{contract.residentRegistrationNumber}</span>
+                          <span>{contract.workerPhone ?? "미등록"}</span>
                           <span>
-                            {contract.workplace}
-                            <small>
-                              {contract.workplaceType === "recipient_home"
-                                ? formatRecipientAssignments(contract) ?? contract.workDays
-                                : contract.workDays}
-                            </small>
+                            {contract.contractTerms.length || 1}개
+                            <small>{formatContractTerms(contract).split("\n")[0]}</small>
                           </span>
                           <span className="expiry">
-                            <CalendarClock size={15} />
-                            {contract.contractStartDate}
+                            {formatCurrency(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount)}
                           </span>
                           <ChevronRight size={18} />
                         </button>
@@ -1410,19 +1420,24 @@ function App() {
             </div>
 
             <div className="recipient-hero employment-hero">
-              <span>{selectedEmploymentContract.employmentType}</span>
+              <span>계약 조건 {selectedEmploymentContract.contractTerms.length || 1}개</span>
               <h2>{selectedEmploymentContract.workerName}</h2>
               <p>
-                {selectedEmploymentContract.jobTitle} · {selectedEmploymentContract.workplace}
-                {selectedEmploymentContract.workplaceType === "recipient_home" &&
-                  ` · ${formatRecipientAssignments(selectedEmploymentContract) ?? "수급자 미매핑"}`}
+                {getEmploymentBirthDate(selectedEmploymentContract)} ·{" "}
+                {formatEmploymentAge(selectedEmploymentContract) ?? "나이 미계산"} ·{" "}
+                {selectedEmploymentContract.workerPhone ?? "전화번호 미등록"}
                 {!selectedEmploymentContract.enabled && (
                   <strong className="inactive-inline">비활성화된 계약</strong>
                 )}
               </p>
               <div>
-                <small>계약 시작일</small>
-                <strong>{formatDate(selectedEmploymentContract.contractStartDate)}</strong>
+                <small>대표 금액</small>
+                <strong>
+                  {formatCurrency(
+                    selectedEmploymentContract.contractTerms[0]?.wageAmount ??
+                      selectedEmploymentContract.wageAmount
+                  )}
+                </strong>
               </div>
             </div>
 
@@ -1521,7 +1536,9 @@ function App() {
                     <span>수급자 연락처</span>
                     <input
                       value={formState.phone}
-                      onChange={(event) => updateFormField("phone", event.target.value)}
+                      onChange={(event) =>
+                        updateFormField("phone", formatPhoneNumberInput(event.target.value))
+                      }
                     />
                   </label>
                   <label className="wide-field">
@@ -1563,7 +1580,10 @@ function App() {
                     <input
                       value={formState.representativePhone}
                       onChange={(event) =>
-                        updateFormField("representativePhone", event.target.value)
+                        updateFormField(
+                          "representativePhone",
+                          formatPhoneNumberInput(event.target.value)
+                        )
                       }
                       required
                     />
@@ -1672,350 +1692,175 @@ function App() {
                     />
                   </label>
                   <label>
-                    <span>생년월일</span>
-                    <input
-                      type="date"
-                      value={employmentFormState.workerBirthDate}
-                      onChange={(event) =>
-                        updateEmploymentFormField("workerBirthDate", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
                     <span>연락처</span>
                     <input
                       value={employmentFormState.workerPhone}
                       onChange={(event) =>
-                        updateEmploymentFormField("workerPhone", event.target.value)
-                      }
-                    />
-                  </label>
-                  <label className="wide-field">
-                    <span>주소</span>
-                    <input
-                      value={employmentFormState.workerAddress}
-                      onChange={(event) =>
-                        updateEmploymentFormField("workerAddress", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                </div>
-              </section>
-
-              <section className="form-section" aria-labelledby="employment-form-title">
-                <h3 id="employment-form-title">계약 정보</h3>
-                <div className="form-grid">
-                  <label>
-                    <span>직무</span>
-                    <input
-                      value={employmentFormState.jobTitle}
-                      onChange={(event) =>
-                        updateEmploymentFormField("jobTitle", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>계약 형태</span>
-                    <select
-                      value={employmentFormState.employmentType}
-                      onChange={(event) =>
-                        updateEmploymentFormField("employmentType", event.target.value)
-                      }
-                      required
-                    >
-                      <option>기간의 정함이 있는 근로계약</option>
-                      <option>기간의 정함이 없는 근로계약</option>
-                      <option>단시간 근로계약</option>
-                      <option>일용 근로계약</option>
-                    </select>
-                  </label>
-                  <label className="wide-field">
-                    <span>근무 장소 유형</span>
-                    <div className="segmented-control">
-                      <button
-                        type="button"
-                        className={employmentFormState.workplaceType === "office" ? "is-active" : ""}
-                        onClick={() => updateEmploymentFormField("workplaceType", "office")}
-                      >
-                        사무실
-                      </button>
-                      <button
-                        type="button"
-                        className={
-                          employmentFormState.workplaceType === "recipient_home" ? "is-active" : ""
-                        }
-                        onClick={() =>
-                          updateEmploymentFormField("workplaceType", "recipient_home")
-                        }
-                      >
-                        수급자 댁
-                      </button>
-                    </div>
-                  </label>
-                  {employmentFormState.workplaceType === "office" ? (
-                    <label className="wide-field">
-                      <span>사무실 근무 장소</span>
-                      <input
-                        value={employmentFormState.workplace}
-                        onChange={(event) =>
-                          updateEmploymentFormField("workplace", event.target.value)
-                        }
-                        required
-                      />
-                    </label>
-                  ) : (
-                    <div className="wide-field recipient-picker">
-                      <span>관련 수급자</span>
-                      <div>
-                        {recipients.filter(isRecipientEnabled).map((recipient) => (
-                          <label key={recipient.id}>
-                            <input
-                              type="checkbox"
-                              checked={employmentFormState.recipientAssignmentIds.includes(
-                                recipient.id
-                              )}
-                              onChange={() => toggleEmploymentRecipientAssignment(recipient.id)}
-                            />
-                            <span>
-                              <strong>{recipient.name}</strong>
-                              <small>
-                                {recipient.careGrade} · {recipient.address}
-                              </small>
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <label>
-                    <span>계약 시작일</span>
-                    <input
-                      type="date"
-                      value={employmentFormState.contractStartDate}
-                      onChange={(event) =>
-                        updateEmploymentFormField("contractStartDate", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>계약 종료일</span>
-                    <input
-                      type="date"
-                      value={employmentFormState.contractEndDate}
-                      onChange={(event) =>
-                        updateEmploymentFormField("contractEndDate", event.target.value)
-                      }
-                    />
-                  </label>
-                </div>
-              </section>
-
-              <section className="form-section" aria-labelledby="work-form-title">
-                <h3 id="work-form-title">근무시간</h3>
-                <div className="form-grid">
-                  <label className="wide-field">
-                    <span>근무일</span>
-                    <input
-                      value={employmentFormState.workDays}
-                      onChange={(event) =>
-                        updateEmploymentFormField("workDays", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>시작시각</span>
-                    <input
-                      type="time"
-                      value={employmentFormState.workStartTime}
-                      onChange={(event) =>
-                        updateEmploymentFormField("workStartTime", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>종료시각</span>
-                    <input
-                      type="time"
-                      value={employmentFormState.workEndTime}
-                      onChange={(event) =>
-                        updateEmploymentFormField("workEndTime", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>휴게시간(분)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={employmentFormState.breakMinutes}
-                      onChange={(event) =>
-                        updateEmploymentFormField("breakMinutes", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                </div>
-              </section>
-
-              <section className="form-section" aria-labelledby="wage-form-title">
-                <h3 id="wage-form-title">임금 및 보험</h3>
-                <div className="form-grid">
-                  <label>
-                    <span>임금 형태</span>
-                    <select
-                      value={employmentFormState.wageType}
-                      onChange={(event) =>
-                        updateEmploymentFormField("wageType", event.target.value)
-                      }
-                      required
-                    >
-                      <option>월급</option>
-                      <option>시급</option>
-                      <option>일급</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>임금 금액</span>
-                    <input
-                      type="number"
-                      min="1"
-                      value={employmentFormState.wageAmount}
-                      onChange={(event) =>
-                        updateEmploymentFormField("wageAmount", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>비과세 차량수당</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={employmentFormState.nonTaxableVehicleAllowance}
-                      onChange={(event) =>
                         updateEmploymentFormField(
-                          "nonTaxableVehicleAllowance",
-                          event.target.value
-                        )
-                      }
-                    />
-                  </label>
-                  <label>
-                    <span>비과세 식대</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={employmentFormState.nonTaxableMealAllowance}
-                      onChange={(event) =>
-                        updateEmploymentFormField("nonTaxableMealAllowance", event.target.value)
-                      }
-                    />
-                  </label>
-                  <label>
-                    <span>기타 과세수당</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={employmentFormState.taxableExtraPay}
-                      onChange={(event) =>
-                        updateEmploymentFormField("taxableExtraPay", event.target.value)
-                      }
-                    />
-                  </label>
-                  <label>
-                    <span>임금 지급일</span>
-                    <input
-                      value={employmentFormState.paymentDate}
-                      onChange={(event) =>
-                        updateEmploymentFormField("paymentDate", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>사회보험 적용</span>
-                    <select
-                      value={employmentFormState.insuranceStatus}
-                      onChange={(event) =>
-                        updateEmploymentFormField("insuranceStatus", event.target.value)
-                      }
-                      required
-                    >
-                      <option>4대보험 가입</option>
-                      <option>고용/산재보험 가입</option>
-                      <option>대상 아님</option>
-                      <option>확인 필요</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>보험 적용 시작일</span>
-                    <input
-                      type="date"
-                      value={employmentFormState.insuranceEffectiveStartDate}
-                      onChange={(event) =>
-                        updateEmploymentFormField(
-                          "insuranceEffectiveStartDate",
-                          event.target.value
+                          "workerPhone",
+                          formatPhoneNumberInput(event.target.value)
                         )
                       }
                       required
                     />
                   </label>
-                  <label>
-                    <span>보험 적용 종료일</span>
+                  <label className="wide-field">
+                    <span>주민번호</span>
                     <input
-                      type="date"
-                      value={employmentFormState.insuranceEffectiveEndDate}
+                      value={employmentFormState.residentRegistrationNumber}
                       onChange={(event) =>
-                        updateEmploymentFormField("insuranceEffectiveEndDate", event.target.value)
-                      }
-                    />
-                  </label>
-                  <label>
-                    <span>보험 산정 주당 근무시간</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={employmentFormState.insuranceWeeklyHours}
-                      onChange={(event) =>
-                        updateEmploymentFormField("insuranceWeeklyHours", event.target.value)
+                        updateEmploymentFormField(
+                          "residentRegistrationNumber",
+                          formatResidentNumberInput(event.target.value)
+                        )
                       }
                       required
                     />
                   </label>
-                  <label className="wide-field">
-                    <span>수당 메모</span>
+                  <div className="computed-field-row">
+                    <div>
+                      <span>생년월일</span>
+                      <strong>
+                        {deriveBirthDateFromResidentNumber(
+                          employmentFormState.residentRegistrationNumber
+                        ) ?? "자동계산"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>나이</span>
+                      <strong>
+                        {(() => {
+                          const birthDate = deriveBirthDateFromResidentNumber(
+                            employmentFormState.residentRegistrationNumber
+                          );
+                          const age = birthDate ? calculateAgeFromBirthDate(birthDate) : null;
+                          return age === null ? "자동계산" : `만 ${age}세`;
+                        })()}
+                      </strong>
+                    </div>
+                  </div>
+                  <label>
+                    <span>주거래 은행</span>
                     <input
-                      value={employmentFormState.allowanceMemo}
+                      value={employmentFormState.primaryBank}
                       onChange={(event) =>
-                        updateEmploymentFormField("allowanceMemo", event.target.value)
+                        updateEmploymentFormField("primaryBank", event.target.value)
                       }
+                      required
                     />
                   </label>
-                  <label className="wide-field">
-                    <span>보험 기록 메모</span>
+                  <label>
+                    <span>계좌번호</span>
                     <input
-                      value={employmentFormState.insuranceMemo}
+                      value={employmentFormState.bankAccountNumber}
                       onChange={(event) =>
-                        updateEmploymentFormField("insuranceMemo", event.target.value)
+                        updateEmploymentFormField(
+                          "bankAccountNumber",
+                          formatBankAccountNumberInput(event.target.value)
+                        )
                       }
+                      required
                     />
                   </label>
-                  <label className="wide-field">
-                    <span>메모</span>
-                    <textarea
-                      value={employmentFormState.memo}
-                      onChange={(event) => updateEmploymentFormField("memo", event.target.value)}
-                      rows={3}
-                    />
-                  </label>
+                </div>
+              </section>
+
+              <section className="form-section" aria-labelledby="terms-form-title">
+                <div className="section-title-row">
+                  <h3 id="terms-form-title">계약 정보</h3>
+                  <button type="button" className="secondary-button" onClick={addEmploymentTerm}>
+                    <Plus size={16} />
+                    계약 추가
+                  </button>
+                </div>
+                <div className="contract-term-list">
+                  {employmentFormState.terms.map((term, index) => (
+                    <div className="contract-term-row" key={term.id}>
+                      <strong>{index + 1}</strong>
+                      <label>
+                        <span>월급/시급</span>
+                        <select
+                          value={term.wageType}
+                          onChange={(event) =>
+                            updateEmploymentTermField(
+                              term.id,
+                              "wageType",
+                              event.target.value as "월급" | "시급"
+                            )
+                          }
+                        >
+                          <option>월급</option>
+                          <option>시급</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>금액</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={term.wageAmount}
+                          onChange={(event) =>
+                            updateEmploymentTermField(term.id, "wageAmount", event.target.value)
+                          }
+                          required
+                        />
+                      </label>
+                      <label>
+                        <span>비과세식대</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={term.nonTaxableMealAllowance}
+                          onChange={(event) =>
+                            updateEmploymentTermField(
+                              term.id,
+                              "nonTaxableMealAllowance",
+                              event.target.value
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>비과세차량</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={term.nonTaxableVehicleAllowance}
+                          onChange={(event) =>
+                            updateEmploymentTermField(
+                              term.id,
+                              "nonTaxableVehicleAllowance",
+                              event.target.value
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>기타비과세</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={term.otherNonTaxablePay}
+                          onChange={(event) =>
+                            updateEmploymentTermField(
+                              term.id,
+                              "otherNonTaxablePay",
+                              event.target.value
+                            )
+                          }
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() => removeEmploymentTerm(term.id)}
+                        disabled={employmentFormState.terms.length === 1}
+                      >
+                        <Trash2 size={16} />
+                        <span className="sr-only">계약 삭제</span>
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </section>
 
