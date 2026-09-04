@@ -834,6 +834,15 @@ function App() {
   }, [selectedRecipient?.id, selectedRecipient?.operationalName]);
   const enabledRecipientCount = recipients.filter(isRecipientEnabled).length;
   const activeWorkers = employmentContracts.filter((contract) => contract.enabled);
+  const getAssignedSocialWorkerNames = (recipientId: string) => {
+    const names = activeWorkers
+      .filter((worker) =>
+        worker.recipientAssignments.some((assignment) => assignment.recipientId === recipientId)
+      )
+      .map((worker) => worker.workerName);
+
+    return [...new Set(names)];
+  };
   const renewalCount = recipients.filter((recipient) =>
     ["급여갱신필요", "계약종료예정"].includes(getRecipientStatus(recipient))
   ).length;
@@ -1741,7 +1750,7 @@ function App() {
               <div className="table-head">
                 {viewDensity === "simple" ? (
                   <>
-                    <span>수급자</span><span>상태</span><span>수급자 주소</span><span>주요 연락처</span>
+                    <span>수급자</span><span>상태</span><span>수급자 주소</span><span>주요 연락처</span><span>담당 사회복지사</span>
                   </>
                 ) : (
                   <>
@@ -1783,6 +1792,11 @@ function App() {
                           <span className="primary-contact">
                             <strong>{hasPrimaryContact(recipient) ? `${recipient.representativeName}(${recipient.representativeRelation})` : "연락처 미등록"}</strong>
                             <small>{hasPrimaryContact(recipient) ? recipient.representativePhone : "상세 정보에서 등록해 주세요"}</small>
+                          </span>
+                          <span className="assigned-worker">
+                            {getAssignedSocialWorkerNames(recipient.id).length > 0
+                              ? getAssignedSocialWorkerNames(recipient.id).join(", ")
+                              : "미배정"}
                           </span>
                         </>
                       ) : (

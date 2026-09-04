@@ -357,7 +357,7 @@ p {
 
 .recipient-table.is-simple .table-head,
 .recipient-table.is-simple .recipient-row {
-  grid-template-columns: minmax(240px, 1.35fr) minmax(112px, 0.55fr) minmax(220px, 1.25fr) minmax(180px, 0.95fr) 80px;
+  grid-template-columns: minmax(220px, 1.25fr) minmax(108px, 0.5fr) minmax(190px, 1.1fr) minmax(170px, 0.9fr) minmax(120px, 0.65fr) 80px;
 }
 
 .error-banner {
@@ -528,6 +528,14 @@ p {
 
 .primary-contact strong {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assigned-worker {
+  overflow: hidden;
+  color: #4d4d55;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
