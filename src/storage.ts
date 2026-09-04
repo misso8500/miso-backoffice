@@ -1,6 +1,8 @@
 import type {
   EmploymentContract,
   EmploymentContractInput,
+  BackofficeState,
+  BackofficeUser,
   Recipient,
   RecipientInput,
   RestoreRecipientInput,
@@ -95,6 +97,23 @@ export const deleteRecipient = (recipientId: string) =>
   requestJson<{ ok: boolean }>(`/api/recipients/${recipientId}`, {
     method: "DELETE"
   });
+
+export const loadBackofficeState = () =>
+  requestJson<BackofficeState>("/api/backoffice-users");
+
+export const createBackofficeUser = (input: { id: string; name: string; birthDate: string }) =>
+  requestJson<BackofficeUser>("/api/backoffice-users", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+export const activateBackofficeUser = (
+  deviceId: string,
+  input: { userId: string; deviceName: string }
+) => requestJson<BackofficeState>(`/api/backoffice-users/sessions/${deviceId}`, {
+  method: "PUT",
+  body: JSON.stringify(input)
+});
 
 const normalizeEmploymentContract = (contract: EmploymentContract): EmploymentContract => ({
   ...contract,

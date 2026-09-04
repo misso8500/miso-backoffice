@@ -24,21 +24,28 @@ import {
   FileX2,
   Trash2,
   Upload,
+  UserPlus,
+  UserRound,
   Users,
   X
 } from "lucide-react";
 import {
   createEmploymentContract,
+  createBackofficeUser,
   createRecipient,
   deleteRecipient,
   loadEmploymentContracts,
+  loadBackofficeState,
   loadRecipients,
   restoreRecipient,
   terminateContract,
   updateEmploymentContract,
-  updateRecipient
+  updateRecipient,
+  activateBackofficeUser
 } from "./storage";
 import type {
+  BackofficeSession,
+  BackofficeUser,
   ContractRestoreType,
   EmploymentContract,
   EmploymentContractInput,
@@ -653,6 +660,18 @@ const getRecipientStatus = (recipient: Recipient, now = new Date()): RecipientSt
   return "급여제공중";
 };
 
+const createBackofficeUserId = () =>
+  `backoffice-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const getDeviceId = () => {
+  const storageKey = "miso-backoffice-device-id";
+  const stored = window.localStorage.getItem(storageKey);
+  if (stored) return stored;
+  const created = `device-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  window.localStorage.setItem(storageKey, created);
+  return created;
+};
+
 const regionAliases: Record<string, string> = {
   서울특별시: "서울", 서울시: "서울", 부산광역시: "부산", 대구광역시: "대구",
   인천광역시: "인천", 광주광역시: "광주", 대전광역시: "대전", 울산광역시: "울산",
@@ -696,6 +715,18 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ id: number; message: string } | null>(null);
+  const [backofficeUsers, setBackofficeUsers] = useState<BackofficeUser[]>([]);
+  const [backofficeSessions, setBackofficeSessions] = useState<BackofficeSession[]>([]);
+  const [deviceId] = useState(getDeviceId);
+  const [activeBackofficeUserId, setActiveBackofficeUserId] = useState(
+    () => window.localStorage.getItem("miso-backoffice-active-user-id") ?? ""
+  );
+  const [isBackofficeUserModalOpen, setIsBackofficeUserModalOpen] = useState(false);
+  const [isBackofficeUserFormOpen, setIsBackofficeUserFormOpen] = useState(false);
+  const [newBackofficeUserName, setNewBackofficeUserName] = useState("");
+  const [newBackofficeUserBirthDate, setNewBackofficeUserBirthDate] = useState("");
+  const [backofficeUserError, setBackofficeUserError] = useState<string | null>(null);
+  const [isBackofficeUserSaving, setIsBackofficeUserSaving] = useState(false);
   const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
   const [editingRecipientId, setEditingRecipientId] = useState<string | null>(null);
   const [formState, setFormState] = useState<RecipientFormState>(emptyRecipientForm);
@@ -768,10 +799,44 @@ function App() {
     }
   }, []);
 
+  const fetchBackofficeState = useCallback(async () => {
+    try {
+      const state = await loadBackofficeState();
+      setBackofficeUsers(state.users);
+      setBackofficeSessions(state.sessions);
+    } catch (error) {
+      setBackofficeUserError(
+        error instanceof Error ? error.message : "백오피스 사용자 정보를 불러오지 못했습니다."
+      );
+    }
+  }, []);
+
   useEffect(() => {
     void fetchRecipients();
     void fetchEmploymentContracts();
-  }, [fetchEmploymentContracts, fetchRecipients]);
+    void fetchBackofficeState();
+  }, [fetchBackofficeState, fetchEmploymentContracts, fetchRecipients]);
+
+  useEffect(() => {
+    const syncBackofficeSession = () => {
+      if (activeBackofficeUserId) {
+        void activateBackofficeUser(deviceId, {
+          userId: activeBackofficeUserId,
+          deviceName: window.location.host || "백오피스 기기"
+        }).then((state) => {
+          setBackofficeUsers(state.users);
+          setBackofficeSessions(state.sessions);
+        }).catch(() => undefined);
+      } else {
+        void fetchBackofficeState();
+      }
+    };
+
+    syncBackofficeSession();
+    const intervalId = window.setInterval(syncBackofficeSession, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeBackofficeUserId, deviceId, fetchBackofficeState]);
 
   useEffect(() => {
     if (!notification) return;
@@ -844,6 +909,8 @@ function App() {
 
   const selectedRecipient =
     recipients.find((recipient) => recipient.id === selectedRecipientId) ?? null;
+  const activeBackofficeUser =
+    backofficeUsers.find((user) => user.id === activeBackofficeUserId) ?? null;
 
   useEffect(() => {
     setOperationalNameDraft(selectedRecipient?.operationalName ?? "");
@@ -852,6 +919,12 @@ function App() {
   const enabledRecipientCount = recipients.filter(isRecipientEnabled).length;
   const activeWorkers = employmentContracts.filter((contract) => contract.enabled);
   const getAssignedSocialWorkerNames = (recipientId: string) => {
+    const recipient = recipients.find((item) => item.id === recipientId);
+    const assignedUser = backofficeUsers.find(
+      (user) => user.id === recipient?.assignedBackofficeUserId
+    );
+    if (assignedUser) return [assignedUser.name];
+
     const names = activeWorkers
       .filter((worker) =>
         worker.recipientAssignments.some((assignment) => assignment.recipientId === recipientId)
@@ -1003,6 +1076,7 @@ function App() {
       id: recipientBeingEdited?.id ?? createRecipientId(),
       name: formState.name.trim(),
       operationalName: formState.operationalName.trim(),
+      assignedBackofficeUserId: recipientBeingEdited?.assignedBackofficeUserId,
       birthDate: formState.birthDate,
       longTermCareNumber: formState.longTermCareNumber.trim(),
       careGrade: formState.careGrade.trim(),
@@ -1131,6 +1205,68 @@ function App() {
         type: "error",
         text: error instanceof Error ? error.message : "업무식별명을 저장하지 못했습니다."
       });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCreateBackofficeUser = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!newBackofficeUserName.trim() || !newBackofficeUserBirthDate) {
+      setBackofficeUserError("이름과 생년월일을 모두 입력하세요.");
+      return;
+    }
+
+    setIsBackofficeUserSaving(true);
+    try {
+      const created = await createBackofficeUser({
+        id: createBackofficeUserId(),
+        name: newBackofficeUserName.trim(),
+        birthDate: newBackofficeUserBirthDate
+      });
+      setBackofficeUsers((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewBackofficeUserName("");
+      setNewBackofficeUserBirthDate("");
+      setIsBackofficeUserFormOpen(false);
+      setBackofficeUserError(null);
+      showNotification("백오피스 사용자를 생성하였습니다.");
+    } catch (error) {
+      setBackofficeUserError(error instanceof Error ? error.message : "사용자를 생성하지 못했습니다.");
+    } finally {
+      setIsBackofficeUserSaving(false);
+    }
+  };
+
+  const handleActivateBackofficeUser = async (user: BackofficeUser) => {
+    setIsBackofficeUserSaving(true);
+    try {
+      const state = await activateBackofficeUser(deviceId, {
+        userId: user.id,
+        deviceName: window.location.host || "백오피스 기기"
+      });
+      window.localStorage.setItem("miso-backoffice-active-user-id", user.id);
+      setActiveBackofficeUserId(user.id);
+      setBackofficeUsers(state.users);
+      setBackofficeSessions(state.sessions);
+      setIsBackofficeUserModalOpen(false);
+      setBackofficeUserError(null);
+      showNotification(`${user.name} 사용자로 전환하였습니다.`);
+    } catch (error) {
+      setBackofficeUserError(error instanceof Error ? error.message : "사용자를 활성화하지 못했습니다.");
+    } finally {
+      setIsBackofficeUserSaving(false);
+    }
+  };
+
+  const handleAssignedBackofficeUserUpdate = async (userId: string) => {
+    if (!selectedRecipient) return;
+    setIsSaving(true);
+    try {
+      const updated = await updateRecipient({ ...selectedRecipient, assignedBackofficeUserId: userId || undefined });
+      setRecipients((current) => current.map((recipient) => recipient.id === updated.id ? updated : recipient));
+      showNotification("수급자 정보를 저장하였습니다.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "담당 사회복지사를 저장하지 못했습니다.");
     } finally {
       setIsSaving(false);
     }
@@ -1629,6 +1765,20 @@ function App() {
           </div>
         </div>
         <div className="header-actions">
+          <button
+            type="button"
+            className="backoffice-user-button"
+            onClick={() => { setIsBackofficeUserModalOpen(true); setBackofficeUserError(null); }}
+          >
+            <UserRound size={17} />
+            백오피스 사용자
+          </button>
+          {activeBackofficeUser && (
+            <button type="button" className="active-user-card" onClick={() => setIsBackofficeUserModalOpen(true)}>
+              <span>{activeBackofficeUser.name}</span>
+              <i aria-label="접속 중" />
+            </button>
+          )}
           <nav className="view-tabs" aria-label="관리 메뉴">
             <button
               type="button"
@@ -2140,6 +2290,22 @@ function App() {
                 </p>
               )}
             </form>
+
+            <div className="assigned-user-editor">
+              <label>
+                <span>담당 사회복지사</span>
+                <select
+                  value={selectedRecipient.assignedBackofficeUserId ?? ""}
+                  onChange={(event) => void handleAssignedBackofficeUserUpdate(event.target.value)}
+                  disabled={isSaving}
+                >
+                  <option value="">미배정</option>
+                  {backofficeUsers.map((user) => (
+                    <option key={user.id} value={user.id}>{user.name} · {user.birthDate}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
             <div className="detail-sections">
               {detailSections.map((section) => (
@@ -2672,6 +2838,55 @@ function App() {
               </div>
             </form>
           </article>
+        </div>
+      )}
+
+      {isBackofficeUserModalOpen && (
+        <div className="alert-backdrop" role="presentation">
+          <section className="alert-dialog backoffice-user-dialog" role="dialog" aria-modal="true" aria-labelledby="backoffice-user-title">
+            <div className="dialog-heading">
+              <div>
+                <h2 id="backoffice-user-title">백오피스 사용자</h2>
+                <p>이 기기에서 사용할 사용자를 선택하세요.</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setIsBackofficeUserModalOpen(false)} aria-label="닫기">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="backoffice-user-list">
+              {backofficeUsers.length === 0 && <p className="empty-user-message">등록된 사용자가 없습니다.</p>}
+              {backofficeUsers.map((user) => {
+                const sessions = backofficeSessions.filter((session) => session.userId === user.id);
+                return (
+                  <button key={user.id} type="button" className={user.id === activeBackofficeUserId ? "is-active" : ""} onClick={() => void handleActivateBackofficeUser(user)} disabled={isBackofficeUserSaving}>
+                    <span><strong>{user.name}</strong><small>{user.birthDate}</small></span>
+                    <span className="user-presence">
+                      {sessions.map((session) => (
+                        <small key={session.deviceId}><i />{session.deviceId === deviceId ? "이 기기" : session.deviceName}</small>
+                      ))}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {!isBackofficeUserFormOpen ? (
+              <button type="button" className="secondary-button" onClick={() => setIsBackofficeUserFormOpen(true)}>
+                <UserPlus size={17} /> 신규 근로자 생성
+              </button>
+            ) : (
+              <form className="backoffice-user-create-form" onSubmit={handleCreateBackofficeUser}>
+                <label><span>이름</span><input value={newBackofficeUserName} onChange={(event) => setNewBackofficeUserName(event.target.value)} required /></label>
+                <label><span>생년월일</span><input type="date" value={newBackofficeUserBirthDate} onChange={(event) => setNewBackofficeUserBirthDate(event.target.value)} required /></label>
+                <div className="alert-actions">
+                  <button type="button" className="secondary-button" onClick={() => setIsBackofficeUserFormOpen(false)}>취소</button>
+                  <button type="submit" className="primary-button" disabled={isBackofficeUserSaving}>{isBackofficeUserSaving ? "생성 중" : "확인"}</button>
+                </div>
+              </form>
+            )}
+            {backofficeUserError && <div className="form-error" role="alert"><AlertTriangle size={18} />{backofficeUserError}</div>}
+          </section>
         </div>
       )}
 

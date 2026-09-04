@@ -151,6 +151,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     operational_name TEXT,
+    assigned_backoffice_user_id TEXT,
     birth_date TEXT NOT NULL,
     long_term_care_number TEXT NOT NULL UNIQUE,
     care_grade TEXT NOT NULL,
@@ -191,6 +192,21 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_recipient_contract_events_recipient
     ON recipient_contract_events(recipient_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS backoffice_users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    birth_date TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS backoffice_sessions (
+    device_id TEXT PRIMARY KEY,
+    device_name TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES backoffice_users(id)
+  );
 
   CREATE TABLE IF NOT EXISTS employment_contracts (
     id TEXT PRIMARY KEY,
@@ -294,6 +310,7 @@ ensureRecipientColumn("service_type", "TEXT NOT NULL DEFAULT '방문'");
 ensureRecipientColumn("caregiver_requirements", "TEXT NOT NULL DEFAULT ''");
 ensureRecipientColumn("reduction_type", "TEXT NOT NULL DEFAULT '일반'");
 ensureRecipientColumn("related_people", "TEXT NOT NULL DEFAULT ''");
+ensureRecipientColumn("assigned_backoffice_user_id", "TEXT");
 
 const ensureEmploymentColumn = (name, definition) => {
   const columns = db.prepare("PRAGMA table_info(employment_contracts)").all();
@@ -316,6 +333,7 @@ const recipientFromRow = (row) => ({
   id: row.id,
   name: row.name,
   ...(row.operational_name ? { operationalName: row.operational_name } : {}),
+  ...(row.assigned_backoffice_user_id ? { assignedBackofficeUserId: row.assigned_backoffice_user_id } : {}),
   birthDate: row.birth_date,
   longTermCareNumber: row.long_term_care_number,
   careGrade: row.care_grade,
@@ -455,12 +473,12 @@ const employmentContractFromRow = (row) => ({
 
 const insertRecipient = db.prepare(`
   INSERT INTO recipients (
-    id, name, operational_name, birth_date, long_term_care_number, care_grade, phone, address,
+    id, name, operational_name, assigned_backoffice_user_id, birth_date, long_term_care_number, care_grade, phone, address,
     representative_name, representative_relation, representative_phone,
     service_type, caregiver_requirements, reduction_type, related_people,
     service_start_date, service_end_date, contract_registered_date,
     contract_expired_date, enabled, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertEmploymentContract = db.prepare(`
@@ -550,6 +568,7 @@ if (db.prepare("SELECT COUNT(*) AS count FROM recipients").get().count === 0) {
       recipient.id,
       recipient.name,
       recipient.operationalName ?? null,
+      recipient.assignedBackofficeUserId ?? null,
       recipient.birthDate,
       recipient.longTermCareNumber,
       recipient.careGrade,
@@ -726,6 +745,7 @@ const normalizeRecipient = (body, existing = null) => {
     id: assertString(body.id ?? existing?.id, "id"),
     name: assertString(body.name, "name"),
     operationalName: assertString(body.operationalName, "operationalName", { optional: true }),
+    assignedBackofficeUserId: assertString(body.assignedBackofficeUserId, "assignedBackofficeUserId", { optional: true }),
     birthDate: assertString(body.birthDate, "birthDate"),
     longTermCareNumber: assertString(body.longTermCareNumber, "longTermCareNumber"),
     careGrade: assertString(body.careGrade, "careGrade"),
@@ -917,7 +937,7 @@ const assertBoolean = (value, field) => {
 const applyRecipientUpdate = (recipient) => {
   db.prepare(`
     UPDATE recipients SET
-      name = ?, operational_name = ?, birth_date = ?, long_term_care_number = ?, care_grade = ?,
+      name = ?, operational_name = ?, assigned_backoffice_user_id = ?, birth_date = ?, long_term_care_number = ?, care_grade = ?,
       phone = ?, address = ?, representative_name = ?, representative_relation = ?,
       representative_phone = ?, service_start_date = ?, service_end_date = ?,
       service_type = ?, caregiver_requirements = ?, reduction_type = ?, related_people = ?,
@@ -926,6 +946,7 @@ const applyRecipientUpdate = (recipient) => {
   `).run(
     recipient.name,
     recipient.operationalName,
+    recipient.assignedBackofficeUserId,
     recipient.birthDate,
     recipient.longTermCareNumber,
     recipient.careGrade,
@@ -1046,6 +1067,59 @@ const server = createServer(async (request, response) => {
 
   try {
     const parts = parsePath(request.url ?? "/");
+
+    if (parts[0] === "api" && parts[1] === "backoffice-users") {
+      const readState = () => ({
+        users: db.prepare("SELECT id, name, birth_date AS birthDate, created_at AS createdAt FROM backoffice_users ORDER BY name ASC").all(),
+        sessions: db.prepare(`
+          SELECT s.device_id AS deviceId, s.device_name AS deviceName, s.user_id AS userId,
+                 u.name AS userName, s.last_seen_at AS lastSeenAt
+          FROM backoffice_sessions s JOIN backoffice_users u ON u.id = s.user_id
+          WHERE s.last_seen_at >= ?
+          ORDER BY s.last_seen_at DESC
+        `).all(new Date(Date.now() - 45000).toISOString())
+      });
+
+      if (!parts[2] && request.method === "GET") {
+        sendJson(response, 200, readState());
+        return;
+      }
+
+      if (!parts[2] && request.method === "POST") {
+        const body = await readBody(request);
+        const user = {
+          id: assertString(body.id, "id"),
+          name: assertString(body.name, "name"),
+          birthDate: assertString(body.birthDate, "birthDate"),
+          createdAt: new Date().toISOString()
+        };
+        db.prepare("INSERT INTO backoffice_users (id, name, birth_date, created_at) VALUES (?, ?, ?, ?)")
+          .run(user.id, user.name, user.birthDate, user.createdAt);
+        sendJson(response, 201, user);
+        return;
+      }
+
+      if (parts[2] === "sessions" && parts[3] && request.method === "PUT") {
+        const body = await readBody(request);
+        const userId = assertString(body.userId, "userId");
+        const deviceName = assertString(body.deviceName, "deviceName");
+        if (!db.prepare("SELECT id FROM backoffice_users WHERE id = ?").get(userId)) {
+          sendJson(response, 404, { error: "Backoffice user not found" });
+          return;
+        }
+        db.prepare(`
+          INSERT INTO backoffice_sessions (device_id, device_name, user_id, last_seen_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(device_id) DO UPDATE SET device_name = excluded.device_name,
+            user_id = excluded.user_id, last_seen_at = excluded.last_seen_at
+        `).run(parts[3], deviceName, userId, new Date().toISOString());
+        sendJson(response, 200, readState());
+        return;
+      }
+
+      sendJson(response, 404, { error: "Not found" });
+      return;
+    }
 
     if (parts[0] !== "api" || !["recipients", "employment-contracts"].includes(parts[1])) {
       sendJson(response, 404, { error: "Not found" });
@@ -1212,6 +1286,7 @@ const server = createServer(async (request, response) => {
         recipient.id,
         recipient.name,
         recipient.operationalName,
+        recipient.assignedBackofficeUserId,
         recipient.birthDate,
         recipient.longTermCareNumber,
         recipient.careGrade,

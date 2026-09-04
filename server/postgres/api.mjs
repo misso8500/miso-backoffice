@@ -123,6 +123,7 @@ const recipientFromRow = (row) => ({
   id: row.id,
   name: row.name,
   ...(row.operational_name ? { operationalName: row.operational_name } : {}),
+  ...(row.assigned_backoffice_user_id ? { assignedBackofficeUserId: row.assigned_backoffice_user_id } : {}),
   birthDate: row.birth_date,
   longTermCareNumber: row.long_term_care_number,
   careGrade: row.care_grade,
@@ -286,6 +287,7 @@ const normalizeRecipient = (body, existing = null) => {
     id: assertString(body.id ?? existing?.id, "id"),
     name: assertString(body.name, "name"),
     operationalName: assertString(body.operationalName, "operationalName", { optional: true }),
+    assignedBackofficeUserId: assertString(body.assignedBackofficeUserId, "assignedBackofficeUserId", { optional: true }),
     birthDate: assertString(body.birthDate, "birthDate"),
     longTermCareNumber: assertString(body.longTermCareNumber, "longTermCareNumber"),
     careGrade: assertString(body.careGrade, "careGrade"),
@@ -445,17 +447,18 @@ const insertRecipient = async (recipient) =>
   pool.query(
     `
       INSERT INTO recipients (
-        id, name, operational_name, birth_date, long_term_care_number, care_grade, phone, address,
+        id, name, operational_name, assigned_backoffice_user_id, birth_date, long_term_care_number, care_grade, phone, address,
         representative_name, representative_relation, representative_phone,
         service_type, caregiver_requirements, reduction_type, related_people,
         service_start_date, service_end_date, contract_registered_date,
         contract_expired_date, enabled, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
     `,
     [
       recipient.id,
       recipient.name,
       recipient.operationalName,
+      recipient.assignedBackofficeUserId,
       recipient.birthDate,
       recipient.longTermCareNumber,
       recipient.careGrade,
@@ -482,16 +485,17 @@ const updateRecipient = async (recipient) =>
   pool.query(
     `
       UPDATE recipients SET
-        name = $1, operational_name = $2, birth_date = $3, long_term_care_number = $4, care_grade = $5,
-        phone = $6, address = $7, representative_name = $8, representative_relation = $9,
-        representative_phone = $10, service_type = $11, caregiver_requirements = $12,
-        reduction_type = $13, related_people = $14, service_start_date = $15, service_end_date = $16,
-        contract_registered_date = $17, contract_expired_date = $18, enabled = $19, updated_at = $20
-      WHERE id = $21
+        name = $1, operational_name = $2, assigned_backoffice_user_id = $3, birth_date = $4, long_term_care_number = $5, care_grade = $6,
+        phone = $7, address = $8, representative_name = $9, representative_relation = $10,
+        representative_phone = $11, service_type = $12, caregiver_requirements = $13,
+        reduction_type = $14, related_people = $15, service_start_date = $16, service_end_date = $17,
+        contract_registered_date = $18, contract_expired_date = $19, enabled = $20, updated_at = $21
+      WHERE id = $22
     `,
     [
       recipient.name,
       recipient.operationalName,
+      recipient.assignedBackofficeUserId,
       recipient.birthDate,
       recipient.longTermCareNumber,
       recipient.careGrade,
@@ -723,6 +727,50 @@ export const handlePostgresRequest = async (request, response) => {
 
   try {
     const parts = parsePath(request.url ?? "/");
+
+    if (parts[0] === "api" && parts[1] === "backoffice-users") {
+      const readState = async () => {
+        const users = await pool.query("SELECT id, name, birth_date AS \"birthDate\", created_at AS \"createdAt\" FROM backoffice_users ORDER BY name ASC");
+        const sessions = await pool.query(`
+          SELECT s.device_id AS "deviceId", s.device_name AS "deviceName", s.user_id AS "userId",
+                 u.name AS "userName", s.last_seen_at AS "lastSeenAt"
+          FROM backoffice_sessions s JOIN backoffice_users u ON u.id = s.user_id
+          WHERE s.last_seen_at >= $1
+          ORDER BY s.last_seen_at DESC
+        `, [new Date(Date.now() - 45000).toISOString()]);
+        return { users: users.rows, sessions: sessions.rows };
+      };
+
+      if (!parts[2] && request.method === "GET") {
+        sendJson(response, 200, await readState());
+        return;
+      }
+
+      if (!parts[2] && request.method === "POST") {
+        const body = await readBody(request);
+        const user = { id: assertString(body.id, "id"), name: assertString(body.name, "name"), birthDate: assertString(body.birthDate, "birthDate"), createdAt: new Date().toISOString() };
+        await pool.query("INSERT INTO backoffice_users (id, name, birth_date, created_at) VALUES ($1, $2, $3, $4)", [user.id, user.name, user.birthDate, user.createdAt]);
+        sendJson(response, 201, user);
+        return;
+      }
+
+      if (parts[2] === "sessions" && parts[3] && request.method === "PUT") {
+        const body = await readBody(request);
+        const userId = assertString(body.userId, "userId");
+        const deviceName = assertString(body.deviceName, "deviceName");
+        await pool.query(`
+          INSERT INTO backoffice_sessions (device_id, device_name, user_id, last_seen_at)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT(device_id) DO UPDATE SET device_name = EXCLUDED.device_name,
+            user_id = EXCLUDED.user_id, last_seen_at = EXCLUDED.last_seen_at
+        `, [parts[3], deviceName, userId, new Date().toISOString()]);
+        sendJson(response, 200, await readState());
+        return;
+      }
+
+      sendJson(response, 404, { error: "Not found" });
+      return;
+    }
 
     if (parts[0] !== "api" || !["recipients", "employment-contracts"].includes(parts[1])) {
       sendJson(response, 404, { error: "Not found" });

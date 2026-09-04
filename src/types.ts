@@ -2,6 +2,7 @@ export type Recipient = {
   id: string;
   name: string;
   operationalName?: string;
+  assignedBackofficeUserId?: string;
   birthDate: string;
   longTermCareNumber: string;
   careGrade: string;
@@ -22,6 +23,26 @@ export type Recipient = {
   recontractCount: number;
   createdAt: string;
   updatedAt: string;
+};
+
+export type BackofficeUser = {
+  id: string;
+  name: string;
+  birthDate: string;
+  createdAt: string;
+};
+
+export type BackofficeSession = {
+  deviceId: string;
+  deviceName: string;
+  userId: string;
+  userName: string;
+  lastSeenAt: string;
+};
+
+export type BackofficeState = {
+  users: BackofficeUser[];
+  sessions: BackofficeSession[];
 };
 
 export type RecipientInput = Omit<

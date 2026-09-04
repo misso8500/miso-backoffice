@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS recipients (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   operational_name TEXT,
+  assigned_backoffice_user_id TEXT,
   birth_date TEXT NOT NULL,
   long_term_care_number TEXT NOT NULL UNIQUE,
   care_grade TEXT NOT NULL,
@@ -31,6 +32,21 @@ ALTER TABLE recipients ADD COLUMN IF NOT EXISTS service_type TEXT NOT NULL DEFAU
 ALTER TABLE recipients ADD COLUMN IF NOT EXISTS caregiver_requirements TEXT NOT NULL DEFAULT '';
 ALTER TABLE recipients ADD COLUMN IF NOT EXISTS reduction_type TEXT NOT NULL DEFAULT '일반';
 ALTER TABLE recipients ADD COLUMN IF NOT EXISTS related_people TEXT NOT NULL DEFAULT '';
+ALTER TABLE recipients ADD COLUMN IF NOT EXISTS assigned_backoffice_user_id TEXT;
+
+CREATE TABLE IF NOT EXISTS backoffice_users (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  birth_date TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS backoffice_sessions (
+  device_id TEXT PRIMARY KEY,
+  device_name TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES backoffice_users(id),
+  last_seen_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS recipient_contract_events (
   id TEXT PRIMARY KEY,
