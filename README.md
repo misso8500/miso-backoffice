@@ -6,6 +6,78 @@
 
 `v1.0 MVP`는 미소 노인재가복지센터 운영 업무 전체를 완성하는 최종 버전이 아니라, 가장 먼저 필요한 `수급자 관리 흐름`을 실제로 사용할 수 있는 수준까지 정리하는 첫 제품 버전이다.
 
+## Development Setup
+
+현재 MVP는 `learning-wiki` 레퍼런스와 같은 로컬 우선 구조를 사용한다.
+
+```text
+Browser
+  -> Vite dev server: http://127.0.0.1:5173
+  -> /api proxy
+  -> Node API server: http://127.0.0.1:5174
+  -> SQLite: data/miso-backoffice.sqlite
+```
+
+주요 기술은 다음과 같다.
+
+- React, TypeScript, Vite
+- Node.js `http`, `node:sqlite`
+- SQLite
+- Postgres schema bootstrap via `pg`
+- `lucide-react`
+
+`node:sqlite`를 사용하므로 Node.js 24 이상을 기준으로 한다.
+
+최초 설치:
+
+```bash
+npm ci
+```
+
+로컬 실행은 터미널 두 개를 사용한다.
+
+터미널 1:
+
+```bash
+npm run api
+```
+
+터미널 2:
+
+```bash
+npm run dev
+```
+
+DB 파일 경로는 다음 순서로 결정된다.
+
+1. 환경 변수 `MISO_BACKOFFICE_DB_PATH`
+2. 프로젝트 루트의 `miso-backoffice.local.json`
+3. 기본값 `data/miso-backoffice.sqlite`
+
+개인정보가 포함될 수 있으므로 실제 DB 파일과 개인별 설정 파일은 Git에 커밋하지 않는다. 로컬 SQLite 구조는 단일 사용자 MVP 검증을 위한 기반이며, 여러 사용자의 동시 접속이 필요해지면 인증과 서버형 데이터베이스 구조를 별도로 도입한다.
+
+### Supabase 준비
+
+기본 API는 Supabase Postgres를 사용한다. `DATABASE_URL`이 없으면 실행을 중단하며 SQLite는 `npm run api:sqlite`로만 명시적으로 실행할 수 있다.
+
+```bash
+cp .env.example .env.local
+npm run supabase:check
+npm run supabase:init
+npm run api
+```
+
+Supabase 대시보드의 **Connect** 화면에서 연결 문자열을 복사해 `.env.local`의 `DATABASE_URL`에 넣는다. 비밀번호의 특수문자는 URL 인코딩하고 `sslmode=require` 또는 `PGSSLMODE=require`를 사용한다. `.env.local`은 Git에서 제외된다. 서버 실행 후 `GET /api/health`로 실제 연결 상태를 확인할 수 있다.
+
+### Supabase + Vercel 배포
+
+1. Supabase 프로젝트를 만들고 로컬에서 `npm run supabase:init`을 실행하거나 SQL Editor에서 `server/postgres/schema.sql`을 실행한다.
+2. Supabase의 **Connect** 화면에서 배포 환경에 맞는 pooler 연결 문자열을 복사한다.
+3. Vercel에 저장소를 연결하고 환경 변수 `DATABASE_URL`, `PGSSLMODE=require`를 등록한다.
+4. Vercel에서 배포한다. `vercel.json`이 Vite 결과물(`dist`)과 `/api/*` 서버리스 함수를 함께 배포한다.
+
+브라우저에 Supabase service-role 키를 노출하지 않는다. 모든 데이터 요청은 같은 도메인의 `/api` 함수를 거쳐 Postgres에 연결된다. 실제 운영 전에 인증과 사용자별 접근 권한을 추가해야 한다.
+
 ## Product Definition
 
 Miso Backoffice는 미소 노인재가복지센터의 장기요양 운영 업무 중, 먼저 `수급자 관리`를 안정적으로 정리하기 위한 백오피스 시스템이다.

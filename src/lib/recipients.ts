@@ -1,4 +1,21 @@
-import type { Recipient } from "./types";
+export type Recipient = {
+  id: string;
+  name: string;
+  birthDate: string;
+  longTermCareNumber: string;
+  careGrade: string;
+  phone?: string;
+  address: string;
+  representativeName: string;
+  representativeRelation: string;
+  representativePhone: string;
+  serviceStartDate: string;
+  serviceEndDate: string;
+  contractRegisteredDate: string;
+  contractExpiredDate: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export const sampleRecipients: Recipient[] = [
   {
@@ -56,7 +73,10 @@ export const sampleRecipients: Recipient[] = [
   }
 ];
 
+export function getRecipients() {
+  return [...sampleRecipients].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+}
+
 export function getRecipientById(id: string) {
   return sampleRecipients.find((recipient) => recipient.id === id);
 }
-
