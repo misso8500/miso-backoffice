@@ -68,6 +68,15 @@ npm run api
 
 `.env`에 `DATABASE_URL`을 넣으면 스크립트가 자동으로 읽는다. Supabase처럼 SSL이 필요한 호스팅을 쓰면 `DATABASE_URL`에 `sslmode=require`를 붙이거나 `PGSSLMODE=require`를 설정한다.
 
+### Supabase + Vercel 배포
+
+1. Supabase 프로젝트를 만들고 SQL Editor에서 `server/postgres/schema.sql`을 실행한다.
+2. Supabase의 **Connect → Session pooler** 연결 문자열을 복사한다. 비밀번호의 특수문자는 URL 인코딩한다.
+3. Vercel에 저장소를 연결하고 환경 변수 `DATABASE_URL`, `PGSSLMODE=require`를 등록한다.
+4. Vercel에서 배포한다. `vercel.json`이 Vite 결과물(`dist`)과 `/api/*` 서버리스 함수를 함께 배포한다.
+
+브라우저에 Supabase service-role 키를 노출하지 않는다. 모든 데이터 요청은 같은 도메인의 `/api` 함수를 거쳐 Postgres에 연결된다. 실제 운영 전에 인증과 사용자별 접근 권한을 추가해야 한다.
+
 ## Product Definition
 
 Miso Backoffice는 미소 노인재가복지센터의 장기요양 운영 업무 중, 먼저 `수급자 관리`를 안정적으로 정리하기 위한 백오피스 시스템이다.

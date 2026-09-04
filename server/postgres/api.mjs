@@ -693,7 +693,7 @@ const readEmploymentContractRow = async (contractId) => {
   return rows[0] ?? null;
 };
 
-const server = createServer(async (request, response) => {
+export const handlePostgresRequest = async (request, response) => {
   if (request.method === "OPTIONS") {
     sendJson(response, 204, {});
     return;
@@ -966,8 +966,13 @@ const server = createServer(async (request, response) => {
           : message
     });
   }
-});
+};
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Miso Backoffice Postgres API running at http://127.0.0.1:${port}`);
-});
+if (!process.env.VERCEL) {
+  const server = createServer(handlePostgresRequest);
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`Miso Backoffice Postgres API running at http://127.0.0.1:${port}`);
+  });
+}
+
+export default handlePostgresRequest;

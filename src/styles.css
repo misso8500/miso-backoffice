@@ -1,23 +1,23 @@
 :root {
   color: #172033;
-  background: #f4fbff;
+  background: #f6f7f8;
   font-family:
     Inter, Pretendard, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --border: #d2e6f5;
+  --border: #dfe3e6;
   --surface: #ffffff;
-  --surface-blue: #eaf7ff;
-  --surface-blue-strong: #d7efff;
-  --surface-yellow: #fff6bf;
-  --muted: #62748a;
-  --accent: #5aa9e6;
-  --accent-strong: #2477b8;
-  --accent-soft: #dff1ff;
-  --sub-accent: #f2d95c;
-  --sub-accent-strong: #7b6500;
-  --shadow: 0 24px 70px rgba(51, 117, 166, 0.14);
+  --surface-blue: #f0f4f2;
+  --surface-blue-strong: #e4ece8;
+  --surface-yellow: #f5f2e9;
+  --muted: #66706b;
+  --accent: #557568;
+  --accent-strong: #315b4b;
+  --accent-soft: #e5ece8;
+  --sub-accent: #b0a276;
+  --sub-accent-strong: #655c40;
+  --shadow: 0 24px 70px rgba(30, 48, 40, 0.12);
 }
 
 * {
@@ -290,6 +290,57 @@ p {
   margin-top: 4px;
   font-size: 24px;
 }
+
+.summary-card strong small {
+  margin-left: 8px;
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+
+.quick-add-card {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 28px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent-strong);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(30, 48, 40, 0.07);
+  padding: 20px;
+}
+
+.quick-add-heading,
+.quick-add-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quick-add-heading > div { display: grid; gap: 4px; }
+.quick-add-heading span { color: var(--muted); font-size: 13px; }
+.quick-add-grid { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; }
+.quick-add-grid label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 800; }
+.quick-add-grid input,
+.quick-add-grid select,
+.filter-select { min-height: 42px; border: 1px solid var(--border); background: #fff; padding: 0 10px; color: #172033; }
+.quick-add-grid input:focus,
+.quick-add-grid select:focus,
+.filter-select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.quick-add-actions { justify-content: flex-end; }
+.quick-error { margin: 0; color: #8a2d2d; font-size: 13px; font-weight: 700; }
+.filter-select { min-width: 148px; }
+.density-toggle { display: flex; min-height: 42px; border: 1px solid var(--border); background: var(--surface); padding: 3px; }
+.density-toggle button { border: 0; background: transparent; padding: 0 10px; color: var(--muted); font-weight: 800; cursor: pointer; }
+.density-toggle button.is-active { background: var(--accent-soft); color: var(--accent-strong); }
+.contract-status { display: inline-flex; width: fit-content; border-radius: 999px; background: #edf0ee; color: #405049; padding: 5px 9px; font-size: 12px; font-style: normal; font-weight: 800; white-space: nowrap; }
+.status-급여갱신필요, .status-계약종료예정 { background: #f5f2e9; color: #6f5d25; }
+.status-계약종료 { background: #f1eeee; color: #765252; }
+.status-급여제공중 { background: #e5ece8; color: #315b4b; }
+
+.recipient-table.is-simple .table-head,
+.recipient-table.is-simple .recipient-row { grid-template-columns: 1.25fr .55fr .85fr .9fr 28px; }
+.recipient-table.is-simple .table-head > span:nth-child(4),
+.recipient-table.is-simple .recipient-row > span:nth-child(4) { display: none; }
 
 .error-banner {
   gap: 12px;
@@ -1031,6 +1082,7 @@ p {
 }
 
 @media (max-width: 820px) {
+  .quick-add-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .table-head {
     display: none;
   }
@@ -1051,6 +1103,7 @@ p {
 }
 
 @media (max-width: 620px) {
+  .quick-add-grid { grid-template-columns: 1fr; }
   .app-header {
     align-items: flex-start;
     flex-direction: column;

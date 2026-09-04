@@ -619,6 +619,21 @@ const formatContractTerms = (contract: EmploymentContract) => {
 
 const isRecipientEnabled = (recipient: Recipient) => recipient.enabled !== false;
 
+type RecipientStatus = "급여시작" | "급여제공중" | "급여갱신필요" | "계약종료예정" | "계약종료";
+
+const getRecipientStatus = (recipient: Recipient, now = new Date()): RecipientStatus => {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const start = new Date(`${recipient.serviceStartDate}T00:00:00`).getTime();
+  const expiry = new Date(`${recipient.contractExpiredDate}T00:00:00`).getTime();
+  const daysUntilExpiry = Math.ceil((expiry - today) / 86_400_000);
+
+  if (!isRecipientEnabled(recipient) || daysUntilExpiry < 0) return "계약종료";
+  if (today < start) return "급여시작";
+  if (daysUntilExpiry <= 14) return "계약종료예정";
+  if (daysUntilExpiry <= 60) return "급여갱신필요";
+  return "급여제공중";
+};
+
 function App() {
   const [activeView, setActiveView] = useState<"recipients" | "employmentContracts">(
     "recipients"
@@ -627,6 +642,10 @@ function App() {
   const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showEnabledOnly, setShowEnabledOnly] = useState(true);
+  const [selectedStatus, setSelectedStatus] = useState<RecipientStatus | "전체">("전체");
+  const [selectedWorkerId, setSelectedWorkerId] = useState("all");
+  const [viewDensity, setViewDensity] = useState<"simple" | "detail">("simple");
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
@@ -728,6 +747,17 @@ function App() {
           return false;
         }
 
+        if (selectedStatus !== "전체" && getRecipientStatus(recipient) !== selectedStatus) {
+          return false;
+        }
+
+        if (selectedWorkerId !== "all") {
+          const worker = employmentContracts.find((contract) => contract.id === selectedWorkerId);
+          if (!worker?.recipientAssignments.some(({ recipientId }) => recipientId === recipient.id)) {
+            return false;
+          }
+        }
+
         if (!query) {
           return true;
         }
@@ -746,11 +776,15 @@ function App() {
           .includes(query);
       })
       .sort((a, b) => a.contractExpiredDate.localeCompare(b.contractExpiredDate));
-  }, [recipients, searchQuery, showEnabledOnly]);
+  }, [employmentContracts, recipients, searchQuery, selectedStatus, selectedWorkerId, showEnabledOnly]);
 
   const selectedRecipient =
     recipients.find((recipient) => recipient.id === selectedRecipientId) ?? null;
   const enabledRecipientCount = recipients.filter(isRecipientEnabled).length;
+  const activeWorkers = employmentContracts.filter((contract) => contract.enabled);
+  const renewalCount = recipients.filter((recipient) =>
+    ["급여갱신필요", "계약종료예정"].includes(getRecipientStatus(recipient))
+  ).length;
   const filteredEmploymentContracts = useMemo(() => {
     const query = employmentSearchQuery.trim().toLocaleLowerCase();
 
@@ -895,6 +929,52 @@ function App() {
       setFormErrorMessage(
         error instanceof Error ? error.message : "수급자 정보를 저장하지 못했습니다."
       );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleQuickCreateRecipient = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const requiredQuickFields: Array<keyof RecipientFormState> = [
+      "name", "birthDate", "longTermCareNumber", "careGrade", "serviceStartDate", "contractExpiredDate"
+    ];
+
+    if (requiredQuickFields.some((field) => !formState[field].trim())) {
+      setFormErrorMessage("간단 추가의 필수 항목을 모두 입력하세요.");
+      return;
+    }
+
+    if (formState.serviceStartDate > formState.contractExpiredDate) {
+      setFormErrorMessage("급여 시작일은 계약 만료일보다 늦을 수 없습니다.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const createdRecipient = await createRecipient({
+        id: createRecipientId(),
+        name: formState.name.trim(),
+        birthDate: formState.birthDate,
+        longTermCareNumber: formState.longTermCareNumber.trim(),
+        careGrade: formState.careGrade,
+        address: "미등록",
+        representativeName: "미등록",
+        representativeRelation: "미등록",
+        representativePhone: "미등록",
+        serviceStartDate: formState.serviceStartDate,
+        serviceEndDate: formState.contractExpiredDate,
+        contractRegisteredDate: formState.serviceStartDate,
+        contractExpiredDate: formState.contractExpiredDate,
+        enabled: true
+      });
+      setRecipients((current) => [...current, createdRecipient]);
+      setFormState(emptyRecipientForm);
+      setFormErrorMessage(null);
+      setIsQuickAddOpen(false);
+      setSelectedRecipientId(createdRecipient.id);
+    } catch (error) {
+      setFormErrorMessage(error instanceof Error ? error.message : "수급자를 추가하지 못했습니다.");
     } finally {
       setIsSaving(false);
     }
@@ -1466,15 +1546,15 @@ function App() {
               className="primary-button"
               onClick={() => {
                 setSelectedRecipientId(null);
-                setIsCreatePanelOpen(true);
+                setIsQuickAddOpen((current) => !current);
               }}
             >
               <Plus size={18} />
-              수급자 등록
+              간단 추가
             </button>
             <div className="summary-card">
-              <span>유효 수급자</span>
-              <strong>{enabledRecipientCount}명</strong>
+              <span>관리 중 · 갱신 확인</span>
+              <strong>{enabledRecipientCount}명 <small>{renewalCount}건</small></strong>
             </div>
           </div>
         </section>
@@ -1493,6 +1573,28 @@ function App() {
           </div>
         )}
 
+        {isQuickAddOpen && (
+          <form className="quick-add-card" onSubmit={handleQuickCreateRecipient}>
+            <div className="quick-add-heading">
+              <div><strong>수급자 간단 추가</strong><span>필수 정보만 먼저 등록하고 상세 정보는 나중에 보완할 수 있어요.</span></div>
+              <button type="button" className="icon-button" onClick={() => setIsQuickAddOpen(false)}><X size={18} /></button>
+            </div>
+            <div className="quick-add-grid">
+              <label><span>이름</span><input value={formState.name} onChange={(event) => updateFormField("name", event.target.value)} required autoFocus /></label>
+              <label><span>생년월일</span><input type="date" value={formState.birthDate} onChange={(event) => updateFormField("birthDate", event.target.value)} required /></label>
+              <label><span>인정번호</span><input value={formState.longTermCareNumber} onChange={(event) => updateFormField("longTermCareNumber", event.target.value)} required /></label>
+              <label><span>등급</span><select value={formState.careGrade} onChange={(event) => updateFormField("careGrade", event.target.value)}>{["1등급","2등급","3등급","4등급","5등급","인지지원등급"].map((grade) => <option key={grade}>{grade}</option>)}</select></label>
+              <label><span>급여 시작일</span><input type="date" value={formState.serviceStartDate} onChange={(event) => updateFormField("serviceStartDate", event.target.value)} required /></label>
+              <label><span>계약 만료일</span><input type="date" value={formState.contractExpiredDate} onChange={(event) => updateFormField("contractExpiredDate", event.target.value)} required /></label>
+            </div>
+            {formErrorMessage && <p className="quick-error">{formErrorMessage}</p>}
+            <div className="quick-add-actions">
+              <button type="button" className="secondary-button" onClick={() => { setIsQuickAddOpen(false); setIsCreatePanelOpen(true); }}>상세 입력</button>
+              <button className="primary-button" disabled={isSaving}><Save size={17} />{isSaving ? "저장 중" : "바로 저장"}</button>
+            </div>
+          </form>
+        )}
+
         <section aria-labelledby="recipient-list-title">
           <div className="list-toolbar">
             <div>
@@ -1500,6 +1602,17 @@ function App() {
               <span>계약 만료일 오름차순</span>
             </div>
             <div className="toolbar-controls">
+              <select className="filter-select" aria-label="담당 근무자 필터" value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)}>
+                <option value="all">담당자 전체</option>
+                {activeWorkers.map((worker) => <option key={worker.id} value={worker.id}>{worker.workerName} · {worker.recipientAssignments.length}명</option>)}
+              </select>
+              <select className="filter-select" aria-label="계약 상태 필터" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as RecipientStatus | "전체")}>
+                {(["전체", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status}</option>)}
+              </select>
+              <div className="density-toggle" aria-label="보기 방식">
+                <button type="button" className={viewDensity === "simple" ? "is-active" : ""} onClick={() => setViewDensity("simple")}>간단</button>
+                <button type="button" className={viewDensity === "detail" ? "is-active" : ""} onClick={() => setViewDensity("detail")}>상세</button>
+              </div>
               <label className="valid-toggle">
                 <input
                   type="checkbox"
@@ -1531,11 +1644,11 @@ function App() {
               <p>{searchQuery ? "검색 결과가 없습니다." : "표시할 수급자가 없습니다."}</p>
             </div>
           ) : (
-            <div className="recipient-table">
+            <div className={`recipient-table ${viewDensity === "simple" ? "is-simple" : ""}`}>
               <div className="table-head">
                 <span>수급자</span>
                 <span>등급</span>
-                <span>수급자 연락처</span>
+                <span>상태</span>
                 <span>대표 연락자</span>
                 <span>계약 만료일</span>
                 <span aria-hidden="true" />
@@ -1560,7 +1673,7 @@ function App() {
                         </small>
                       </span>
                       <span>{recipient.careGrade}</span>
-                      <span>{recipient.phone ?? "미등록"}</span>
+                      <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
                       <span>
                         {recipient.representativeName}
                         <small>{recipient.representativePhone}</small>
