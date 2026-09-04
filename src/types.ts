@@ -1,6 +1,7 @@
 export type Recipient = {
   id: string;
   name: string;
+  operationalName?: string;
   birthDate: string;
   longTermCareNumber: string;
   careGrade: string;

@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS recipients (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  operational_name TEXT,
   birth_date TEXT NOT NULL,
   long_term_care_number TEXT NOT NULL UNIQUE,
   care_grade TEXT NOT NULL,
@@ -20,6 +21,8 @@ CREATE TABLE IF NOT EXISTS recipients (
 
 CREATE INDEX IF NOT EXISTS idx_recipients_contract_expired
   ON recipients(contract_expired_date ASC);
+
+ALTER TABLE recipients ADD COLUMN IF NOT EXISTS operational_name TEXT;
 
 CREATE TABLE IF NOT EXISTS recipient_contract_events (
   id TEXT PRIMARY KEY,

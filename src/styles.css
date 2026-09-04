@@ -336,6 +336,7 @@ p {
 .quick-add-heading span { color: var(--muted); font-size: 13px; }
 .quick-add-grid { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; }
 .quick-add-grid label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 800; }
+.quick-add-grid .quick-identifier-field { grid-column: span 2; }
 .quick-add-grid input,
 .quick-add-grid select,
 .filter-select { min-height: 42px; border: 1px solid var(--border); background: #fff; padding: 0 10px; color: #34343a; }
@@ -354,9 +355,9 @@ p {
 .status-급여제공중 { background: #ececef; color: #45454c; }
 
 .recipient-table.is-simple .table-head,
-.recipient-table.is-simple .recipient-row { grid-template-columns: 1.25fr .55fr .85fr .9fr 28px; }
-.recipient-table.is-simple .table-head > span:nth-child(4),
-.recipient-table.is-simple .recipient-row > span:nth-child(4) { display: none; }
+.recipient-table.is-simple .recipient-row {
+  grid-template-columns: minmax(230px, 1.55fr) 0.48fr minmax(150px, 0.95fr) 0.8fr minmax(180px, 1fr) 28px;
+}
 
 .error-banner {
   gap: 12px;
@@ -507,6 +508,44 @@ p {
   display: grid;
   gap: 4px;
 }
+
+.recipient-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.care-number {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.primary-contact {
+  display: grid;
+  gap: 4px;
+}
+
+.primary-contact strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operational-name-editor {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 18px 30px 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(48, 45, 58, 0.07);
+  padding: 14px;
+}
+
+.operational-name-editor label { display: grid; flex: 1; gap: 7px; }
+.operational-name-editor label span { color: var(--muted); font-size: 13px; font-weight: 800; }
+.operational-name-editor input { width: 100%; min-height: 42px; border: 1px solid var(--border); padding: 0 11px; }
+.operational-name-editor input:focus { border-color: var(--accent); outline: 2px solid var(--accent-soft); }
 
 .status-chip {
   display: inline-block;
@@ -1124,6 +1163,7 @@ p {
 
 @media (max-width: 620px) {
   .quick-add-grid { grid-template-columns: 1fr; }
+  .quick-add-grid .quick-identifier-field { grid-column: auto; }
   .app-shell { padding-left: 0; }
   .app-header {
     position: static;
@@ -1212,6 +1252,8 @@ p {
   .recipient-form {
     padding: 22px 18px;
   }
+
+  .operational-name-editor { align-items: stretch; flex-direction: column; margin: 16px 18px 0; }
 
   .detail-sections dl,
   .form-grid,

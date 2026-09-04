@@ -150,6 +150,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS recipients (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    operational_name TEXT,
     birth_date TEXT NOT NULL,
     long_term_care_number TEXT NOT NULL UNIQUE,
     care_grade TEXT NOT NULL,
@@ -268,9 +269,14 @@ db.exec(`
 
 const recipientColumns = db.prepare("PRAGMA table_info(recipients)").all();
 const hasEnabledColumn = recipientColumns.some((column) => column.name === "enabled");
+const hasOperationalNameColumn = recipientColumns.some((column) => column.name === "operational_name");
 
 if (!hasEnabledColumn) {
   db.exec("ALTER TABLE recipients ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+}
+
+if (!hasOperationalNameColumn) {
+  db.exec("ALTER TABLE recipients ADD COLUMN operational_name TEXT");
 }
 
 const ensureEmploymentColumn = (name, definition) => {
@@ -293,6 +299,7 @@ ensureEmploymentColumn("allowance_memo", "TEXT");
 const recipientFromRow = (row) => ({
   id: row.id,
   name: row.name,
+  ...(row.operational_name ? { operationalName: row.operational_name } : {}),
   birthDate: row.birth_date,
   longTermCareNumber: row.long_term_care_number,
   careGrade: row.care_grade,
@@ -428,11 +435,11 @@ const employmentContractFromRow = (row) => ({
 
 const insertRecipient = db.prepare(`
   INSERT INTO recipients (
-    id, name, birth_date, long_term_care_number, care_grade, phone, address,
+    id, name, operational_name, birth_date, long_term_care_number, care_grade, phone, address,
     representative_name, representative_relation, representative_phone,
     service_start_date, service_end_date, contract_registered_date,
     contract_expired_date, enabled, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertEmploymentContract = db.prepare(`
@@ -521,6 +528,7 @@ if (db.prepare("SELECT COUNT(*) AS count FROM recipients").get().count === 0) {
     insertRecipient.run(
       recipient.id,
       recipient.name,
+      recipient.operationalName ?? null,
       recipient.birthDate,
       recipient.longTermCareNumber,
       recipient.careGrade,
@@ -692,6 +700,7 @@ const normalizeRecipient = (body, existing = null) => {
   const recipient = {
     id: assertString(body.id ?? existing?.id, "id"),
     name: assertString(body.name, "name"),
+    operationalName: assertString(body.operationalName, "operationalName", { optional: true }),
     birthDate: assertString(body.birthDate, "birthDate"),
     longTermCareNumber: assertString(body.longTermCareNumber, "longTermCareNumber"),
     careGrade: assertString(body.careGrade, "careGrade"),
@@ -879,13 +888,14 @@ const assertBoolean = (value, field) => {
 const applyRecipientUpdate = (recipient) => {
   db.prepare(`
     UPDATE recipients SET
-      name = ?, birth_date = ?, long_term_care_number = ?, care_grade = ?,
+      name = ?, operational_name = ?, birth_date = ?, long_term_care_number = ?, care_grade = ?,
       phone = ?, address = ?, representative_name = ?, representative_relation = ?,
       representative_phone = ?, service_start_date = ?, service_end_date = ?,
       contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?
     WHERE id = ?
   `).run(
     recipient.name,
+    recipient.operationalName,
     recipient.birthDate,
     recipient.longTermCareNumber,
     recipient.careGrade,
@@ -1167,6 +1177,7 @@ const server = createServer(async (request, response) => {
       insertRecipient.run(
         recipient.id,
         recipient.name,
+        recipient.operationalName,
         recipient.birthDate,
         recipient.longTermCareNumber,
         recipient.careGrade,
@@ -1214,12 +1225,12 @@ const server = createServer(async (request, response) => {
       const body = await readBody(request);
       const contractExpiredDate = assertString(body.contractExpiredDate, "contractExpiredDate");
 
-      if (contractExpiredDate < existing.contractRegisteredDate) {
-        throw new Error("contractExpiredDate must not be earlier than contractRegisteredDate");
+      if (contractExpiredDate < existing.serviceStartDate) {
+        throw new Error("serviceEndDate must not be earlier than serviceStartDate");
       }
 
       const recipient = normalizeRecipient(
-        { ...existing, contractExpiredDate, enabled: false },
+        { ...existing, serviceEndDate: contractExpiredDate, contractExpiredDate, enabled: false },
         existing
       );
       applyRecipientUpdate(recipient);

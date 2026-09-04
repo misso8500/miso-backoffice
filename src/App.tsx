@@ -46,6 +46,7 @@ import type {
 
 type RecipientFormState = {
   name: string;
+  operationalName: string;
   birthDate: string;
   longTermCareNumber: string;
   careGrade: string;
@@ -62,6 +63,7 @@ type RecipientFormState = {
 
 const emptyRecipientForm: RecipientFormState = {
   name: "",
+  operationalName: "",
   birthDate: "",
   longTermCareNumber: "",
   careGrade: "3등급",
@@ -131,10 +133,8 @@ const requiredFormFields: Array<{ key: keyof RecipientFormState; label: string }
   { key: "representativeName", label: "대표 연락자 이름" },
   { key: "representativeRelation", label: "대표 연락자 관계" },
   { key: "representativePhone", label: "대표 연락자 연락처" },
-  { key: "serviceStartDate", label: "장기요양 제공 시작일" },
-  { key: "serviceEndDate", label: "장기요양 제공 종료일" },
-  { key: "contractRegisteredDate", label: "급여 계약 등록일" },
-  { key: "contractExpiredDate", label: "급여 계약 만료일" }
+  { key: "serviceStartDate", label: "장기요양이용계약 시작일" },
+  { key: "serviceEndDate", label: "장기요양이용계약 만료일" }
 ];
 
 const requiredEmploymentContractFields: Array<{
@@ -241,6 +241,7 @@ const downloadRecipientCsvExample = () => {
     [
       "id",
       "name",
+      "operationalName",
       "birthDate",
       "longTermCareNumber",
       "careGrade",
@@ -251,14 +252,13 @@ const downloadRecipientCsvExample = () => {
       "representativePhone",
       "serviceStartDate",
       "serviceEndDate",
-      "contractRegisteredDate",
-      "contractExpiredDate",
       "enabled"
     ],
     [
       [
         "recipient-import-001",
         "김예시",
+        "김예시/3/강서구/독거",
         "1944-05-10",
         "LTC-2026-9001",
         "3등급",
@@ -268,8 +268,6 @@ const downloadRecipientCsvExample = () => {
         "자녀",
         "010-2222-3333",
         "2026-01-01",
-        "2026-12-31",
-        "2025-12-20",
         "2026-12-31",
         "false"
       ]
@@ -522,12 +520,10 @@ const detailSections: Array<{
     ]
   },
   {
-    title: "계약 및 제공 기간",
+    title: "장기요양이용계약",
     fields: [
-      { label: "장기요양 제공 시작일", value: (recipient) => recipient.serviceStartDate },
-      { label: "장기요양 제공 종료일", value: (recipient) => recipient.serviceEndDate },
-      { label: "급여 계약 등록일", value: (recipient) => recipient.contractRegisteredDate },
-      { label: "급여 계약 만료일", value: (recipient) => recipient.contractExpiredDate }
+      { label: "장기요양이용계약 시작일", value: (recipient) => recipient.serviceStartDate },
+      { label: "장기요양이용계약 만료일", value: (recipient) => recipient.serviceEndDate }
     ]
   },
   {
@@ -624,7 +620,7 @@ type RecipientStatus = "급여시작" | "급여제공중" | "급여갱신필요"
 const getRecipientStatus = (recipient: Recipient, now = new Date()): RecipientStatus => {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const start = new Date(`${recipient.serviceStartDate}T00:00:00`).getTime();
-  const expiry = new Date(`${recipient.contractExpiredDate}T00:00:00`).getTime();
+  const expiry = new Date(`${recipient.serviceEndDate}T00:00:00`).getTime();
   const daysUntilExpiry = Math.ceil((expiry - today) / 86_400_000);
 
   if (!isRecipientEnabled(recipient) || daysUntilExpiry < 0) return "계약종료";
@@ -634,12 +630,36 @@ const getRecipientStatus = (recipient: Recipient, now = new Date()): RecipientSt
   return "급여제공중";
 };
 
+const regionAliases: Record<string, string> = {
+  서울특별시: "서울", 서울시: "서울", 부산광역시: "부산", 대구광역시: "대구",
+  인천광역시: "인천", 광주광역시: "광주", 대전광역시: "대전", 울산광역시: "울산",
+  세종특별자치시: "세종", 제주특별자치도: "제주"
+};
+
+const getResidenceSummary = (address: string) => {
+  if (!address.trim() || address.trim() === "미등록") return "거주지 미등록";
+
+  const parts = address.trim().split(/\s+/);
+  const region = regionAliases[parts[0]] ?? parts[0].replace(/(특별시|광역시|특별자치시|특별자치도)$/, "");
+  const neighborhood = parts.slice(1).find((part) => /(동|읍|면|리)$/.test(part));
+  return [region, neighborhood ?? parts[1]].filter(Boolean).join(" ");
+};
+
+const getRecipientDisplayId = (recipient: Recipient) => {
+  const birthYear = recipient.birthDate.slice(0, 4) || "연도미상";
+  return recipient.operationalName?.trim() || `${recipient.name}/${recipient.careGrade.replace("등급", "")}/${getResidenceSummary(recipient.address)}/${birthYear}년생`;
+};
+
+const hasPrimaryContact = (recipient: Recipient) =>
+  Boolean(recipient.representativeName && recipient.representativeName !== "미등록");
+
 function App() {
   const [activeView, setActiveView] = useState<"recipients" | "employmentContracts">(
     "recipients"
   );
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(null);
+  const [operationalNameDraft, setOperationalNameDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [showEnabledOnly, setShowEnabledOnly] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState<RecipientStatus | "전체">("전체");
@@ -764,10 +784,13 @@ function App() {
 
         return [
           recipient.name,
+          recipient.operationalName,
           recipient.longTermCareNumber,
           recipient.careGrade,
+          recipient.address,
           recipient.phone,
           recipient.representativeName,
+          recipient.representativeRelation,
           recipient.representativePhone
         ]
           .filter(Boolean)
@@ -775,11 +798,15 @@ function App() {
           .toLocaleLowerCase()
           .includes(query);
       })
-      .sort((a, b) => a.contractExpiredDate.localeCompare(b.contractExpiredDate));
+      .sort((a, b) => a.serviceEndDate.localeCompare(b.serviceEndDate));
   }, [employmentContracts, recipients, searchQuery, selectedStatus, selectedWorkerId, showEnabledOnly]);
 
   const selectedRecipient =
     recipients.find((recipient) => recipient.id === selectedRecipientId) ?? null;
+
+  useEffect(() => {
+    setOperationalNameDraft(selectedRecipient?.operationalName ?? "");
+  }, [selectedRecipient?.id, selectedRecipient?.operationalName]);
   const enabledRecipientCount = recipients.filter(isRecipientEnabled).length;
   const activeWorkers = employmentContracts.filter((contract) => contract.enabled);
   const renewalCount = recipients.filter((recipient) =>
@@ -888,18 +915,14 @@ function App() {
     }
 
     if (formState.serviceStartDate > formState.serviceEndDate) {
-      setFormErrorMessage("장기요양 제공 시작일은 종료일보다 늦을 수 없습니다.");
-      return;
-    }
-
-    if (formState.contractRegisteredDate > formState.contractExpiredDate) {
-      setFormErrorMessage("급여 계약 등록일은 만료일보다 늦을 수 없습니다.");
+      setFormErrorMessage("장기요양이용계약 시작일은 만료일보다 늦을 수 없습니다.");
       return;
     }
 
     const newRecipient: RecipientInput = {
       id: createRecipientId(),
       name: formState.name.trim(),
+      ...(formState.operationalName.trim() ? { operationalName: formState.operationalName.trim() } : {}),
       birthDate: formState.birthDate,
       longTermCareNumber: formState.longTermCareNumber.trim(),
       careGrade: formState.careGrade.trim(),
@@ -912,8 +935,8 @@ function App() {
       representativePhone: formatPhoneNumberInput(formState.representativePhone.trim()),
       serviceStartDate: formState.serviceStartDate,
       serviceEndDate: formState.serviceEndDate,
-      contractRegisteredDate: formState.contractRegisteredDate,
-      contractExpiredDate: formState.contractExpiredDate,
+      contractRegisteredDate: formState.serviceStartDate,
+      contractExpiredDate: formState.serviceEndDate,
       enabled: true
     };
 
@@ -937,7 +960,7 @@ function App() {
   const handleQuickCreateRecipient = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const requiredQuickFields: Array<keyof RecipientFormState> = [
-      "name", "birthDate", "longTermCareNumber", "careGrade", "serviceStartDate", "contractExpiredDate"
+      "name", "birthDate", "longTermCareNumber", "careGrade", "serviceStartDate", "serviceEndDate"
     ];
 
     if (requiredQuickFields.some((field) => !formState[field].trim())) {
@@ -945,8 +968,8 @@ function App() {
       return;
     }
 
-    if (formState.serviceStartDate > formState.contractExpiredDate) {
-      setFormErrorMessage("급여 시작일은 계약 만료일보다 늦을 수 없습니다.");
+    if (formState.serviceStartDate > formState.serviceEndDate) {
+      setFormErrorMessage("장기요양이용계약 시작일은 만료일보다 늦을 수 없습니다.");
       return;
     }
 
@@ -955,6 +978,7 @@ function App() {
       const createdRecipient = await createRecipient({
         id: createRecipientId(),
         name: formState.name.trim(),
+        ...(formState.operationalName.trim() ? { operationalName: formState.operationalName.trim() } : {}),
         birthDate: formState.birthDate,
         longTermCareNumber: formState.longTermCareNumber.trim(),
         careGrade: formState.careGrade,
@@ -963,9 +987,9 @@ function App() {
         representativeRelation: "미등록",
         representativePhone: "미등록",
         serviceStartDate: formState.serviceStartDate,
-        serviceEndDate: formState.contractExpiredDate,
+        serviceEndDate: formState.serviceEndDate,
         contractRegisteredDate: formState.serviceStartDate,
-        contractExpiredDate: formState.contractExpiredDate,
+        contractExpiredDate: formState.serviceEndDate,
         enabled: true
       });
       setRecipients((current) => [...current, createdRecipient]);
@@ -975,6 +999,23 @@ function App() {
       setSelectedRecipientId(createdRecipient.id);
     } catch (error) {
       setFormErrorMessage(error instanceof Error ? error.message : "수급자를 추가하지 못했습니다.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleOperationalNameUpdate = async () => {
+    if (!selectedRecipient) return;
+    setIsSaving(true);
+    try {
+      const updated = await updateRecipient({
+        ...selectedRecipient,
+        operationalName: operationalNameDraft.trim() || undefined
+      });
+      setRecipients((current) => current.map((recipient) => recipient.id === updated.id ? updated : recipient));
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "업무식별명을 저장하지 못했습니다.");
     } finally {
       setIsSaving(false);
     }
@@ -1104,22 +1145,15 @@ function App() {
         const rowNumber = index + 2;
         const serviceStartDate = requireCsvValue(row, "serviceStartDate");
         const serviceEndDate = requireCsvValue(row, "serviceEndDate");
-        const contractRegisteredDate = requireCsvValue(row, "contractRegisteredDate");
-        const contractExpiredDate = requireCsvValue(row, "contractExpiredDate");
 
         if (serviceStartDate > serviceEndDate) {
           throw new Error(`${rowNumber}행: serviceStartDate는 serviceEndDate보다 늦을 수 없습니다.`);
         }
 
-        if (contractRegisteredDate > contractExpiredDate) {
-          throw new Error(
-            `${rowNumber}행: contractRegisteredDate는 contractExpiredDate보다 늦을 수 없습니다.`
-          );
-        }
-
         const recipientInput: RecipientInput = {
           id: row.id || createRecipientId(),
           name: requireCsvValue(row, "name"),
+          ...(row.operationalName?.trim() ? { operationalName: row.operationalName.trim() } : {}),
           birthDate: requireCsvValue(row, "birthDate"),
           longTermCareNumber: requireCsvValue(row, "longTermCareNumber"),
           careGrade: requireCsvValue(row, "careGrade"),
@@ -1130,8 +1164,8 @@ function App() {
           representativePhone: formatPhoneNumberInput(requireCsvValue(row, "representativePhone")),
           serviceStartDate,
           serviceEndDate,
-          contractRegisteredDate,
-          contractExpiredDate,
+          contractRegisteredDate: serviceStartDate,
+          contractExpiredDate: serviceEndDate,
           enabled: parseCsvBoolean(row.enabled, false)
         };
 
@@ -1320,7 +1354,7 @@ function App() {
 
   const openTerminateDialog = (recipient: Recipient) => {
     setRecipientToTerminate(recipient);
-    setTerminationExpiredDate(recipient.contractExpiredDate);
+    setTerminationExpiredDate(recipient.serviceEndDate);
     setTerminationErrorMessage(null);
   };
 
@@ -1336,12 +1370,12 @@ function App() {
     }
 
     if (!terminationExpiredDate) {
-      setTerminationErrorMessage("급여 계약 만료일을 입력하세요.");
+      setTerminationErrorMessage("장기요양이용계약 만료일을 입력하세요.");
       return;
     }
 
-    if (terminationExpiredDate < recipientToTerminate.contractRegisteredDate) {
-      setTerminationErrorMessage("급여 계약 만료일은 계약 등록일보다 빠를 수 없습니다.");
+    if (terminationExpiredDate < recipientToTerminate.serviceStartDate) {
+      setTerminationErrorMessage("장기요양이용계약 만료일은 시작일보다 빠를 수 없습니다.");
       return;
     }
 
@@ -1411,9 +1445,7 @@ function App() {
     if (restoreFormState.restoreType === "recontracted") {
       const requiredDates = [
         restoreFormState.serviceStartDate,
-        restoreFormState.serviceEndDate,
-        restoreFormState.contractRegisteredDate,
-        restoreFormState.contractExpiredDate
+        restoreFormState.serviceEndDate
       ];
 
       if (requiredDates.some((value) => !value)) {
@@ -1422,12 +1454,7 @@ function App() {
       }
 
       if (restoreFormState.serviceStartDate > restoreFormState.serviceEndDate) {
-        setRestoreErrorMessage("장기요양 제공 시작일은 종료일보다 늦을 수 없습니다.");
-        return;
-      }
-
-      if (restoreFormState.contractRegisteredDate > restoreFormState.contractExpiredDate) {
-        setRestoreErrorMessage("급여 계약 등록일은 만료일보다 늦을 수 없습니다.");
+        setRestoreErrorMessage("장기요양이용계약 시작일은 만료일보다 늦을 수 없습니다.");
         return;
       }
     }
@@ -1443,8 +1470,8 @@ function App() {
           ? {
               serviceStartDate: restoreFormState.serviceStartDate,
               serviceEndDate: restoreFormState.serviceEndDate,
-              contractRegisteredDate: restoreFormState.contractRegisteredDate,
-              contractExpiredDate: restoreFormState.contractExpiredDate
+              contractRegisteredDate: restoreFormState.serviceStartDate,
+              contractExpiredDate: restoreFormState.serviceEndDate
             }
           : {}),
         memo: restoreFormState.memo.trim() || undefined
@@ -1520,7 +1547,7 @@ function App() {
           <div>
             <span className="eyebrow">Recipients</span>
             <h1>수급자 관리</h1>
-            <p>기본 정보와 계약 만료일을 기록하고 확인합니다.</p>
+            <p>기본 정보와 장기요양이용계약 기간을 기록하고 확인합니다.</p>
           </div>
           <div className="heading-actions">
             <button
@@ -1581,11 +1608,12 @@ function App() {
             </div>
             <div className="quick-add-grid">
               <label><span>이름</span><input value={formState.name} onChange={(event) => updateFormField("name", event.target.value)} required autoFocus /></label>
+              <label className="quick-identifier-field"><span>업무식별명</span><input value={formState.operationalName} onChange={(event) => updateFormField("operationalName", event.target.value)} placeholder="정성춘/3/함평군/파킨슨" /></label>
               <label><span>생년월일</span><input type="date" value={formState.birthDate} onChange={(event) => updateFormField("birthDate", event.target.value)} required /></label>
               <label><span>인정번호</span><input value={formState.longTermCareNumber} onChange={(event) => updateFormField("longTermCareNumber", event.target.value)} required /></label>
               <label><span>등급</span><select value={formState.careGrade} onChange={(event) => updateFormField("careGrade", event.target.value)}>{["1등급","2등급","3등급","4등급","5등급","인지지원등급"].map((grade) => <option key={grade}>{grade}</option>)}</select></label>
-              <label><span>급여 시작일</span><input type="date" value={formState.serviceStartDate} onChange={(event) => updateFormField("serviceStartDate", event.target.value)} required /></label>
-              <label><span>계약 만료일</span><input type="date" value={formState.contractExpiredDate} onChange={(event) => updateFormField("contractExpiredDate", event.target.value)} required /></label>
+              <label><span>장기요양이용계약 시작일</span><input type="date" value={formState.serviceStartDate} onChange={(event) => updateFormField("serviceStartDate", event.target.value)} required /></label>
+              <label><span>장기요양이용계약 만료일</span><input type="date" value={formState.serviceEndDate} onChange={(event) => updateFormField("serviceEndDate", event.target.value)} required /></label>
             </div>
             {formErrorMessage && <p className="quick-error">{formErrorMessage}</p>}
             <div className="quick-add-actions">
@@ -1599,7 +1627,7 @@ function App() {
           <div className="list-toolbar">
             <div>
               <h2 id="recipient-list-title">수급자 목록</h2>
-              <span>계약 만료일 오름차순</span>
+              <span>장기요양이용계약 만료일 오름차순</span>
             </div>
             <div className="toolbar-controls">
               <select className="filter-select" aria-label="담당 근무자 필터" value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)}>
@@ -1646,11 +1674,15 @@ function App() {
           ) : (
             <div className={`recipient-table ${viewDensity === "simple" ? "is-simple" : ""}`}>
               <div className="table-head">
-                <span>수급자</span>
-                <span>등급</span>
-                <span>상태</span>
-                <span>대표 연락자</span>
-                <span>계약 만료일</span>
+                {viewDensity === "simple" ? (
+                  <>
+                    <span>수급자</span><span>등급</span><span>장기요양인정번호</span><span>상태</span><span>주요 연락처</span>
+                  </>
+                ) : (
+                  <>
+                    <span>수급자</span><span>등급</span><span>상태</span><span>대표 연락자</span><span>이용계약 만료일</span>
+                  </>
+                )}
                 <span aria-hidden="true" />
               </div>
               <ul>
@@ -1666,22 +1698,29 @@ function App() {
                       <span className="recipient-name">
                         <strong>{recipient.name}</strong>
                         <small>
-                          {recipient.longTermCareNumber}
+                          {viewDensity === "simple" ? getRecipientDisplayId(recipient) : recipient.longTermCareNumber}
                           {!isRecipientEnabled(recipient) && (
                             <em className="status-chip">비활성화</em>
                           )}
                         </small>
                       </span>
                       <span>{recipient.careGrade}</span>
-                      <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
-                      <span>
-                        {recipient.representativeName}
-                        <small>{recipient.representativePhone}</small>
-                      </span>
-                      <span className="expiry">
-                        <CalendarClock size={15} />
-                        {recipient.contractExpiredDate}
-                      </span>
+                      {viewDensity === "simple" ? (
+                        <>
+                          <span className="care-number">{recipient.longTermCareNumber}</span>
+                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
+                          <span className="primary-contact">
+                            <strong>{hasPrimaryContact(recipient) ? `${recipient.representativeName}(${recipient.representativeRelation})` : "연락처 미등록"}</strong>
+                            <small>{hasPrimaryContact(recipient) ? recipient.representativePhone : "상세 정보에서 등록해 주세요"}</small>
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
+                          <span>{recipient.representativeName}<small>{recipient.representativePhone}</small></span>
+                          <span className="expiry"><CalendarClock size={15} />{recipient.serviceEndDate}</span>
+                        </>
+                      )}
                       <ChevronRight size={18} />
                     </button>
                   </li>
@@ -1909,9 +1948,19 @@ function App() {
                 )}
               </p>
               <div>
-                <small>계약 만료일</small>
-                <strong>{formatDate(selectedRecipient.contractExpiredDate)}</strong>
+                <small>장기요양이용계약 만료일</small>
+                <strong>{formatDate(selectedRecipient.serviceEndDate)}</strong>
               </div>
+            </div>
+
+            <div className="operational-name-editor">
+              <label>
+                <span>업무식별명</span>
+                <input value={operationalNameDraft} onChange={(event) => setOperationalNameDraft(event.target.value)} placeholder="정성춘/3/함평군/파킨슨" />
+              </label>
+              <button type="button" className="secondary-button" onClick={() => void handleOperationalNameUpdate()} disabled={isSaving}>
+                <Save size={16} /> 저장
+              </button>
             </div>
 
             <div className="detail-sections">
@@ -2055,6 +2104,14 @@ function App() {
                     />
                   </label>
                   <label>
+                    <span>업무식별명</span>
+                    <input
+                      value={formState.operationalName}
+                      onChange={(event) => updateFormField("operationalName", event.target.value)}
+                      placeholder="정성춘/3/함평군/파킨슨"
+                    />
+                  </label>
+                  <label>
                     <span>생년월일</span>
                     <input
                       type="date"
@@ -2148,10 +2205,10 @@ function App() {
               </section>
 
               <section className="form-section" aria-labelledby="contract-form-title">
-                <h3 id="contract-form-title">계약 및 제공 기간</h3>
+                <h3 id="contract-form-title">장기요양이용계약</h3>
                 <div className="form-grid">
                   <label>
-                    <span>장기요양 제공 시작일</span>
+                    <span>장기요양이용계약 시작일</span>
                     <input
                       type="date"
                       value={formState.serviceStartDate}
@@ -2160,33 +2217,11 @@ function App() {
                     />
                   </label>
                   <label>
-                    <span>장기요양 제공 종료일</span>
+                    <span>장기요양이용계약 만료일</span>
                     <input
                       type="date"
                       value={formState.serviceEndDate}
                       onChange={(event) => updateFormField("serviceEndDate", event.target.value)}
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>급여 계약 등록일</span>
-                    <input
-                      type="date"
-                      value={formState.contractRegisteredDate}
-                      onChange={(event) =>
-                        updateFormField("contractRegisteredDate", event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>급여 계약 만료일</span>
-                    <input
-                      type="date"
-                      value={formState.contractExpiredDate}
-                      onChange={(event) =>
-                        updateFormField("contractExpiredDate", event.target.value)
-                      }
                       required
                     />
                   </label>
@@ -2553,16 +2588,16 @@ function App() {
             <div>
               <h2 id="terminate-title">계약해지 처리</h2>
               <p id="terminate-description">
-                {recipientToTerminate.name} 수급자의 급여 계약 만료일을 기록하고 비활성화합니다.
+                {recipientToTerminate.name} 수급자의 장기요양이용계약 만료일을 기록하고 비활성화합니다.
               </p>
             </div>
 
             <label className="alert-field">
-              <span>급여 계약 만료일</span>
+              <span>장기요양이용계약 만료일</span>
               <input
                 type="date"
                 value={terminationExpiredDate}
-                min={recipientToTerminate.contractRegisteredDate}
+                min={recipientToTerminate.serviceStartDate}
                 onChange={(event) => {
                   setTerminationExpiredDate(event.target.value);
                   setTerminationErrorMessage(null);
@@ -2650,7 +2685,7 @@ function App() {
             {restoreFormState.restoreType === "recontracted" && (
               <div className="restore-date-grid">
                 <label className="alert-field">
-                  <span>장기요양 제공 시작일</span>
+                  <span>장기요양이용계약 시작일</span>
                   <input
                     type="date"
                     value={restoreFormState.serviceStartDate}
@@ -2660,31 +2695,11 @@ function App() {
                   />
                 </label>
                 <label className="alert-field">
-                  <span>장기요양 제공 종료일</span>
+                  <span>장기요양이용계약 만료일</span>
                   <input
                     type="date"
                     value={restoreFormState.serviceEndDate}
                     onChange={(event) => updateRestoreField("serviceEndDate", event.target.value)}
-                  />
-                </label>
-                <label className="alert-field">
-                  <span>급여 계약 등록일</span>
-                  <input
-                    type="date"
-                    value={restoreFormState.contractRegisteredDate}
-                    onChange={(event) =>
-                      updateRestoreField("contractRegisteredDate", event.target.value)
-                    }
-                  />
-                </label>
-                <label className="alert-field">
-                  <span>급여 계약 만료일</span>
-                  <input
-                    type="date"
-                    value={restoreFormState.contractExpiredDate}
-                    onChange={(event) =>
-                      updateRestoreField("contractExpiredDate", event.target.value)
-                    }
                   />
                 </label>
               </div>

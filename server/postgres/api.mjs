@@ -122,6 +122,7 @@ const deriveBirthDateFromResidentNumber = (residentRegistrationNumber) => {
 const recipientFromRow = (row) => ({
   id: row.id,
   name: row.name,
+  ...(row.operational_name ? { operationalName: row.operational_name } : {}),
   birthDate: row.birth_date,
   longTermCareNumber: row.long_term_care_number,
   careGrade: row.care_grade,
@@ -280,6 +281,7 @@ const normalizeRecipient = (body, existing = null) => {
   const recipient = {
     id: assertString(body.id ?? existing?.id, "id"),
     name: assertString(body.name, "name"),
+    operationalName: assertString(body.operationalName, "operationalName", { optional: true }),
     birthDate: assertString(body.birthDate, "birthDate"),
     longTermCareNumber: assertString(body.longTermCareNumber, "longTermCareNumber"),
     careGrade: assertString(body.careGrade, "careGrade"),
@@ -435,15 +437,16 @@ const insertRecipient = async (recipient) =>
   pool.query(
     `
       INSERT INTO recipients (
-        id, name, birth_date, long_term_care_number, care_grade, phone, address,
+        id, name, operational_name, birth_date, long_term_care_number, care_grade, phone, address,
         representative_name, representative_relation, representative_phone,
         service_start_date, service_end_date, contract_registered_date,
         contract_expired_date, enabled, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
     `,
     [
       recipient.id,
       recipient.name,
+      recipient.operationalName,
       recipient.birthDate,
       recipient.longTermCareNumber,
       recipient.careGrade,
@@ -466,14 +469,15 @@ const updateRecipient = async (recipient) =>
   pool.query(
     `
       UPDATE recipients SET
-        name = $1, birth_date = $2, long_term_care_number = $3, care_grade = $4,
-        phone = $5, address = $6, representative_name = $7, representative_relation = $8,
-        representative_phone = $9, service_start_date = $10, service_end_date = $11,
-        contract_registered_date = $12, contract_expired_date = $13, enabled = $14, updated_at = $15
-      WHERE id = $16
+        name = $1, operational_name = $2, birth_date = $3, long_term_care_number = $4, care_grade = $5,
+        phone = $6, address = $7, representative_name = $8, representative_relation = $9,
+        representative_phone = $10, service_start_date = $11, service_end_date = $12,
+        contract_registered_date = $13, contract_expired_date = $14, enabled = $15, updated_at = $16
+      WHERE id = $17
     `,
     [
       recipient.name,
+      recipient.operationalName,
       recipient.birthDate,
       recipient.longTermCareNumber,
       recipient.careGrade,
@@ -859,12 +863,12 @@ export const handlePostgresRequest = async (request, response) => {
       const body = await readBody(request);
       const contractExpiredDate = assertString(body.contractExpiredDate, "contractExpiredDate");
 
-      if (contractExpiredDate < existing.contractRegisteredDate) {
-        throw new Error("contractExpiredDate must not be earlier than contractRegisteredDate");
+      if (contractExpiredDate < existing.serviceStartDate) {
+        throw new Error("serviceEndDate must not be earlier than serviceStartDate");
       }
 
       const recipient = normalizeRecipient(
-        { ...existing, contractExpiredDate, enabled: false },
+        { ...existing, serviceEndDate: contractExpiredDate, contractExpiredDate, enabled: false },
         existing
       );
       await updateRecipient(recipient);
