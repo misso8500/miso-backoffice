@@ -683,6 +683,10 @@ function App() {
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(null);
   const [operationalNameDraft, setOperationalNameDraft] = useState("");
+  const [operationalNameSaveMessage, setOperationalNameSaveMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showEnabledOnly, setShowEnabledOnly] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState<RecipientStatus | "전체">("전체");
@@ -831,6 +835,7 @@ function App() {
 
   useEffect(() => {
     setOperationalNameDraft(selectedRecipient?.operationalName ?? "");
+    setOperationalNameSaveMessage(null);
   }, [selectedRecipient?.id, selectedRecipient?.operationalName]);
   const enabledRecipientCount = recipients.filter(isRecipientEnabled).length;
   const activeWorkers = employmentContracts.filter((contract) => contract.enabled);
@@ -1081,16 +1086,32 @@ function App() {
 
   const handleOperationalNameUpdate = async () => {
     if (!selectedRecipient) return;
+
+    const operationalName = operationalNameDraft.trim();
+    if (!operationalName) {
+      setOperationalNameSaveMessage({ type: "error", text: "업무식별명을 입력하세요." });
+      return;
+    }
+
     setIsSaving(true);
+    setOperationalNameSaveMessage(null);
     try {
       const updated = await updateRecipient({
         ...selectedRecipient,
-        operationalName: operationalNameDraft.trim() || undefined
+        operationalName
       });
+      if (updated.operationalName !== operationalName) {
+        throw new Error("업무식별명이 서버 응답에 반영되지 않았습니다. API 서버를 재시작해 주세요.");
+      }
       setRecipients((current) => current.map((recipient) => recipient.id === updated.id ? updated : recipient));
+      setOperationalNameDraft(updated.operationalName);
+      setOperationalNameSaveMessage({ type: "success", text: "업무식별명을 저장했습니다." });
       setErrorMessage(null);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "업무식별명을 저장하지 못했습니다.");
+      setOperationalNameSaveMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "업무식별명을 저장하지 못했습니다."
+      });
     } finally {
       setIsSaving(false);
     }
@@ -2077,15 +2098,20 @@ function App() {
               </div>
             </div>
 
-            <div className="operational-name-editor">
+            <form className="operational-name-editor" onSubmit={(event) => { event.preventDefault(); void handleOperationalNameUpdate(); }}>
               <label>
                 <span>업무식별명</span>
-                <input value={operationalNameDraft} onChange={(event) => setOperationalNameDraft(event.target.value)} placeholder="정성춘/3/함평군/파킨슨" />
+                <input value={operationalNameDraft} onChange={(event) => { setOperationalNameDraft(event.target.value); setOperationalNameSaveMessage(null); }} placeholder="정성춘/3/함평군/파킨슨" required />
               </label>
-              <button type="button" className="secondary-button" onClick={() => void handleOperationalNameUpdate()} disabled={isSaving}>
-                <Save size={16} /> 저장
+              <button type="submit" className="secondary-button" disabled={isSaving}>
+                <Save size={16} /> {isSaving ? "저장 중" : "저장"}
               </button>
-            </div>
+              {operationalNameSaveMessage && (
+                <p className={`inline-save-message is-${operationalNameSaveMessage.type}`} role={operationalNameSaveMessage.type === "error" ? "alert" : "status"}>
+                  {operationalNameSaveMessage.text}
+                </p>
+              )}
+            </form>
 
             <div className="detail-sections">
               {detailSections.map((section) => (
