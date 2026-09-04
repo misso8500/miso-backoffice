@@ -2,23 +2,29 @@
   "name": "miso-backoffice",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
+    "api": "node server/api-router.mjs",
+    "api:sqlite": "node server/api.mjs",
+    "api:postgres": "node server/postgres/api.mjs",
+    "db:postgres:init": "node server/postgres/init.mjs",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b"
   },
   "dependencies": {
-    "next": "^16.2.6",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
-  },
-  "overrides": {
-    "postcss": "^8.5.10"
+    "@vitejs/plugin-react": "^6.0.2",
+    "lucide-react": "^0.561.0",
+    "pg": "^8.22.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "vite": "^8.0.16"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "typescript": "^5.0.0"
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
   }
 }
