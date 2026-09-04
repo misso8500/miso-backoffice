@@ -357,7 +357,7 @@ p {
 
 .recipient-table.is-simple .table-head,
 .recipient-table.is-simple .recipient-row {
-  grid-template-columns: minmax(240px, 1.35fr) minmax(112px, 0.55fr) minmax(220px, 1.25fr) minmax(180px, 0.95fr) 28px;
+  grid-template-columns: minmax(240px, 1.35fr) minmax(112px, 0.55fr) minmax(220px, 1.25fr) minmax(180px, 0.95fr) 80px;
 }
 
 .error-banner {
@@ -539,6 +539,41 @@ p {
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.row-icon-button {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: #625b72;
+  cursor: pointer;
+}
+
+.row-icon-button:hover {
+  border-color: #a99bc5;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.row-icon-button.is-danger:hover {
+  border-color: #d8a6a6;
+  background: #fff1f1;
+  color: #a33b3b;
+}
+
+.row-icon-button:focus-visible {
+  outline: 3px solid rgba(149, 133, 189, 0.3);
+  outline-offset: 1px;
 }
 
 .operational-name-editor {

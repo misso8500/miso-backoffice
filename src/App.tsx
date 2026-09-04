@@ -30,6 +30,7 @@ import {
 import {
   createEmploymentContract,
   createRecipient,
+  deleteRecipient,
   loadEmploymentContracts,
   loadRecipients,
   restoreRecipient,
@@ -1332,22 +1333,16 @@ function App() {
     setDeactivateErrorMessage(null);
 
     try {
-      const updatedRecipient = await updateRecipient({
-        ...recipientToDeactivate,
-        enabled: false
-      });
-
+      await deleteRecipient(recipientToDeactivate.id);
       setRecipients((current) =>
-        current.map((recipient) =>
-          recipient.id === updatedRecipient.id ? updatedRecipient : recipient
-        )
+        current.filter((recipient) => recipient.id !== recipientToDeactivate.id)
       );
-      setSelectedRecipientId(updatedRecipient.id);
+      setSelectedRecipientId(null);
       setRecipientToDeactivate(null);
       setErrorMessage(null);
     } catch (error) {
       setDeactivateErrorMessage(
-        error instanceof Error ? error.message : "수급자를 비활성화하지 못했습니다."
+        error instanceof Error ? error.message : "수급자 정보를 삭제하지 못했습니다."
       );
     } finally {
       setIsDeactivating(false);
@@ -1717,17 +1712,24 @@ function App() {
                     <span>수급자</span><span>등급</span><span>상태</span><span>대표 연락자</span><span>이용계약 만료일</span>
                   </>
                 )}
-                <span aria-hidden="true" />
+                <span>{viewDensity === "simple" ? "관리" : ""}</span>
               </div>
               <ul>
                 {filteredRecipients.map((recipient) => (
                   <li key={recipient.id}>
-                    <button
-                      type="button"
+                    <div
                       className={`recipient-row ${
                         isRecipientEnabled(recipient) ? "" : "is-disabled"
                       }`}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setSelectedRecipientId(recipient.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedRecipientId(recipient.id);
+                        }
+                      }}
                     >
                       <span className="recipient-name">
                         <strong>{recipient.name}</strong>
@@ -1755,8 +1757,38 @@ function App() {
                           <span className="expiry"><CalendarClock size={15} />{recipient.serviceEndDate}</span>
                         </>
                       )}
-                      <ChevronRight size={18} />
-                    </button>
+                      {viewDensity === "simple" ? (
+                        <div className="row-actions" aria-label={`${recipient.name} 관리`}>
+                          <button
+                            type="button"
+                            className="row-icon-button"
+                            aria-label={`${recipient.name} 수정`}
+                            title="수정"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openRecipientEditPanel(recipient);
+                            }}
+                          >
+                            <Pencil size={17} />
+                          </button>
+                          <button
+                            type="button"
+                            className="row-icon-button is-danger"
+                            aria-label={`${recipient.name} 삭제`}
+                            title="삭제"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setRecipientToDeactivate(recipient);
+                              setDeactivateErrorMessage(null);
+                            }}
+                          >
+                            <Trash2 size={17} />
+                          </button>
+                        </div>
+                      ) : (
+                        <ChevronRight size={18} />
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -2529,10 +2561,9 @@ function App() {
               <AlertTriangle size={24} />
             </div>
             <div>
-              <h2 id="deactivate-title">수급자를 삭제 처리할까요?</h2>
+              <h2 id="deactivate-title">수급자 정보 삭제</h2>
               <p id="deactivate-description">
-                {recipientToDeactivate.name} 수급자는 실제로 삭제되지 않고 비활성화 상태로
-                표시됩니다.
+                {recipientToDeactivate.name} 수급자 정보를 삭제하시겠습니까?
               </p>
             </div>
 
@@ -2550,7 +2581,7 @@ function App() {
                 onClick={() => setRecipientToDeactivate(null)}
                 disabled={isDeactivating}
               >
-                취소
+                NO
               </button>
               <button
                 type="button"
@@ -2559,7 +2590,7 @@ function App() {
                 disabled={isDeactivating}
               >
                 <Trash2 size={17} />
-                {isDeactivating ? "처리 중" : "확인"}
+                {isDeactivating ? "삭제 중" : "YES"}
               </button>
             </div>
           </section>
