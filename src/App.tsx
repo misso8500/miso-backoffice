@@ -672,6 +672,13 @@ const getDeviceId = () => {
   return created;
 };
 
+const limitDateYear = (value: string) => {
+  const match = value.match(/^(\d{4})\d*(-.*)?$/);
+  return match ? `${match[1]}${match[2] ?? ""}` : value;
+};
+
+const dateInputLimits = { min: "1000-01-01", max: "9999-12-31" } as const;
+
 const regionAliases: Record<string, string> = {
   서울특별시: "서울", 서울시: "서울", 부산광역시: "부산", 대구광역시: "대구",
   인천광역시: "인천", 광주광역시: "광주", 대전광역시: "대전", 울산광역시: "울산",
@@ -973,7 +980,8 @@ function App() {
   ).length;
 
   const updateFormField = (field: keyof RecipientFormState, value: string) => {
-    setFormState((current) => ({ ...current, [field]: value }));
+    const dateFields: Array<keyof RecipientFormState> = ["birthDate", "serviceStartDate", "serviceEndDate", "contractRegisteredDate", "contractExpiredDate"];
+    setFormState((current) => ({ ...current, [field]: dateFields.includes(field) ? limitDateYear(value) : value }));
     setFormErrorMessage(null);
   };
 
@@ -1679,7 +1687,11 @@ function App() {
     field: Key,
     value: RestoreFormState[Key]
   ) => {
-    setRestoreFormState((current) => (current ? { ...current, [field]: value } : current));
+    const nextValue =
+      typeof value === "string" && ["serviceStartDate", "serviceEndDate"].includes(field)
+        ? limitDateYear(value)
+        : value;
+    setRestoreFormState((current) => (current ? { ...current, [field]: nextValue } : current));
     setRestoreErrorMessage(null);
   };
 
@@ -1881,12 +1893,12 @@ function App() {
             <div className="quick-add-grid">
               <label><span>이름</span><input value={formState.name} onChange={(event) => updateFormField("name", event.target.value)} required autoFocus /></label>
               <label className="quick-identifier-field"><span>업무식별명</span><input value={formState.operationalName} onChange={(event) => updateFormField("operationalName", event.target.value)} placeholder="정성춘/3/함평군/파킨슨" required /></label>
-              <label><span>생년월일</span><input type="date" value={formState.birthDate} onChange={(event) => updateFormField("birthDate", event.target.value)} required /></label>
+              <label><span>생년월일</span><input type="date" {...dateInputLimits} value={formState.birthDate} onChange={(event) => updateFormField("birthDate", event.target.value)} required /></label>
               <label><span>인정번호</span><input value={formState.longTermCareNumber} onChange={(event) => updateFormField("longTermCareNumber", event.target.value)} required /></label>
               <label><span>등급</span><select value={formState.careGrade} onChange={(event) => updateFormField("careGrade", event.target.value)}>{["1등급","2등급","3등급","4등급","5등급","인지지원등급"].map((grade) => <option key={grade}>{grade}</option>)}</select></label>
               <label className="quick-address-field"><span>수급자 주소</span><input value={formState.address} onChange={(event) => updateFormField("address", event.target.value)} placeholder="예: 광주광역시 광산구 신창동" required /></label>
-              <label><span>장기요양이용계약 시작일</span><input type="date" value={formState.serviceStartDate} onChange={(event) => updateFormField("serviceStartDate", event.target.value)} required /></label>
-              <label><span>장기요양이용계약 만료일</span><input type="date" value={formState.serviceEndDate} onChange={(event) => updateFormField("serviceEndDate", event.target.value)} required /></label>
+              <label><span>장기요양이용계약 시작일</span><input type="date" {...dateInputLimits} value={formState.serviceStartDate} onChange={(event) => updateFormField("serviceStartDate", event.target.value)} required /></label>
+              <label><span>장기요양이용계약 만료일</span><input type="date" {...dateInputLimits} value={formState.serviceEndDate} onChange={(event) => updateFormField("serviceEndDate", event.target.value)} required /></label>
             </div>
             {formErrorMessage && <p className="quick-error">{formErrorMessage}</p>}
             <div className="quick-add-actions">
@@ -2460,6 +2472,7 @@ function App() {
                     <span>생년월일</span>
                     <input
                       type="date"
+                      {...dateInputLimits}
                       value={formState.birthDate}
                       onChange={(event) => updateFormField("birthDate", event.target.value)}
                       required
@@ -2579,6 +2592,7 @@ function App() {
                     <span>장기요양이용계약 시작일</span>
                     <input
                       type="date"
+                      {...dateInputLimits}
                       value={formState.serviceStartDate}
                       onChange={(event) => updateFormField("serviceStartDate", event.target.value)}
                       required
@@ -2588,6 +2602,7 @@ function App() {
                     <span>장기요양이용계약 만료일</span>
                     <input
                       type="date"
+                      {...dateInputLimits}
                       value={formState.serviceEndDate}
                       onChange={(event) => updateFormField("serviceEndDate", event.target.value)}
                       required
@@ -2878,7 +2893,7 @@ function App() {
             ) : (
               <form className="backoffice-user-create-form" onSubmit={handleCreateBackofficeUser}>
                 <label><span>이름</span><input value={newBackofficeUserName} onChange={(event) => setNewBackofficeUserName(event.target.value)} required /></label>
-                <label><span>생년월일</span><input type="date" value={newBackofficeUserBirthDate} onChange={(event) => setNewBackofficeUserBirthDate(event.target.value)} required /></label>
+                <label><span>생년월일</span><input type="date" {...dateInputLimits} value={newBackofficeUserBirthDate} onChange={(event) => setNewBackofficeUserBirthDate(limitDateYear(event.target.value))} required /></label>
                 <div className="alert-actions">
                   <button type="button" className="secondary-button" onClick={() => setIsBackofficeUserFormOpen(false)}>취소</button>
                   <button type="submit" className="primary-button" disabled={isBackofficeUserSaving}>{isBackofficeUserSaving ? "생성 중" : "확인"}</button>
@@ -3012,10 +3027,11 @@ function App() {
               <span>장기요양이용계약 만료일</span>
               <input
                 type="date"
+                {...dateInputLimits}
                 value={terminationExpiredDate}
                 min={recipientToTerminate.serviceStartDate}
                 onChange={(event) => {
-                  setTerminationExpiredDate(event.target.value);
+                  setTerminationExpiredDate(limitDateYear(event.target.value));
                   setTerminationErrorMessage(null);
                 }}
               />
@@ -3104,6 +3120,7 @@ function App() {
                   <span>장기요양이용계약 시작일</span>
                   <input
                     type="date"
+                    {...dateInputLimits}
                     value={restoreFormState.serviceStartDate}
                     onChange={(event) =>
                       updateRestoreField("serviceStartDate", event.target.value)
@@ -3114,6 +3131,7 @@ function App() {
                   <span>장기요양이용계약 만료일</span>
                   <input
                     type="date"
+                    {...dateInputLimits}
                     value={restoreFormState.serviceEndDate}
                     onChange={(event) => updateRestoreField("serviceEndDate", event.target.value)}
                   />
