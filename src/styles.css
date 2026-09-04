@@ -337,6 +337,7 @@ p {
 .quick-add-grid { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; }
 .quick-add-grid label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 800; }
 .quick-add-grid .quick-identifier-field { grid-column: span 2; }
+.quick-add-grid .quick-address-field { grid-column: span 2; }
 .quick-add-grid input,
 .quick-add-grid select,
 .filter-select { min-height: 42px; border: 1px solid var(--border); background: #fff; padding: 0 10px; color: #34343a; }
@@ -356,7 +357,7 @@ p {
 
 .recipient-table.is-simple .table-head,
 .recipient-table.is-simple .recipient-row {
-  grid-template-columns: minmax(230px, 1.55fr) 0.48fr minmax(150px, 0.95fr) 0.8fr minmax(180px, 1fr) 28px;
+  grid-template-columns: minmax(240px, 1.35fr) minmax(112px, 0.55fr) minmax(220px, 1.25fr) minmax(180px, 0.95fr) 28px;
 }
 
 .error-banner {
@@ -529,6 +530,15 @@ p {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.recipient-address {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #4d4d55;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .operational-name-editor {
@@ -1163,7 +1173,8 @@ p {
 
 @media (max-width: 620px) {
   .quick-add-grid { grid-template-columns: 1fr; }
-  .quick-add-grid .quick-identifier-field { grid-column: auto; }
+  .quick-add-grid .quick-identifier-field,
+  .quick-add-grid .quick-address-field { grid-column: auto; }
   .app-shell { padding-left: 0; }
   .app-header {
     position: static;

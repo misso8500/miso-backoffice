@@ -15,6 +15,7 @@ import {
   Database,
   ClipboardCheck,
   Download,
+  Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -126,6 +127,7 @@ const emptyEmploymentContractForm: EmploymentContractFormState = {
 
 const requiredFormFields: Array<{ key: keyof RecipientFormState; label: string }> = [
   { key: "name", label: "수급자 이름" },
+  { key: "operationalName", label: "업무식별명" },
   { key: "birthDate", label: "생년월일" },
   { key: "longTermCareNumber", label: "장기요양인정번호" },
   { key: "careGrade", label: "장기요양등급" },
@@ -669,6 +671,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
+  const [editingRecipientId, setEditingRecipientId] = useState<string | null>(null);
   const [formState, setFormState] = useState<RecipientFormState>(emptyRecipientForm);
   const [formErrorMessage, setFormErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -745,6 +748,7 @@ function App() {
       if (event.key === "Escape") {
         setSelectedRecipientId(null);
         setIsCreatePanelOpen(false);
+        setEditingRecipientId(null);
         setRecipientToDeactivate(null);
         setRecipientToTerminate(null);
         setRecipientToRestore(null);
@@ -894,8 +898,32 @@ function App() {
 
   const closeCreatePanel = () => {
     setIsCreatePanelOpen(false);
+    setEditingRecipientId(null);
     setFormState(emptyRecipientForm);
     setFormErrorMessage(null);
+  };
+
+  const openRecipientEditPanel = (recipient: Recipient) => {
+    setFormState({
+      name: recipient.name,
+      operationalName: recipient.operationalName ?? "",
+      birthDate: recipient.birthDate,
+      longTermCareNumber: recipient.longTermCareNumber,
+      careGrade: recipient.careGrade,
+      phone: recipient.phone ?? "",
+      address: recipient.address,
+      representativeName: recipient.representativeName,
+      representativeRelation: recipient.representativeRelation,
+      representativePhone: recipient.representativePhone,
+      serviceStartDate: recipient.serviceStartDate,
+      serviceEndDate: recipient.serviceEndDate,
+      contractRegisteredDate: recipient.serviceStartDate,
+      contractExpiredDate: recipient.serviceEndDate
+    });
+    setEditingRecipientId(recipient.id);
+    setSelectedRecipientId(null);
+    setFormErrorMessage(null);
+    setIsCreatePanelOpen(true);
   };
 
   const closeEmploymentCreatePanel = () => {
@@ -919,10 +947,11 @@ function App() {
       return;
     }
 
-    const newRecipient: RecipientInput = {
-      id: createRecipientId(),
+    const recipientBeingEdited = recipients.find((recipient) => recipient.id === editingRecipientId);
+    const recipientToSave: RecipientInput = {
+      id: recipientBeingEdited?.id ?? createRecipientId(),
       name: formState.name.trim(),
-      ...(formState.operationalName.trim() ? { operationalName: formState.operationalName.trim() } : {}),
+      operationalName: formState.operationalName.trim(),
       birthDate: formState.birthDate,
       longTermCareNumber: formState.longTermCareNumber.trim(),
       careGrade: formState.careGrade.trim(),
@@ -937,15 +966,19 @@ function App() {
       serviceEndDate: formState.serviceEndDate,
       contractRegisteredDate: formState.serviceStartDate,
       contractExpiredDate: formState.serviceEndDate,
-      enabled: true
+      enabled: recipientBeingEdited?.enabled ?? true
     };
 
     setIsSaving(true);
 
     try {
-      const createdRecipient = await createRecipient(newRecipient);
-      setRecipients((current) => [...current, createdRecipient]);
-      setSelectedRecipientId(createdRecipient.id);
+      const savedRecipient = recipientBeingEdited
+        ? await updateRecipient(recipientToSave)
+        : await createRecipient(recipientToSave);
+      setRecipients((current) => recipientBeingEdited
+        ? current.map((recipient) => recipient.id === savedRecipient.id ? savedRecipient : recipient)
+        : [...current, savedRecipient]);
+      setSelectedRecipientId(savedRecipient.id);
       closeCreatePanel();
       setErrorMessage(null);
     } catch (error) {
@@ -960,7 +993,7 @@ function App() {
   const handleQuickCreateRecipient = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const requiredQuickFields: Array<keyof RecipientFormState> = [
-      "name", "birthDate", "longTermCareNumber", "careGrade", "serviceStartDate", "serviceEndDate"
+      "name", "operationalName", "birthDate", "longTermCareNumber", "careGrade", "address", "serviceStartDate", "serviceEndDate"
     ];
 
     if (requiredQuickFields.some((field) => !formState[field].trim())) {
@@ -978,11 +1011,11 @@ function App() {
       const createdRecipient = await createRecipient({
         id: createRecipientId(),
         name: formState.name.trim(),
-        ...(formState.operationalName.trim() ? { operationalName: formState.operationalName.trim() } : {}),
+        operationalName: formState.operationalName.trim(),
         birthDate: formState.birthDate,
         longTermCareNumber: formState.longTermCareNumber.trim(),
         careGrade: formState.careGrade,
-        address: "미등록",
+        address: formState.address.trim(),
         representativeName: "미등록",
         representativeRelation: "미등록",
         representativePhone: "미등록",
@@ -1608,16 +1641,17 @@ function App() {
             </div>
             <div className="quick-add-grid">
               <label><span>이름</span><input value={formState.name} onChange={(event) => updateFormField("name", event.target.value)} required autoFocus /></label>
-              <label className="quick-identifier-field"><span>업무식별명</span><input value={formState.operationalName} onChange={(event) => updateFormField("operationalName", event.target.value)} placeholder="정성춘/3/함평군/파킨슨" /></label>
+              <label className="quick-identifier-field"><span>업무식별명</span><input value={formState.operationalName} onChange={(event) => updateFormField("operationalName", event.target.value)} placeholder="정성춘/3/함평군/파킨슨" required /></label>
               <label><span>생년월일</span><input type="date" value={formState.birthDate} onChange={(event) => updateFormField("birthDate", event.target.value)} required /></label>
               <label><span>인정번호</span><input value={formState.longTermCareNumber} onChange={(event) => updateFormField("longTermCareNumber", event.target.value)} required /></label>
               <label><span>등급</span><select value={formState.careGrade} onChange={(event) => updateFormField("careGrade", event.target.value)}>{["1등급","2등급","3등급","4등급","5등급","인지지원등급"].map((grade) => <option key={grade}>{grade}</option>)}</select></label>
+              <label className="quick-address-field"><span>수급자 주소</span><input value={formState.address} onChange={(event) => updateFormField("address", event.target.value)} placeholder="예: 광주광역시 광산구 신창동" required /></label>
               <label><span>장기요양이용계약 시작일</span><input type="date" value={formState.serviceStartDate} onChange={(event) => updateFormField("serviceStartDate", event.target.value)} required /></label>
               <label><span>장기요양이용계약 만료일</span><input type="date" value={formState.serviceEndDate} onChange={(event) => updateFormField("serviceEndDate", event.target.value)} required /></label>
             </div>
             {formErrorMessage && <p className="quick-error">{formErrorMessage}</p>}
             <div className="quick-add-actions">
-              <button type="button" className="secondary-button" onClick={() => { setIsQuickAddOpen(false); setIsCreatePanelOpen(true); }}>상세 입력</button>
+              <button type="button" className="secondary-button" onClick={() => { setIsQuickAddOpen(false); setEditingRecipientId(null); setIsCreatePanelOpen(true); }}>상세 입력</button>
               <button className="primary-button" disabled={isSaving}><Save size={17} />{isSaving ? "저장 중" : "바로 저장"}</button>
             </div>
           </form>
@@ -1676,7 +1710,7 @@ function App() {
               <div className="table-head">
                 {viewDensity === "simple" ? (
                   <>
-                    <span>수급자</span><span>등급</span><span>장기요양인정번호</span><span>상태</span><span>주요 연락처</span>
+                    <span>수급자</span><span>상태</span><span>수급자 주소</span><span>주요 연락처</span>
                   </>
                 ) : (
                   <>
@@ -1704,11 +1738,10 @@ function App() {
                           )}
                         </small>
                       </span>
-                      <span>{recipient.careGrade}</span>
                       {viewDensity === "simple" ? (
                         <>
-                          <span className="care-number">{recipient.longTermCareNumber}</span>
                           <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
+                          <span className="recipient-address">{recipient.address === "미등록" ? "주소 미등록" : recipient.address}</span>
                           <span className="primary-contact">
                             <strong>{hasPrimaryContact(recipient) ? `${recipient.representativeName}(${recipient.representativeRelation})` : "연락처 미등록"}</strong>
                             <small>{hasPrimaryContact(recipient) ? recipient.representativePhone : "상세 정보에서 등록해 주세요"}</small>
@@ -1716,6 +1749,7 @@ function App() {
                         </>
                       ) : (
                         <>
+                          <span>{recipient.careGrade}</span>
                           <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
                           <span>{recipient.representativeName}<small>{recipient.representativePhone}</small></span>
                           <span className="expiry"><CalendarClock size={15} />{recipient.serviceEndDate}</span>
@@ -1894,6 +1928,14 @@ function App() {
                 목록으로
               </button>
               <div className="detail-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => openRecipientEditPanel(selectedRecipient)}
+                >
+                  <Pencil size={17} />
+                  전체 정보 수정
+                </button>
                 {isRecipientEnabled(selectedRecipient) ? (
                   <>
                     <button
@@ -2067,7 +2109,7 @@ function App() {
 
       {isCreatePanelOpen && (
         <div className="detail-backdrop" role="presentation">
-          <article className="detail-panel" aria-label="수급자 등록">
+          <article className="detail-panel" aria-label={editingRecipientId ? "수급자 정보 수정" : "수급자 등록"}>
             <div className="detail-header">
               <button type="button" className="back-button" onClick={closeCreatePanel}>
                 <ArrowLeft size={17} />
@@ -2081,8 +2123,8 @@ function App() {
 
             <form className="recipient-form" onSubmit={handleCreateRecipient}>
               <div className="form-heading">
-                <span className="eyebrow">New recipient</span>
-                <h2>수급자 등록</h2>
+                <span className="eyebrow">{editingRecipientId ? "Edit recipient" : "New recipient"}</span>
+                <h2>{editingRecipientId ? "수급자 정보 수정" : "수급자 등록"}</h2>
               </div>
 
               {formErrorMessage && (
@@ -2109,6 +2151,7 @@ function App() {
                       value={formState.operationalName}
                       onChange={(event) => updateFormField("operationalName", event.target.value)}
                       placeholder="정성춘/3/함평군/파킨슨"
+                      required
                     />
                   </label>
                   <label>
@@ -2234,7 +2277,7 @@ function App() {
                 </button>
                 <button type="submit" className="primary-button" disabled={isSaving}>
                   <Save size={18} />
-                  {isSaving ? "저장 중" : "저장"}
+                  {isSaving ? "저장 중" : editingRecipientId ? "수정 저장" : "저장"}
                 </button>
               </div>
             </form>
