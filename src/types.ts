@@ -10,6 +10,10 @@ export type Recipient = {
   representativeName: string;
   representativeRelation: string;
   representativePhone: string;
+  serviceType: "방문" | "가족";
+  caregiverRequirements: string;
+  reductionType: "일반" | "감경" | "기초";
+  relatedPeople: string;
   serviceStartDate: string;
   serviceEndDate: string;
   contractRegisteredDate: string;

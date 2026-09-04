@@ -131,6 +131,10 @@ const recipientFromRow = (row) => ({
   representativeName: row.representative_name,
   representativeRelation: row.representative_relation,
   representativePhone: row.representative_phone,
+  serviceType: row.service_type ?? "방문",
+  caregiverRequirements: row.caregiver_requirements ?? "",
+  reductionType: row.reduction_type ?? "일반",
+  relatedPeople: row.related_people ?? "",
   serviceStartDate: row.service_start_date,
   serviceEndDate: row.service_end_date,
   contractRegisteredDate: row.contract_registered_date,
@@ -290,6 +294,10 @@ const normalizeRecipient = (body, existing = null) => {
     representativeName: assertString(body.representativeName, "representativeName"),
     representativeRelation: assertString(body.representativeRelation, "representativeRelation"),
     representativePhone: assertString(body.representativePhone, "representativePhone"),
+    serviceType: assertString(body.serviceType ?? existing?.serviceType ?? "방문", "serviceType"),
+    caregiverRequirements: assertString(body.caregiverRequirements ?? existing?.caregiverRequirements, "caregiverRequirements", { optional: true }) ?? "",
+    reductionType: assertString(body.reductionType ?? existing?.reductionType ?? "일반", "reductionType"),
+    relatedPeople: assertString(body.relatedPeople ?? existing?.relatedPeople, "relatedPeople", { optional: true }) ?? "",
     serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate"),
     serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate"),
     contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate"),
@@ -439,9 +447,10 @@ const insertRecipient = async (recipient) =>
       INSERT INTO recipients (
         id, name, operational_name, birth_date, long_term_care_number, care_grade, phone, address,
         representative_name, representative_relation, representative_phone,
+        service_type, caregiver_requirements, reduction_type, related_people,
         service_start_date, service_end_date, contract_registered_date,
         contract_expired_date, enabled, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
     `,
     [
       recipient.id,
@@ -455,6 +464,10 @@ const insertRecipient = async (recipient) =>
       recipient.representativeName,
       recipient.representativeRelation,
       recipient.representativePhone,
+      recipient.serviceType,
+      recipient.caregiverRequirements,
+      recipient.reductionType,
+      recipient.relatedPeople,
       recipient.serviceStartDate,
       recipient.serviceEndDate,
       recipient.contractRegisteredDate,
@@ -471,9 +484,10 @@ const updateRecipient = async (recipient) =>
       UPDATE recipients SET
         name = $1, operational_name = $2, birth_date = $3, long_term_care_number = $4, care_grade = $5,
         phone = $6, address = $7, representative_name = $8, representative_relation = $9,
-        representative_phone = $10, service_start_date = $11, service_end_date = $12,
-        contract_registered_date = $13, contract_expired_date = $14, enabled = $15, updated_at = $16
-      WHERE id = $17
+        representative_phone = $10, service_type = $11, caregiver_requirements = $12,
+        reduction_type = $13, related_people = $14, service_start_date = $15, service_end_date = $16,
+        contract_registered_date = $17, contract_expired_date = $18, enabled = $19, updated_at = $20
+      WHERE id = $21
     `,
     [
       recipient.name,
@@ -486,6 +500,10 @@ const updateRecipient = async (recipient) =>
       recipient.representativeName,
       recipient.representativeRelation,
       recipient.representativePhone,
+      recipient.serviceType,
+      recipient.caregiverRequirements,
+      recipient.reductionType,
+      recipient.relatedPeople,
       recipient.serviceStartDate,
       recipient.serviceEndDate,
       recipient.contractRegisteredDate,

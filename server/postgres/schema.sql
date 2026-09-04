@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS recipients (
   representative_name TEXT NOT NULL,
   representative_relation TEXT NOT NULL,
   representative_phone TEXT NOT NULL,
+  service_type TEXT NOT NULL DEFAULT '방문',
+  caregiver_requirements TEXT NOT NULL DEFAULT '',
+  reduction_type TEXT NOT NULL DEFAULT '일반',
+  related_people TEXT NOT NULL DEFAULT '',
   service_start_date TEXT NOT NULL,
   service_end_date TEXT NOT NULL,
   contract_registered_date TEXT NOT NULL,
@@ -23,6 +27,10 @@ CREATE INDEX IF NOT EXISTS idx_recipients_contract_expired
   ON recipients(contract_expired_date ASC);
 
 ALTER TABLE recipients ADD COLUMN IF NOT EXISTS operational_name TEXT;
+ALTER TABLE recipients ADD COLUMN IF NOT EXISTS service_type TEXT NOT NULL DEFAULT '방문';
+ALTER TABLE recipients ADD COLUMN IF NOT EXISTS caregiver_requirements TEXT NOT NULL DEFAULT '';
+ALTER TABLE recipients ADD COLUMN IF NOT EXISTS reduction_type TEXT NOT NULL DEFAULT '일반';
+ALTER TABLE recipients ADD COLUMN IF NOT EXISTS related_people TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS recipient_contract_events (
   id TEXT PRIMARY KEY,

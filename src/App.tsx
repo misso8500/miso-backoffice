@@ -57,6 +57,10 @@ type RecipientFormState = {
   representativeName: string;
   representativeRelation: string;
   representativePhone: string;
+  serviceType: "방문" | "가족";
+  caregiverRequirements: string;
+  reductionType: "일반" | "감경" | "기초";
+  relatedPeople: string;
   serviceStartDate: string;
   serviceEndDate: string;
   contractRegisteredDate: string;
@@ -74,6 +78,10 @@ const emptyRecipientForm: RecipientFormState = {
   representativeName: "",
   representativeRelation: "",
   representativePhone: "",
+  serviceType: "방문",
+  caregiverRequirements: "",
+  reductionType: "일반",
+  relatedPeople: "",
   serviceStartDate: "",
   serviceEndDate: "",
   contractRegisteredDate: "",
@@ -253,6 +261,10 @@ const downloadRecipientCsvExample = () => {
       "representativeName",
       "representativeRelation",
       "representativePhone",
+      "serviceType",
+      "caregiverRequirements",
+      "reductionType",
+      "relatedPeople",
       "serviceStartDate",
       "serviceEndDate",
       "enabled"
@@ -270,6 +282,10 @@ const downloadRecipientCsvExample = () => {
         "박보호",
         "자녀",
         "010-2222-3333",
+        "방문",
+        "여성 요양보호사, 자차 운전 가능",
+        "일반",
+        "홍길동(이웃) 010-0000-0000",
         "2026-01-01",
         "2026-12-31",
         "false"
@@ -526,7 +542,11 @@ const detailSections: Array<{
     title: "장기요양이용계약",
     fields: [
       { label: "장기요양이용계약 시작일", value: (recipient) => recipient.serviceStartDate },
-      { label: "장기요양이용계약 만료일", value: (recipient) => recipient.serviceEndDate }
+      { label: "장기요양이용계약 만료일", value: (recipient) => recipient.serviceEndDate },
+      { label: "서비스 구분", value: (recipient) => recipient.serviceType },
+      { label: "요양보호사 구인조건", value: (recipient) => recipient.caregiverRequirements },
+      { label: "감경여부", value: (recipient) => recipient.reductionType },
+      { label: "관련 지인", value: (recipient) => recipient.relatedPeople }
     ]
   },
   {
@@ -916,6 +936,10 @@ function App() {
       representativeName: recipient.representativeName,
       representativeRelation: recipient.representativeRelation,
       representativePhone: recipient.representativePhone,
+      serviceType: recipient.serviceType ?? "방문",
+      caregiverRequirements: recipient.caregiverRequirements ?? "",
+      reductionType: recipient.reductionType ?? "일반",
+      relatedPeople: recipient.relatedPeople ?? "",
       serviceStartDate: recipient.serviceStartDate,
       serviceEndDate: recipient.serviceEndDate,
       contractRegisteredDate: recipient.serviceStartDate,
@@ -963,6 +987,10 @@ function App() {
       representativeName: formState.representativeName.trim(),
       representativeRelation: formState.representativeRelation.trim(),
       representativePhone: formatPhoneNumberInput(formState.representativePhone.trim()),
+      serviceType: formState.serviceType,
+      caregiverRequirements: formState.caregiverRequirements.trim(),
+      reductionType: formState.reductionType,
+      relatedPeople: formState.relatedPeople.trim(),
       serviceStartDate: formState.serviceStartDate,
       serviceEndDate: formState.serviceEndDate,
       contractRegisteredDate: formState.serviceStartDate,
@@ -1020,6 +1048,10 @@ function App() {
         representativeName: "미등록",
         representativeRelation: "미등록",
         representativePhone: "미등록",
+        serviceType: formState.serviceType,
+        caregiverRequirements: formState.caregiverRequirements.trim(),
+        reductionType: formState.reductionType,
+        relatedPeople: formState.relatedPeople.trim(),
         serviceStartDate: formState.serviceStartDate,
         serviceEndDate: formState.serviceEndDate,
         contractRegisteredDate: formState.serviceStartDate,
@@ -1196,6 +1228,10 @@ function App() {
           representativeName: requireCsvValue(row, "representativeName"),
           representativeRelation: requireCsvValue(row, "representativeRelation"),
           representativePhone: formatPhoneNumberInput(requireCsvValue(row, "representativePhone")),
+          serviceType: row.serviceType === "가족" ? "가족" : "방문",
+          caregiverRequirements: row.caregiverRequirements?.trim() ?? "",
+          reductionType: row.reductionType === "감경" || row.reductionType === "기초" ? row.reductionType : "일반",
+          relatedPeople: row.relatedPeople?.trim() ?? "",
           serviceStartDate,
           serviceEndDate,
           contractRegisteredDate: serviceStartDate,
@@ -2282,6 +2318,29 @@ function App() {
               <section className="form-section" aria-labelledby="contract-form-title">
                 <h3 id="contract-form-title">장기요양이용계약</h3>
                 <div className="form-grid">
+                  <label>
+                    <span>서비스 구분</span>
+                    <select value={formState.serviceType} onChange={(event) => updateFormField("serviceType", event.target.value as RecipientFormState["serviceType"])}>
+                      <option>방문</option>
+                      <option>가족</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>감경여부</span>
+                    <select value={formState.reductionType} onChange={(event) => updateFormField("reductionType", event.target.value as RecipientFormState["reductionType"])}>
+                      <option>일반</option>
+                      <option>감경</option>
+                      <option>기초</option>
+                    </select>
+                  </label>
+                  <label className="wide-field">
+                    <span>요양보호사 구인조건</span>
+                    <textarea value={formState.caregiverRequirements} onChange={(event) => updateFormField("caregiverRequirements", event.target.value)} placeholder="예: 여성 요양보호사, 자차 운전 가능" />
+                  </label>
+                  <label className="wide-field">
+                    <span>수급자 관련 지인</span>
+                    <textarea value={formState.relatedPeople} onChange={(event) => updateFormField("relatedPeople", event.target.value)} placeholder="예: 홍길동(이웃) 010-0000-0000" />
+                  </label>
                   <label>
                     <span>장기요양이용계약 시작일</span>
                     <input

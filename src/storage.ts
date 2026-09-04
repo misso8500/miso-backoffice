@@ -35,6 +35,10 @@ const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> 
 
 const normalizeRecipient = (recipient: Recipient): Recipient => ({
   ...recipient,
+  serviceType: recipient.serviceType ?? "방문",
+  caregiverRequirements: recipient.caregiverRequirements ?? "",
+  reductionType: recipient.reductionType ?? "일반",
+  relatedPeople: recipient.relatedPeople ?? "",
   enabled: recipient.enabled ?? true,
   recontractCount: recipient.recontractCount ?? 0
 });

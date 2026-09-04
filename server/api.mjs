@@ -159,6 +159,10 @@ db.exec(`
     representative_name TEXT NOT NULL,
     representative_relation TEXT NOT NULL,
     representative_phone TEXT NOT NULL,
+    service_type TEXT NOT NULL DEFAULT '방문',
+    caregiver_requirements TEXT NOT NULL DEFAULT '',
+    reduction_type TEXT NOT NULL DEFAULT '일반',
+    related_people TEXT NOT NULL DEFAULT '',
     service_start_date TEXT NOT NULL,
     service_end_date TEXT NOT NULL,
     contract_registered_date TEXT NOT NULL,
@@ -279,6 +283,18 @@ if (!hasOperationalNameColumn) {
   db.exec("ALTER TABLE recipients ADD COLUMN operational_name TEXT");
 }
 
+const ensureRecipientColumn = (name, definition) => {
+  const columns = db.prepare("PRAGMA table_info(recipients)").all();
+  if (!columns.some((column) => column.name === name)) {
+    db.exec(`ALTER TABLE recipients ADD COLUMN ${name} ${definition}`);
+  }
+};
+
+ensureRecipientColumn("service_type", "TEXT NOT NULL DEFAULT '방문'");
+ensureRecipientColumn("caregiver_requirements", "TEXT NOT NULL DEFAULT ''");
+ensureRecipientColumn("reduction_type", "TEXT NOT NULL DEFAULT '일반'");
+ensureRecipientColumn("related_people", "TEXT NOT NULL DEFAULT ''");
+
 const ensureEmploymentColumn = (name, definition) => {
   const columns = db.prepare("PRAGMA table_info(employment_contracts)").all();
 
@@ -308,6 +324,10 @@ const recipientFromRow = (row) => ({
   representativeName: row.representative_name,
   representativeRelation: row.representative_relation,
   representativePhone: row.representative_phone,
+  serviceType: row.service_type ?? "방문",
+  caregiverRequirements: row.caregiver_requirements ?? "",
+  reductionType: row.reduction_type ?? "일반",
+  relatedPeople: row.related_people ?? "",
   serviceStartDate: row.service_start_date,
   serviceEndDate: row.service_end_date,
   contractRegisteredDate: row.contract_registered_date,
@@ -437,9 +457,10 @@ const insertRecipient = db.prepare(`
   INSERT INTO recipients (
     id, name, operational_name, birth_date, long_term_care_number, care_grade, phone, address,
     representative_name, representative_relation, representative_phone,
+    service_type, caregiver_requirements, reduction_type, related_people,
     service_start_date, service_end_date, contract_registered_date,
     contract_expired_date, enabled, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertEmploymentContract = db.prepare(`
@@ -537,6 +558,10 @@ if (db.prepare("SELECT COUNT(*) AS count FROM recipients").get().count === 0) {
       recipient.representativeName,
       recipient.representativeRelation,
       recipient.representativePhone,
+      recipient.serviceType ?? "방문",
+      recipient.caregiverRequirements ?? "",
+      recipient.reductionType ?? "일반",
+      recipient.relatedPeople ?? "",
       recipient.serviceStartDate,
       recipient.serviceEndDate,
       recipient.contractRegisteredDate,
@@ -709,6 +734,10 @@ const normalizeRecipient = (body, existing = null) => {
     representativeName: assertString(body.representativeName, "representativeName"),
     representativeRelation: assertString(body.representativeRelation, "representativeRelation"),
     representativePhone: assertString(body.representativePhone, "representativePhone"),
+    serviceType: assertString(body.serviceType ?? existing?.serviceType ?? "방문", "serviceType"),
+    caregiverRequirements: assertString(body.caregiverRequirements ?? existing?.caregiverRequirements, "caregiverRequirements", { optional: true }) ?? "",
+    reductionType: assertString(body.reductionType ?? existing?.reductionType ?? "일반", "reductionType"),
+    relatedPeople: assertString(body.relatedPeople ?? existing?.relatedPeople, "relatedPeople", { optional: true }) ?? "",
     serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate"),
     serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate"),
     contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate"),
@@ -891,6 +920,7 @@ const applyRecipientUpdate = (recipient) => {
       name = ?, operational_name = ?, birth_date = ?, long_term_care_number = ?, care_grade = ?,
       phone = ?, address = ?, representative_name = ?, representative_relation = ?,
       representative_phone = ?, service_start_date = ?, service_end_date = ?,
+      service_type = ?, caregiver_requirements = ?, reduction_type = ?, related_people = ?,
       contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?
     WHERE id = ?
   `).run(
@@ -906,6 +936,10 @@ const applyRecipientUpdate = (recipient) => {
     recipient.representativePhone,
     recipient.serviceStartDate,
     recipient.serviceEndDate,
+    recipient.serviceType,
+    recipient.caregiverRequirements,
+    recipient.reductionType,
+    recipient.relatedPeople,
     recipient.contractRegisteredDate,
     recipient.contractExpiredDate,
     recipient.enabled ? 1 : 0,
@@ -1186,6 +1220,10 @@ const server = createServer(async (request, response) => {
         recipient.representativeName,
         recipient.representativeRelation,
         recipient.representativePhone,
+        recipient.serviceType,
+        recipient.caregiverRequirements,
+        recipient.reductionType,
+        recipient.relatedPeople,
         recipient.serviceStartDate,
         recipient.serviceEndDate,
         recipient.contractRegisteredDate,
