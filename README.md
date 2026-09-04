@@ -56,22 +56,23 @@ DB 파일 경로는 다음 순서로 결정된다.
 
 개인정보가 포함될 수 있으므로 실제 DB 파일과 개인별 설정 파일은 Git에 커밋하지 않는다. 로컬 SQLite 구조는 단일 사용자 MVP 검증을 위한 기반이며, 여러 사용자의 동시 접속이 필요해지면 인증과 서버형 데이터베이스 구조를 별도로 도입한다.
 
-### Postgres 준비
+### Supabase 준비
 
-여러 사용자가 같은 데이터를 보려면 중앙 Postgres DB를 준비한다. `npm run api`는 `DATABASE_URL`이 있으면 Postgres API를, 없으면 기존 SQLite API를 실행한다.
+기본 API는 Supabase Postgres를 사용한다. `DATABASE_URL`이 없으면 실행을 중단하며 SQLite는 `npm run api:sqlite`로만 명시적으로 실행할 수 있다.
 
 ```bash
-cp .env.example .env
-npm run db:postgres:init
+cp .env.example .env.local
+npm run supabase:check
+npm run supabase:init
 npm run api
 ```
 
-`.env`에 `DATABASE_URL`을 넣으면 스크립트가 자동으로 읽는다. Supabase처럼 SSL이 필요한 호스팅을 쓰면 `DATABASE_URL`에 `sslmode=require`를 붙이거나 `PGSSLMODE=require`를 설정한다.
+Supabase 대시보드의 **Connect** 화면에서 연결 문자열을 복사해 `.env.local`의 `DATABASE_URL`에 넣는다. 비밀번호의 특수문자는 URL 인코딩하고 `sslmode=require` 또는 `PGSSLMODE=require`를 사용한다. `.env.local`은 Git에서 제외된다. 서버 실행 후 `GET /api/health`로 실제 연결 상태를 확인할 수 있다.
 
 ### Supabase + Vercel 배포
 
-1. Supabase 프로젝트를 만들고 SQL Editor에서 `server/postgres/schema.sql`을 실행한다.
-2. Supabase의 **Connect → Session pooler** 연결 문자열을 복사한다. 비밀번호의 특수문자는 URL 인코딩한다.
+1. Supabase 프로젝트를 만들고 로컬에서 `npm run supabase:init`을 실행하거나 SQL Editor에서 `server/postgres/schema.sql`을 실행한다.
+2. Supabase의 **Connect** 화면에서 배포 환경에 맞는 pooler 연결 문자열을 복사한다.
 3. Vercel에 저장소를 연결하고 환경 변수 `DATABASE_URL`, `PGSSLMODE=require`를 등록한다.
 4. Vercel에서 배포한다. `vercel.json`이 Vite 결과물(`dist`)과 `/api/*` 서버리스 함수를 함께 배포한다.
 

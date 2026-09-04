@@ -8,6 +8,8 @@
     "api:sqlite": "node server/api.mjs",
     "api:postgres": "node server/postgres/api.mjs",
     "db:postgres:init": "node server/postgres/init.mjs",
+    "supabase:check": "node server/postgres/check.mjs",
+    "supabase:init": "node server/postgres/init.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

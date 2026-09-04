@@ -14,7 +14,7 @@ loadEnv(rootDir);
 const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) {
-  console.error("DATABASE_URL 환경 변수를 설정하세요.");
+  console.error("Supabase DATABASE_URL 환경 변수를 설정하세요.");
   process.exit(1);
 }
 
@@ -29,7 +29,7 @@ const client = new Client({
 try {
   await client.connect();
   await client.query(readFileSync(schemaPath, "utf8"));
-  console.log("Postgres schema initialized.");
+  console.log("Supabase schema initialized.");
 } finally {
   await client.end();
 }

@@ -1819,7 +1819,7 @@ function App() {
           </nav>
           <div className="runtime-badge">
             <Database size={16} />
-            로컬 SQLite
+            Supabase Postgres
           </div>
         </div>
       </header>

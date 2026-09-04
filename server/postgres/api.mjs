@@ -3,13 +3,24 @@ import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { loadEnv } from "../load-env.mjs";
 
 const { Pool } = pg;
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const rootDir = join(__dirname, "../..");
 const port = Number(process.env.PORT ?? 5174);
+
+loadEnv(rootDir);
+
+if (!process.env.DATABASE_URL) {
+  throw new Error("Supabase DATABASE_URL 환경 변수를 설정하세요.");
+}
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  max: Number(process.env.PG_POOL_MAX ?? (process.env.VERCEL ? 1 : 5)),
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
   ssl:
     process.env.PGSSLMODE === "require" || process.env.DATABASE_URL?.includes("sslmode=require")
       ? { rejectUnauthorized: false }
@@ -727,6 +738,14 @@ export const handlePostgresRequest = async (request, response) => {
 
   try {
     const parts = parsePath(request.url ?? "/");
+
+    if (parts[0] === "api" && parts[1] === "health" && request.method === "GET") {
+      const { rows } = await pool.query(
+        "SELECT current_database() AS database, current_user AS \"user\", NOW() AS \"serverTime\""
+      );
+      sendJson(response, 200, { ok: true, provider: "supabase", ...rows[0] });
+      return;
+    }
 
     if (parts[0] === "api" && parts[1] === "backoffice-users") {
       const readState = async () => {
