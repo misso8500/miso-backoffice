@@ -695,6 +695,7 @@ function App() {
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ id: number; message: string } | null>(null);
   const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
   const [editingRecipientId, setEditingRecipientId] = useState<string | null>(null);
   const [formState, setFormState] = useState<RecipientFormState>(emptyRecipientForm);
@@ -733,6 +734,10 @@ function App() {
   >(null);
   const [isEmploymentDeactivating, setIsEmploymentDeactivating] = useState(false);
 
+  const showNotification = useCallback((message: string) => {
+    setNotification({ id: Date.now(), message });
+  }, []);
+
   const fetchRecipients = useCallback(async () => {
     setIsLoading(true);
 
@@ -767,6 +772,13 @@ function App() {
     void fetchRecipients();
     void fetchEmploymentContracts();
   }, [fetchEmploymentContracts, fetchRecipients]);
+
+  useEffect(() => {
+    if (!notification) return;
+
+    const timeoutId = window.setTimeout(() => setNotification(null), 3200);
+    return () => window.clearTimeout(timeoutId);
+  }, [notification]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1022,6 +1034,11 @@ function App() {
         ? current.map((recipient) => recipient.id === savedRecipient.id ? savedRecipient : recipient)
         : [...current, savedRecipient]);
       setSelectedRecipientId(savedRecipient.id);
+      showNotification(
+        recipientBeingEdited
+          ? "수급자 정보를 저장하였습니다."
+          : "수급자 추가가 완료되었습니다"
+      );
       closeCreatePanel();
       setErrorMessage(null);
     } catch (error) {
@@ -1077,6 +1094,7 @@ function App() {
       setFormErrorMessage(null);
       setIsQuickAddOpen(false);
       setSelectedRecipientId(createdRecipient.id);
+      showNotification("수급자 추가가 완료되었습니다");
     } catch (error) {
       setFormErrorMessage(error instanceof Error ? error.message : "수급자를 추가하지 못했습니다.");
     } finally {
@@ -1106,6 +1124,7 @@ function App() {
       setRecipients((current) => current.map((recipient) => recipient.id === updated.id ? updated : recipient));
       setOperationalNameDraft(updated.operationalName);
       setOperationalNameSaveMessage({ type: "success", text: "업무식별명을 저장했습니다." });
+      showNotification("수급자 정보를 저장하였습니다.");
       setErrorMessage(null);
     } catch (error) {
       setOperationalNameSaveMessage({
@@ -1405,6 +1424,7 @@ function App() {
       );
       setSelectedRecipientId(null);
       setRecipientToDeactivate(null);
+      showNotification("수급자 정보를 삭제하였습니다.");
       setErrorMessage(null);
     } catch (error) {
       setDeactivateErrorMessage(
@@ -1488,6 +1508,7 @@ function App() {
       );
       setSelectedRecipientId(updatedRecipient.id);
       closeTerminateDialog();
+      showNotification("수급자 정보를 저장하였습니다.");
       setErrorMessage(null);
     } catch (error) {
       setTerminationErrorMessage(
@@ -1578,6 +1599,7 @@ function App() {
       );
       setSelectedRecipientId(updatedRecipient.id);
       closeRestoreDialog();
+      showNotification("수급자 정보를 저장하였습니다.");
       setErrorMessage(null);
     } catch (error) {
       setRestoreErrorMessage(
@@ -1590,6 +1612,12 @@ function App() {
 
   return (
     <div className="app-shell">
+      {notification && (
+        <div key={notification.id} className="top-notification" role="status" aria-live="polite">
+          <ClipboardCheck size={19} aria-hidden="true" />
+          <span>{notification.message}</span>
+        </div>
+      )}
       <header className="app-header">
         <div className="brand">
           <span className="brand-mark">
