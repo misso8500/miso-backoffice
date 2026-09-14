@@ -716,7 +716,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showEnabledOnly, setShowEnabledOnly] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState<RecipientStatus | "전체">("전체");
-  const [selectedWorkerId, setSelectedWorkerId] = useState("all");
+  const [selectedAssignedUserId, setSelectedAssignedUserId] = useState("all");
   const [viewDensity, setViewDensity] = useState<"simple" | "detail">("simple");
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -886,11 +886,8 @@ function App() {
           return false;
         }
 
-        if (selectedWorkerId !== "all") {
-          const worker = employmentContracts.find((contract) => contract.id === selectedWorkerId);
-          if (!worker?.recipientAssignments.some(({ recipientId }) => recipientId === recipient.id)) {
-            return false;
-          }
+        if (selectedAssignedUserId !== "all" && recipient.assignedBackofficeUserId !== selectedAssignedUserId) {
+          return false;
         }
 
         if (!query) {
@@ -914,7 +911,7 @@ function App() {
           .includes(query);
       })
       .sort((a, b) => a.serviceEndDate.localeCompare(b.serviceEndDate));
-  }, [employmentContracts, recipients, searchQuery, selectedStatus, selectedWorkerId, showEnabledOnly]);
+  }, [recipients, searchQuery, selectedStatus, selectedAssignedUserId, showEnabledOnly]);
 
   const selectedRecipient =
     recipients.find((recipient) => recipient.id === selectedRecipientId) ?? null;
@@ -926,7 +923,6 @@ function App() {
     setOperationalNameSaveMessage(null);
   }, [selectedRecipient?.id, selectedRecipient?.operationalName]);
   const enabledRecipientCount = recipients.filter(isRecipientEnabled).length;
-  const activeWorkers = employmentContracts.filter((contract) => contract.enabled);
   const renewalCount = recipients.filter((recipient) =>
     ["급여갱신필요", "계약종료예정"].includes(getRecipientStatus(recipient))
   ).length;
@@ -1909,9 +1905,9 @@ function App() {
               <span>장기요양이용계약 만료일 오름차순</span>
             </div>
             <div className="toolbar-controls">
-              <select className="filter-select" aria-label="담당 근무자 필터" value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)}>
+              <select className="filter-select" aria-label="담당 사회복지사 필터" value={selectedAssignedUserId} onChange={(event) => setSelectedAssignedUserId(event.target.value)}>
                 <option value="all">담당자 전체</option>
-                {activeWorkers.map((worker) => <option key={worker.id} value={worker.id}>{worker.workerName} · {worker.recipientAssignments.length}명</option>)}
+                {backofficeUsers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
               </select>
               <select className="filter-select" aria-label="계약 상태 필터" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as RecipientStatus | "전체")}>
                 {(["전체", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status}</option>)}
@@ -2009,7 +2005,7 @@ function App() {
                             >
                               <option value="">미배정</option>
                               {backofficeUsers.map((user) => (
-                                <option key={user.id} value={user.id}>{user.name} · {user.birthDate}</option>
+                                <option key={user.id} value={user.id}>{user.name}</option>
                               ))}
                             </select>
                             {assigningRecipientIds.includes(recipient.id) && <small role="status">저장 중…</small>}
@@ -2320,7 +2316,7 @@ function App() {
                 >
                   <option value="">미배정</option>
                   {backofficeUsers.map((user) => (
-                    <option key={user.id} value={user.id}>{user.name} · {user.birthDate}</option>
+                    <option key={user.id} value={user.id}>{user.name}</option>
                   ))}
                 </select>
               </label>
