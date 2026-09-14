@@ -722,6 +722,8 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ id: number; message: string } | null>(null);
+  const [assigningRecipientIds, setAssigningRecipientIds] = useState<string[]>([]);
+  const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
   const [backofficeUsers, setBackofficeUsers] = useState<BackofficeUser[]>([]);
   const [backofficeSessions, setBackofficeSessions] = useState<BackofficeSession[]>([]);
   const [deviceId] = useState(getDeviceId);
@@ -925,21 +927,6 @@ function App() {
   }, [selectedRecipient?.id, selectedRecipient?.operationalName]);
   const enabledRecipientCount = recipients.filter(isRecipientEnabled).length;
   const activeWorkers = employmentContracts.filter((contract) => contract.enabled);
-  const getAssignedSocialWorkerNames = (recipientId: string) => {
-    const recipient = recipients.find((item) => item.id === recipientId);
-    const assignedUser = backofficeUsers.find(
-      (user) => user.id === recipient?.assignedBackofficeUserId
-    );
-    if (assignedUser) return [assignedUser.name];
-
-    const names = activeWorkers
-      .filter((worker) =>
-        worker.recipientAssignments.some((assignment) => assignment.recipientId === recipientId)
-      )
-      .map((worker) => worker.workerName);
-
-    return [...new Set(names)];
-  };
   const renewalCount = recipients.filter((recipient) =>
     ["급여갱신필요", "계약종료예정"].includes(getRecipientStatus(recipient))
   ).length;
@@ -1266,17 +1253,24 @@ function App() {
     }
   };
 
-  const handleAssignedBackofficeUserUpdate = async (userId: string) => {
-    if (!selectedRecipient) return;
-    setIsSaving(true);
+  const handleAssignedBackofficeUserUpdate = async (recipient: Recipient, userId: string) => {
+    if (assigningRecipientIds.includes(recipient.id) || (recipient.assignedBackofficeUserId ?? "") === userId) return;
+    setAssigningRecipientIds((current) => [...current, recipient.id]);
+    setAssignmentErrors((current) => ({ ...current, [recipient.id]: "" }));
     try {
-      const updated = await updateRecipient({ ...selectedRecipient, assignedBackofficeUserId: userId || undefined });
-      setRecipients((current) => current.map((recipient) => recipient.id === updated.id ? updated : recipient));
-      showNotification("수급자 정보를 저장하였습니다.");
+      const updated = await updateRecipient({ ...recipient, assignedBackofficeUserId: userId || undefined });
+      setRecipients((current) => current.map((item) => item.id === updated.id ? updated : item));
+      const user = backofficeUsers.find((item) => item.id === userId);
+      showNotification(userId
+        ? `${recipient.name}님의 담당 사회복지사를 ${user?.name ?? "선택한 사용자"}(으)로 배정했습니다.`
+        : `${recipient.name}님의 담당 사회복지사 배정을 해제했습니다.`);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "담당 사회복지사를 저장하지 못했습니다.");
+      setAssignmentErrors((current) => ({
+        ...current,
+        [recipient.id]: error instanceof Error ? error.message : "담당 사회복지사를 저장하지 못했습니다."
+      }));
     } finally {
-      setIsSaving(false);
+      setAssigningRecipientIds((current) => current.filter((id) => id !== recipient.id));
     }
   };
 
@@ -1981,6 +1975,7 @@ function App() {
                       tabIndex={0}
                       onClick={() => setSelectedRecipientId(recipient.id)}
                       onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           setSelectedRecipientId(recipient.id);
@@ -2004,11 +1999,23 @@ function App() {
                             <strong>{hasPrimaryContact(recipient) ? `${recipient.representativeName}(${recipient.representativeRelation})` : "연락처 미등록"}</strong>
                             <small>{hasPrimaryContact(recipient) ? recipient.representativePhone : "상세 정보에서 등록해 주세요"}</small>
                           </span>
-                          <span className="assigned-worker">
-                            {getAssignedSocialWorkerNames(recipient.id).length > 0
-                              ? getAssignedSocialWorkerNames(recipient.id).join(", ")
-                              : "미배정"}
-                          </span>
+                          <div className="inline-assignment" onClick={(event) => event.stopPropagation()}>
+                            <select
+                              aria-label={`${recipient.name} 담당 사회복지사`}
+                              aria-busy={assigningRecipientIds.includes(recipient.id)}
+                              value={recipient.assignedBackofficeUserId ?? ""}
+                              disabled={assigningRecipientIds.includes(recipient.id)}
+                              onChange={(event) => void handleAssignedBackofficeUserUpdate(recipient, event.target.value)}
+                            >
+                              <option value="">미배정</option>
+                              {backofficeUsers.map((user) => (
+                                <option key={user.id} value={user.id}>{user.name} · {user.birthDate}</option>
+                              ))}
+                            </select>
+                            {assigningRecipientIds.includes(recipient.id) && <small role="status">저장 중…</small>}
+                            {backofficeUsers.length === 0 && <small>사용자를 먼저 등록해 주세요.</small>}
+                            {assignmentErrors[recipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[recipient.id]}</small>}
+                          </div>
                         </>
                       ) : (
                         <>
@@ -2308,8 +2315,8 @@ function App() {
                 <span>담당 사회복지사</span>
                 <select
                   value={selectedRecipient.assignedBackofficeUserId ?? ""}
-                  onChange={(event) => void handleAssignedBackofficeUserUpdate(event.target.value)}
-                  disabled={isSaving}
+                  onChange={(event) => void handleAssignedBackofficeUserUpdate(selectedRecipient, event.target.value)}
+                  disabled={isSaving || assigningRecipientIds.includes(selectedRecipient.id)}
                 >
                   <option value="">미배정</option>
                   {backofficeUsers.map((user) => (
@@ -2317,6 +2324,8 @@ function App() {
                   ))}
                 </select>
               </label>
+              {assigningRecipientIds.includes(selectedRecipient.id) && <small role="status">저장 중…</small>}
+              {assignmentErrors[selectedRecipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[selectedRecipient.id]}</small>}
             </div>
 
             <div className="detail-sections">
