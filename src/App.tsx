@@ -1,3 +1,4 @@
+import RecognitionHistoryPreview from "./RecognitionHistoryPreview";
 import {
   useCallback,
   useEffect,
@@ -2323,6 +2324,8 @@ function App() {
               {assigningRecipientIds.includes(selectedRecipient.id) && <small role="status">저장 중…</small>}
               {assignmentErrors[selectedRecipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[selectedRecipient.id]}</small>}
             </div>
+
+            <RecognitionHistoryPreview key={selectedRecipient.id} recipient={selectedRecipient} />
 
             <div className="detail-sections">
               {detailSections.map((section) => (
