@@ -87,4 +87,35 @@ test("SQLite API persists recipient conditions and history, and rolls back faile
   connection.close();
   assert.equal(persisted.conditions[1].vehicleSupportPerVisit, 0);
   assert.equal(persisted.history.length, 1);
+
+  await t.test("minimal recipient rows can be saved, retried, completed and atomically rejected", async () => {
+    const rows = [{ id: "grid-a", name: "기본 이름" }, { id: "grid-b", name: "부분 입력", birthDate: "1944-05-10", phone: "01012345678" }];
+    const bulk = await call("recipients/bulk-drafts", "POST", { rows });
+    assert.equal(bulk.status, 200, JSON.stringify(bulk.data));
+    assert.equal(bulk.data.recipients.length, 2);
+    const first = bulk.data.recipients[0];
+    assert.equal(first.isDraft, true);
+    assert.equal(first.longTermCareNumber, "");
+    assert.equal(first.serviceEndDate, "");
+    assert.equal((await call("recipients/bulk-drafts", "POST", { rows })).status, 200);
+    assert.equal((await call("recipients")).data.filter((item) => item.id === first.id).length, 1);
+    const partiallySaved = await call(`recipients/${first.id}`, "PUT", { ...first, address: "추가한 주소" });
+    assert.equal(partiallySaved.status, 200, JSON.stringify(partiallySaved.data));
+    assert.equal(partiallySaved.data.isDraft, true);
+    assert.equal(partiallySaved.data.longTermCareNumber, "");
+    assert.equal((await call(`recipients/${first.id}`, "PUT", { ...first, isDraft: false })).status, 400);
+    assert.equal((await call(`recipients/${first.id}`)).data.address, "추가한 주소");
+    const completed = await call(`recipients/${first.id}`, "PUT", { ...recipients[0], id: first.id, name: first.name,
+      isDraft: false, longTermCareNumber: "GRID-COMPLETE-001" });
+    assert.equal(completed.status, 200, JSON.stringify(completed.data));
+    assert.equal((await call(`recipients/${first.id}`)).data.isDraft, false);
+    assert.equal((await call("recipients/bulk-drafts", "POST", { rows })).status, 409);
+    const failed = await call("recipients/bulk-drafts", "POST", { rows: [
+      { id: "grid-rollback", name: "저장되면 안 됨" },
+      { id: "grid-conflict", name: "중복 번호", longTermCareNumber: recipients[0].longTermCareNumber }
+    ] });
+    assert.equal(failed.status, 409);
+    assert.equal((await call("recipients/grid-rollback")).status, 404);
+    assert.equal((await call("recipients/grid-conflict")).status, 404);
+  });
 });

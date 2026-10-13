@@ -164,3 +164,6 @@ REVOKE ALL ON TABLE employment_contract_terms FROM anon, authenticated;
 
 -- Optional rich work conditions; NULL preserves legacy contract interpretation.
 ALTER TABLE employment_contracts ADD COLUMN IF NOT EXISTS work_conditions JSONB;
+
+-- Recipients may be saved before their detailed registration is complete.
+ALTER TABLE recipients ADD COLUMN IF NOT EXISTS is_draft BOOLEAN NOT NULL DEFAULT FALSE;

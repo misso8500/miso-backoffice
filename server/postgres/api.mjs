@@ -1,3 +1,4 @@
+import { prepareRecipientBody, prepareDraftRows, sameDraft, visibleCareNumber } from "../recipient-drafts.mjs";
 import { normalizeWorkConditions } from "../work-conditions.mjs";
 import { AuthError, handleAuthRequest } from "../auth.mjs";
 import { readFileSync } from "node:fs";
@@ -138,7 +139,8 @@ const recipientFromRow = (row) => ({
   ...(row.operational_name ? { operationalName: row.operational_name } : {}),
   ...(row.assigned_backoffice_user_id ? { assignedBackofficeUserId: row.assigned_backoffice_user_id } : {}),
   birthDate: row.birth_date,
-  longTermCareNumber: row.long_term_care_number,
+  isDraft: row.is_draft === true,
+  longTermCareNumber: visibleCareNumber(row.long_term_care_number),
   careGrade: row.care_grade,
   ...(row.phone ? { phone: row.phone } : {}),
   address: row.address,
@@ -298,38 +300,40 @@ const readRecipient = async (recipientId) => {
 };
 
 const normalizeRecipient = (body, existing = null) => {
+  body = prepareRecipientBody(body, existing);
   const now = new Date().toISOString();
   const recipient = {
+    isDraft: body.isDraft,
     id: assertString(body.id ?? existing?.id, "id"),
     name: assertString(body.name, "name"),
     operationalName: assertString(body.operationalName, "operationalName", { optional: true }),
     assignedBackofficeUserId: assertString(body.assignedBackofficeUserId, "assignedBackofficeUserId", { optional: true }),
-    birthDate: assertString(body.birthDate, "birthDate"),
+    birthDate: assertString(body.birthDate, "birthDate", { optional: body.isDraft }) ?? "",
     longTermCareNumber: assertString(body.longTermCareNumber, "longTermCareNumber"),
-    careGrade: assertString(body.careGrade, "careGrade"),
+    careGrade: assertString(body.careGrade, "careGrade", { optional: body.isDraft }) ?? "",
     phone: assertString(body.phone, "phone", { optional: true }),
-    address: assertString(body.address, "address"),
-    representativeName: assertString(body.representativeName, "representativeName"),
-    representativeRelation: assertString(body.representativeRelation, "representativeRelation"),
-    representativePhone: assertString(body.representativePhone, "representativePhone"),
+    address: assertString(body.address, "address", { optional: body.isDraft }) ?? "",
+    representativeName: assertString(body.representativeName, "representativeName", { optional: body.isDraft }) ?? "",
+    representativeRelation: assertString(body.representativeRelation, "representativeRelation", { optional: body.isDraft }) ?? "",
+    representativePhone: assertString(body.representativePhone, "representativePhone", { optional: body.isDraft }) ?? "",
     serviceType: assertString(body.serviceType ?? existing?.serviceType ?? "방문", "serviceType"),
     caregiverRequirements: assertString(body.caregiverRequirements ?? existing?.caregiverRequirements, "caregiverRequirements", { optional: true }) ?? "",
     reductionType: assertString(body.reductionType ?? existing?.reductionType ?? "일반", "reductionType"),
     relatedPeople: assertString(body.relatedPeople ?? existing?.relatedPeople, "relatedPeople", { optional: true }) ?? "",
-    serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate"),
-    serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate"),
-    contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate"),
-    contractExpiredDate: assertString(body.contractExpiredDate, "contractExpiredDate"),
+    serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate", { optional: body.isDraft }) ?? "",
+    serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate", { optional: body.isDraft }) ?? "",
+    contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate", { optional: body.isDraft }) ?? "",
+    contractExpiredDate: assertString(body.contractExpiredDate, "contractExpiredDate", { optional: body.isDraft }) ?? "",
     enabled: typeof body.enabled === "boolean" ? body.enabled : existing?.enabled ?? true,
     createdAt: existing?.createdAt ?? body.createdAt ?? now,
     updatedAt: now
   };
 
-  if (recipient.serviceStartDate > recipient.serviceEndDate) {
+  if (recipient.serviceStartDate && recipient.serviceEndDate && recipient.serviceStartDate > recipient.serviceEndDate) {
     throw new Error("serviceStartDate must not be later than serviceEndDate");
   }
 
-  if (recipient.contractRegisteredDate > recipient.contractExpiredDate) {
+  if (recipient.contractRegisteredDate && recipient.contractExpiredDate && recipient.contractRegisteredDate > recipient.contractExpiredDate) {
     throw new Error("contractRegisteredDate must not be later than contractExpiredDate");
   }
 
@@ -475,16 +479,16 @@ const normalizeEmploymentContract = (body, existing = null) => {
   return contract;
 };
 
-const insertRecipient = async (recipient) =>
-  pool.query(
+const insertRecipient = async (recipient, executor = pool) =>
+  executor.query(
     `
       INSERT INTO recipients (
         id, name, operational_name, assigned_backoffice_user_id, birth_date, long_term_care_number, care_grade, phone, address,
         representative_name, representative_relation, representative_phone,
         service_type, caregiver_requirements, reduction_type, related_people,
         service_start_date, service_end_date, contract_registered_date,
-        contract_expired_date, enabled, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+        contract_expired_date, enabled, created_at, updated_at, is_draft
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
     `,
     [
       recipient.id,
@@ -509,19 +513,20 @@ const insertRecipient = async (recipient) =>
       recipient.contractExpiredDate,
       recipient.enabled,
       recipient.createdAt,
-      recipient.updatedAt
+      recipient.updatedAt,
+      recipient.isDraft ?? false
     ]
   );
 
-const updateRecipient = async (recipient) =>
-  pool.query(
+const updateRecipient = async (recipient, executor = pool) =>
+  executor.query(
     `
       UPDATE recipients SET
         name = $1, operational_name = $2, assigned_backoffice_user_id = $3, birth_date = $4, long_term_care_number = $5, care_grade = $6,
         phone = $7, address = $8, representative_name = $9, representative_relation = $10,
         representative_phone = $11, service_type = $12, caregiver_requirements = $13,
         reduction_type = $14, related_people = $15, service_start_date = $16, service_end_date = $17,
-        contract_registered_date = $18, contract_expired_date = $19, enabled = $20, updated_at = $21
+        contract_registered_date = $18, contract_expired_date = $19, enabled = $20, updated_at = $21, is_draft = $23
       WHERE id = $22
     `,
     [
@@ -546,7 +551,8 @@ const updateRecipient = async (recipient) =>
       recipient.contractExpiredDate,
       recipient.enabled,
       recipient.updatedAt,
-      recipient.id
+      recipient.id,
+      recipient.isDraft ?? false
     ]
   );
 
@@ -821,6 +827,30 @@ export const handlePostgresRequest = async (request, response) => {
       return;
     }
 
+    if (parts[1] === "recipients" && parts[2] === "bulk-drafts" && request.method === "POST") {
+      const rows = prepareDraftRows(await readBody(request)).map((row) => normalizeRecipient(row));
+      const client = await pool.connect();
+      const saved = [];
+      try {
+        await client.query("BEGIN");
+        for (const [index, recipient] of rows.entries()) {
+          const previous = await client.query("SELECT * FROM recipients WHERE id = $1", [recipient.id]);
+          if (previous.rows[0]) {
+            const existing = recipientFromRow(previous.rows[0]);
+            if (!sameDraft(existing, recipient)) throw Object.assign(new Error(`${index + 1}행: 이미 저장된 행과 내용이 다릅니다. 목록을 확인해 주세요.`), { status: 409 });
+            saved.push(existing);
+          } else {
+            await insertRecipient(recipient, client);
+            saved.push({ ...recipient, longTermCareNumber: visibleCareNumber(recipient.longTermCareNumber), recontractCount: 0 });
+          }
+        }
+        await client.query("COMMIT");
+      } catch (error) { await client.query("ROLLBACK"); throw error; }
+      finally { client.release(); }
+      sendJson(response, 200, { recipients: saved });
+      return;
+    }
+
     if (parts[1] === "employment-contracts") {
       if (!parts[2] && request.method === "GET") {
         const { rows } = await pool.query(
@@ -941,7 +971,7 @@ export const handlePostgresRequest = async (request, response) => {
     if (!parts[2] && request.method === "POST") {
       const recipient = normalizeRecipient(await readBody(request));
       await insertRecipient(recipient);
-      sendJson(response, 201, recipient);
+      sendJson(response, 201, { ...recipient, longTermCareNumber: visibleCareNumber(recipient.longTermCareNumber) });
       return;
     }
 

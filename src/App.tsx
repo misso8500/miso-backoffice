@@ -1,3 +1,4 @@
+import RecipientGrid from "./RecipientGrid";
 import EmploymentConditionsDetails from "./EmploymentConditionsDetails";
 import EmploymentConditionsEditor, { createEmptyWorkCondition, type EmploymentConditionFormTerm } from "./EmploymentConditionsEditor";
 import type { AuthUser } from "./auth";
@@ -621,7 +622,7 @@ const employmentContractDetailSections: Array<{
   }
 ];
 
-const formatDate = (value: string) =>
+const formatDate = (value: string) => !value || !Number.isFinite(Date.parse(value)) ? "미등록" :
   new Intl.DateTimeFormat("ko-KR", {
     year: "numeric",
     month: "short",
@@ -658,9 +659,10 @@ const formatContractTerms = (contract: EmploymentContract) => {
 
 const isRecipientEnabled = (recipient: Recipient) => recipient.enabled !== false;
 
-type RecipientStatus = "급여시작" | "급여제공중" | "급여갱신필요" | "계약종료예정" | "계약종료";
+type RecipientStatus = "정보입력중" | "급여시작" | "급여제공중" | "급여갱신필요" | "계약종료예정" | "계약종료";
 
 const getRecipientStatus = (recipient: Recipient, now = new Date()): RecipientStatus => {
+  if (recipient.isDraft) return "정보입력중";
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const start = new Date(`${recipient.serviceStartDate}T00:00:00`).getTime();
   const expiry = new Date(`${recipient.serviceEndDate}T00:00:00`).getTime();
@@ -696,6 +698,7 @@ const getResidenceSummary = (address: string) => {
 };
 
 const getRecipientDisplayId = (recipient: Recipient) => {
+  if (recipient.isDraft) return recipient.operationalName?.trim() || "기본 정보 저장됨 · 상세 입력 필요";
   const birthYear = recipient.birthDate.slice(0, 4) || "연도미상";
   return recipient.operationalName?.trim() || `${recipient.name}/${recipient.careGrade.replace("등급", "")}/${getResidenceSummary(recipient.address)}/${birthYear}년생`;
 };
@@ -719,6 +722,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [selectedStatus, setSelectedStatus] = useState<RecipientStatus | "전체">("전체");
   const [selectedAssignedUserId, setSelectedAssignedUserId] = useState("all");
   const [viewDensity, setViewDensity] = useState<"simple" | "detail">("simple");
+  const [isRecipientGridOpen, setIsRecipientGridOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -900,7 +904,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     setOperationalNameDraft(selectedRecipient?.operationalName ?? "");
     setOperationalNameSaveMessage(null);
   }, [selectedRecipient?.id, selectedRecipient?.operationalName]);
-  const enabledRecipientCount = recipients.filter(isRecipientEnabled).length;
+  const enabledRecipientCount = recipients.filter((recipient) => isRecipientEnabled(recipient) && !recipient.isDraft).length;
   const renewalCount = recipients.filter((recipient) =>
     ["급여갱신필요", "계약종료예정"].includes(getRecipientStatus(recipient))
   ).length;
@@ -1082,23 +1086,24 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     setEmploymentFormErrorMessage(null);
   };
 
-  const handleCreateRecipient = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleCreateRecipient = async (event?: FormEvent<HTMLFormElement>, saveAsDraft = false) => {
+    event?.preventDefault();
 
-    const missingField = requiredFormFields.find(({ key }) => !formState[key].trim());
+    const missingField = (saveAsDraft ? requiredFormFields.filter(({ key }) => key === "name") : requiredFormFields).find(({ key }) => !formState[key].trim());
 
     if (missingField) {
       setFormErrorMessage(`${missingField.label}을(를) 입력하세요.`);
       return;
     }
 
-    if (formState.serviceStartDate > formState.serviceEndDate) {
+    if (formState.serviceStartDate && formState.serviceEndDate && formState.serviceStartDate > formState.serviceEndDate) {
       setFormErrorMessage("장기요양이용계약 시작일은 만료일보다 늦을 수 없습니다.");
       return;
     }
 
     const recipientBeingEdited = recipients.find((recipient) => recipient.id === editingRecipientId);
     const recipientToSave: RecipientInput = {
+      isDraft: saveAsDraft,
       id: recipientBeingEdited?.id ?? createRecipientId(),
       name: formState.name.trim(),
       operationalName: formState.operationalName.trim(),
@@ -1133,6 +1138,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       setRecipients((current) => recipientBeingEdited
         ? current.map((recipient) => recipient.id === savedRecipient.id ? savedRecipient : recipient)
         : [...current, savedRecipient]);
+      if (recipientBeingEdited?.isDraft && !savedRecipient.isDraft) setSelectedStatus("전체");
       setSelectedRecipientId(savedRecipient.id);
       showNotification(
         recipientBeingEdited
@@ -1889,6 +1895,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <p>기본 정보와 장기요양이용계약 기간을 기록하고 확인합니다.</p>
           </div>
           <div className="heading-actions">
+            <button type="button" className="primary-button" onClick={() => setIsRecipientGridOpen(true)}>
+              <Plus size={18} /> 표로 여러 명 입력
+            </button>
             <button
               type="button"
               className="secondary-button"
@@ -1975,7 +1984,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 {backofficeUsers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
               </select>
               <select className="filter-select" aria-label="계약 상태 필터" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as RecipientStatus | "전체")}>
-                {(["전체", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status}</option>)}
+                {(["전체", "정보입력중", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status}</option>)}
               </select>
               <div className="density-toggle" aria-label="보기 방식">
                 <button type="button" className={viewDensity === "simple" ? "is-active" : ""} onClick={() => setViewDensity("simple")}>간단</button>
@@ -2055,7 +2064,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                       {viewDensity === "simple" ? (
                         <>
                           <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
-                          <span className="recipient-address">{recipient.address === "미등록" ? "주소 미등록" : recipient.address}</span>
+                          <span className="recipient-address">{!recipient.address || recipient.address === "미등록" ? "주소 미등록" : recipient.address}</span>
                           <span className="primary-contact">
                             <strong>{hasPrimaryContact(recipient) ? `${recipient.representativeName}(${recipient.representativeRelation})` : "연락처 미등록"}</strong>
                             <small>{hasPrimaryContact(recipient) ? recipient.representativePhone : "상세 정보에서 등록해 주세요"}</small>
@@ -2080,10 +2089,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                         </>
                       ) : (
                         <>
-                          <span>{recipient.careGrade}</span>
+                          <span>{recipient.careGrade || "등급 미등록"}</span>
                           <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
                           <span>{recipient.representativeName}<small>{recipient.representativePhone}</small></span>
-                          <span className="expiry"><CalendarClock size={15} />{recipient.serviceEndDate}</span>
+                          <span className="expiry"><CalendarClock size={15} />{recipient.serviceEndDate || "기간 미등록"}</span>
                         </>
                       )}
                       {viewDensity === "simple" ? (
@@ -2276,6 +2285,15 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         )}
       </main>
 
+      {isRecipientGridOpen && <RecipientGrid existing={recipients}
+        onClose={() => setIsRecipientGridOpen(false)} onSaved={(saved) => {
+          setRecipients((current) => [...current.filter((recipient) => !saved.some((item) => item.id === recipient.id)), ...saved]);
+          setIsRecipientGridOpen(false);
+          setActiveView("recipients"); setSelectedStatus("정보입력중"); setShowEnabledOnly(true);
+          setSearchQuery(""); setSelectedAssignedUserId("all");
+          showNotification(`${saved.length}명의 기본 정보를 저장했습니다. 이름을 눌러 상세 정보를 보완해 주세요.`);
+        }} />}
+
       {selectedRecipient && (
         <div className="detail-backdrop" role="presentation">
           <article
@@ -2300,13 +2318,15 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   onClick={() => openRecipientEditPanel(selectedRecipient)}
                 >
                   <Pencil size={17} />
-                  전체 정보 수정
+                  {selectedRecipient.isDraft ? "상세 정보 입력" : "전체 정보 수정"}
                 </button>
                 {isRecipientEnabled(selectedRecipient) ? (
                   <>
                     <button
                       type="button"
                       className="warning-button"
+                      disabled={Boolean(selectedRecipient.isDraft)}
+                      title={selectedRecipient.isDraft ? "상세 정보 등록 후 이용할 수 있습니다." : undefined}
                       onClick={() => openTerminateDialog(selectedRecipient)}
                     >
                       <FileX2 size={17} />
@@ -2346,11 +2366,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             </div>
 
             <div className="recipient-hero">
-              <span>{selectedRecipient.longTermCareNumber}</span>
+              <span>{selectedRecipient.isDraft ? "정보 입력 중 · 상세 정보를 보완해 주세요" : selectedRecipient.longTermCareNumber}</span>
               <h2>{selectedRecipient.name}</h2>
               <p>
-                {selectedRecipient.careGrade} · 대표 연락자{" "}
-                {selectedRecipient.representativeName}
+                {selectedRecipient.careGrade || "등급 미등록"} · 대표 연락자{" "}
+                {selectedRecipient.representativeName || "미등록"}
                 {!isRecipientEnabled(selectedRecipient) && (
                   <strong className="inactive-inline">비활성화된 수급자</strong>
                 )}
@@ -2404,7 +2424,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                     {section.fields.map((field) => (
                       <div key={field.label}>
                         <dt>{field.label}</dt>
-                        <dd>{field.value(selectedRecipient) ?? "미등록"}</dd>
+                        <dd>{field.value(selectedRecipient) || "미등록"}</dd>
                       </div>
                     ))}
                   </dl>
@@ -2543,6 +2563,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 <h2>{editingRecipientId ? "수급자 정보 수정" : "수급자 등록"}</h2>
               </div>
 
+              {recipients.find((recipient) => recipient.id === editingRecipientId)?.isDraft && (
+                <p className="condition-review">정보 입력 중인 수급자입니다. 입력한 내용 임시 저장으로 나누어 저장할 수 있으며, 필수 정보를 채운 뒤 상세 정보 등록 완료를 눌러 주세요.</p>
+              )}
+
               {formErrorMessage && (
                 <div className="form-error" role="alert">
                   <AlertTriangle size={18} />
@@ -2597,6 +2621,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                       onChange={(event) => updateFormField("careGrade", event.target.value)}
                       required
                     >
+                      <option value="">등급 선택 / 미등록</option>
                       <option>1등급</option>
                       <option>2등급</option>
                       <option>3등급</option>
@@ -2717,9 +2742,13 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 <button type="button" className="secondary-button" onClick={closeCreatePanel}>
                   취소
                 </button>
+                {(!editingRecipientId || recipients.find((recipient) => recipient.id === editingRecipientId)?.isDraft) && (
+                  <button type="button" className="secondary-button" disabled={isSaving}
+                    onClick={() => void handleCreateRecipient(undefined, true)}><Save size={16} /> 입력한 내용 임시 저장</button>
+                )}
                 <button type="submit" className="primary-button" disabled={isSaving}>
                   <Save size={18} />
-                  {isSaving ? "저장 중" : editingRecipientId ? "수정 저장" : "저장"}
+                  {isSaving ? "저장 중" : recipients.find((recipient) => recipient.id === editingRecipientId)?.isDraft ? "상세 정보 등록 완료" : editingRecipientId ? "수정 저장" : "저장"}
                 </button>
               </div>
             </form>

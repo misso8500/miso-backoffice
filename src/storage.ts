@@ -65,6 +65,21 @@ export const createRecipient = (recipient: RecipientInput) =>
     body: JSON.stringify({ ...recipient, enabled: recipient.enabled ?? true })
   }).then(normalizeRecipient);
 
+export type RecipientDraftRow = {
+  id: string;
+  name: string;
+  birthDate: string;
+  longTermCareNumber: string;
+  careGrade: string;
+  phone: string;
+  address: string;
+};
+
+export const saveRecipientDraftRows = (rows: RecipientDraftRow[]) =>
+  requestJson<{ recipients: Recipient[] }>("/api/recipients/bulk-drafts", {
+    method: "POST", body: JSON.stringify({ rows })
+  }).then(({ recipients }) => recipients.map(normalizeRecipient));
+
 export const updateRecipient = (recipient: RecipientInput) =>
   requestJson<Recipient>(`/api/recipients/${recipient.id}`, {
     method: "PUT",

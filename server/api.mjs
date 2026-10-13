@@ -1,3 +1,4 @@
+import { prepareRecipientBody, prepareDraftRows, sameDraft, visibleCareNumber } from "./recipient-drafts.mjs";
 import { normalizeWorkConditions } from "./work-conditions.mjs";
 import { loadEnv } from "./load-env.mjs";
 import { AuthError, handleAuthRequest } from "./auth.mjs";
@@ -310,6 +311,7 @@ const ensureRecipientColumn = (name, definition) => {
   }
 };
 
+ensureRecipientColumn("is_draft", "INTEGER NOT NULL DEFAULT 0");
 ensureRecipientColumn("service_type", "TEXT NOT NULL DEFAULT '방문'");
 ensureRecipientColumn("caregiver_requirements", "TEXT NOT NULL DEFAULT ''");
 ensureRecipientColumn("reduction_type", "TEXT NOT NULL DEFAULT '일반'");
@@ -339,7 +341,8 @@ const recipientFromRow = (row) => ({
   ...(row.operational_name ? { operationalName: row.operational_name } : {}),
   ...(row.assigned_backoffice_user_id ? { assignedBackofficeUserId: row.assigned_backoffice_user_id } : {}),
   birthDate: row.birth_date,
-  longTermCareNumber: row.long_term_care_number,
+  isDraft: row.is_draft === 1,
+  longTermCareNumber: visibleCareNumber(row.long_term_care_number),
   careGrade: row.care_grade,
   ...(row.phone ? { phone: row.phone } : {}),
   address: row.address,
@@ -488,8 +491,8 @@ const insertRecipient = db.prepare(`
     representative_name, representative_relation, representative_phone,
     service_type, caregiver_requirements, reduction_type, related_people,
     service_start_date, service_end_date, contract_registered_date,
-    contract_expired_date, enabled, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    contract_expired_date, enabled, created_at, updated_at, is_draft
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertEmploymentContract = db.prepare(`
@@ -598,7 +601,8 @@ if (db.prepare("SELECT COUNT(*) AS count FROM recipients").get().count === 0) {
       recipient.contractExpiredDate,
       recipient.enabled ? 1 : 0,
       recipient.createdAt,
-      recipient.updatedAt
+      recipient.updatedAt,
+      recipient.isDraft ? 1 : 0
     );
   }
 }
@@ -751,38 +755,40 @@ const deriveBirthDateFromResidentNumber = (residentRegistrationNumber) => {
 };
 
 const normalizeRecipient = (body, existing = null) => {
+  body = prepareRecipientBody(body, existing);
   const now = new Date().toISOString();
   const recipient = {
+    isDraft: body.isDraft,
     id: assertString(body.id ?? existing?.id, "id"),
     name: assertString(body.name, "name"),
     operationalName: assertString(body.operationalName, "operationalName", { optional: true }),
     assignedBackofficeUserId: assertString(body.assignedBackofficeUserId, "assignedBackofficeUserId", { optional: true }),
-    birthDate: assertString(body.birthDate, "birthDate"),
+    birthDate: assertString(body.birthDate, "birthDate", { optional: body.isDraft }) ?? "",
     longTermCareNumber: assertString(body.longTermCareNumber, "longTermCareNumber"),
-    careGrade: assertString(body.careGrade, "careGrade"),
+    careGrade: assertString(body.careGrade, "careGrade", { optional: body.isDraft }) ?? "",
     phone: assertString(body.phone, "phone", { optional: true }),
-    address: assertString(body.address, "address"),
-    representativeName: assertString(body.representativeName, "representativeName"),
-    representativeRelation: assertString(body.representativeRelation, "representativeRelation"),
-    representativePhone: assertString(body.representativePhone, "representativePhone"),
+    address: assertString(body.address, "address", { optional: body.isDraft }) ?? "",
+    representativeName: assertString(body.representativeName, "representativeName", { optional: body.isDraft }) ?? "",
+    representativeRelation: assertString(body.representativeRelation, "representativeRelation", { optional: body.isDraft }) ?? "",
+    representativePhone: assertString(body.representativePhone, "representativePhone", { optional: body.isDraft }) ?? "",
     serviceType: assertString(body.serviceType ?? existing?.serviceType ?? "방문", "serviceType"),
     caregiverRequirements: assertString(body.caregiverRequirements ?? existing?.caregiverRequirements, "caregiverRequirements", { optional: true }) ?? "",
     reductionType: assertString(body.reductionType ?? existing?.reductionType ?? "일반", "reductionType"),
     relatedPeople: assertString(body.relatedPeople ?? existing?.relatedPeople, "relatedPeople", { optional: true }) ?? "",
-    serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate"),
-    serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate"),
-    contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate"),
-    contractExpiredDate: assertString(body.contractExpiredDate, "contractExpiredDate"),
+    serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate", { optional: body.isDraft }) ?? "",
+    serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate", { optional: body.isDraft }) ?? "",
+    contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate", { optional: body.isDraft }) ?? "",
+    contractExpiredDate: assertString(body.contractExpiredDate, "contractExpiredDate", { optional: body.isDraft }) ?? "",
     enabled: typeof body.enabled === "boolean" ? body.enabled : existing?.enabled ?? true,
     createdAt: existing?.createdAt ?? body.createdAt ?? now,
     updatedAt: now
   };
 
-  if (recipient.serviceStartDate > recipient.serviceEndDate) {
+  if (recipient.serviceStartDate && recipient.serviceEndDate && recipient.serviceStartDate > recipient.serviceEndDate) {
     throw new Error("serviceStartDate must not be later than serviceEndDate");
   }
 
-  if (recipient.contractRegisteredDate > recipient.contractExpiredDate) {
+  if (recipient.contractRegisteredDate && recipient.contractExpiredDate && recipient.contractRegisteredDate > recipient.contractExpiredDate) {
     throw new Error("contractRegisteredDate must not be later than contractExpiredDate");
   }
 
@@ -968,7 +974,7 @@ const applyRecipientUpdate = (recipient) => {
       phone = ?, address = ?, representative_name = ?, representative_relation = ?,
       representative_phone = ?, service_start_date = ?, service_end_date = ?,
       service_type = ?, caregiver_requirements = ?, reduction_type = ?, related_people = ?,
-      contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?
+      contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?, is_draft = ?
     WHERE id = ?
   `).run(
     recipient.name,
@@ -992,6 +998,7 @@ const applyRecipientUpdate = (recipient) => {
     recipient.contractExpiredDate,
     recipient.enabled ? 1 : 0,
     recipient.updatedAt,
+    recipient.isDraft ? 1 : 0,
     recipient.id
   );
 };
@@ -1126,6 +1133,32 @@ const server = createServer(async (request, response) => {
 
     if (parts[0] !== "api" || !["recipients", "employment-contracts"].includes(parts[1])) {
       sendJson(response, 404, { error: "Not found" });
+      return;
+    }
+
+    if (parts[1] === "recipients" && parts[2] === "bulk-drafts" && request.method === "POST") {
+      const rows = prepareDraftRows(await readBody(request)).map((row) => normalizeRecipient(row));
+      const saved = [];
+      db.exec("BEGIN");
+      try {
+        for (const [index, recipient] of rows.entries()) {
+          const existing = readRecipient(recipient.id);
+          if (existing) {
+            if (!sameDraft(existing, recipient)) throw Object.assign(new Error(`${index + 1}행: 이미 저장된 행과 내용이 다릅니다. 목록을 확인해 주세요.`), { status: 409 });
+            saved.push(existing);
+          } else {
+            insertRecipient.run(recipient.id, recipient.name, recipient.operationalName, recipient.assignedBackofficeUserId,
+              recipient.birthDate, recipient.longTermCareNumber, recipient.careGrade, recipient.phone, recipient.address,
+              recipient.representativeName, recipient.representativeRelation, recipient.representativePhone,
+              recipient.serviceType, recipient.caregiverRequirements, recipient.reductionType, recipient.relatedPeople,
+              recipient.serviceStartDate, recipient.serviceEndDate, recipient.contractRegisteredDate, recipient.contractExpiredDate,
+              recipient.enabled ? 1 : 0, recipient.createdAt, recipient.updatedAt, 1);
+            saved.push(readRecipient(recipient.id));
+          }
+        }
+        db.exec("COMMIT");
+      } catch (error) { db.exec("ROLLBACK"); throw error; }
+      sendJson(response, 200, { recipients: saved });
       return;
     }
 
@@ -1319,9 +1352,10 @@ const server = createServer(async (request, response) => {
         recipient.contractExpiredDate,
         recipient.enabled ? 1 : 0,
         recipient.createdAt,
-        recipient.updatedAt
+        recipient.updatedAt,
+        recipient.isDraft ? 1 : 0
       );
-      sendJson(response, 201, recipient);
+      sendJson(response, 201, { ...recipient, longTermCareNumber: visibleCareNumber(recipient.longTermCareNumber) });
       return;
     }
 

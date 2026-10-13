@@ -1,4 +1,5 @@
 export type Recipient = {
+  isDraft?: boolean;
   id: string;
   name: string;
   operationalName?: string;
