@@ -1,3 +1,4 @@
+import EmploymentContractAttachments from "./EmploymentContractAttachments";
 import { getEmploymentContractStatus, getEmploymentCurrentYear, getWorkerKey, groupEmploymentContracts, compareEmploymentContracts, formatEmploymentPeriod, isValidEmploymentPeriod } from "./lib/employment-contracts";
 import RecognitionHistoryPreview from "./RecognitionHistoryPreview";
 import {
@@ -790,6 +791,7 @@ function App() {
   const [isEmploymentLoading, setIsEmploymentLoading] = useState(true);
   const [employmentErrorMessage, setEmploymentErrorMessage] = useState<string | null>(null);
   const [isEmploymentCreatePanelOpen, setIsEmploymentCreatePanelOpen] = useState(false);
+  const [isEditingEmploymentContract, setIsEditingEmploymentContract] = useState(false);
   const [employmentRenewalSource, setEmploymentRenewalSource] = useState<EmploymentContract | null>(null);
   const [employmentFormState, setEmploymentFormState] =
     useState<EmploymentContractFormState>(emptyEmploymentContractForm);
@@ -1080,7 +1082,8 @@ function App() {
     setIsCreatePanelOpen(true);
   };
 
-  const openEmploymentRenewalPanel = (contract: EmploymentContract) => {
+  const openEmploymentRenewalPanel = (contract: EmploymentContract, editing = false) => {
+    setIsEditingEmploymentContract(editing);
     const terms = contract.contractTerms.length ? contract.contractTerms : [{
       wageType: contract.wageType === "시급" ? "시급" as const : "월급" as const,
       wageAmount: contract.wageAmount,
@@ -1094,8 +1097,8 @@ function App() {
       workerPhone: contract.workerPhone ?? "",
       primaryBank: contract.primaryBank,
       bankAccountNumber: contract.bankAccountNumber,
-      contractStartDate: "",
-      contractEndDate: "",
+      contractStartDate: editing ? contract.contractStartDate : "",
+      contractEndDate: editing ? contract.contractEndDate ?? "" : "",
       terms: terms.map((term) => ({
         id: createEmptyEmploymentTerm().id,
         wageType: term.wageType,
@@ -1112,6 +1115,7 @@ function App() {
   };
 
   const closeEmploymentCreatePanel = () => {
+    setIsEditingEmploymentContract(false);
     setEmploymentRenewalSource(null);
     setIsEmploymentCreatePanelOpen(false);
     setEmploymentFormState(emptyEmploymentContractForm);
@@ -1395,7 +1399,7 @@ function App() {
     const firstTerm = contractTerms[0];
 
     const newContract: EmploymentContractInput = {
-      id: createEmploymentContractId(),
+      id: isEditingEmploymentContract && employmentRenewalSource ? employmentRenewalSource.id : createEmploymentContractId(),
       workerName: employmentFormState.workerName.trim(),
       workerBirthDate: derivedWorkerBirthDate,
       residentRegistrationNumber: formatResidentNumberInput(
@@ -1429,14 +1433,18 @@ function App() {
       allowanceMemo: employmentRenewalSource?.allowanceMemo,
       memo: employmentRenewalSource?.memo,
       contractTerms,
-      enabled: true
+      enabled: isEditingEmploymentContract ? employmentRenewalSource?.enabled ?? true : true
     };
 
     setIsEmploymentSaving(true);
 
     try {
-      const createdContract = await createEmploymentContract(newContract);
-      setEmploymentContracts((current) => [...current, createdContract]);
+      const createdContract = isEditingEmploymentContract
+        ? await updateEmploymentContract(newContract)
+        : await createEmploymentContract(newContract);
+      setEmploymentContracts((current) => isEditingEmploymentContract
+        ? current.map((contract) => contract.id === createdContract.id ? createdContract : contract)
+        : [...current, createdContract]);
       setSelectedEmploymentContractId(createdContract.id);
       closeEmploymentCreatePanel();
       setEmploymentErrorMessage(null);
@@ -2503,6 +2511,11 @@ function App() {
                 목록으로
               </button>
               <div className="detail-actions">
+                <button type="button" className="secondary-button"
+                  onClick={() => openEmploymentRenewalPanel(selectedEmploymentContract, true)}>
+                  <Pencil size={17} />
+                  계약 수정
+                </button>
                 <button type="button" className="primary-button"
                   onClick={() => openEmploymentRenewalPanel(selectedEmploymentContract)}>
                   <Plus size={17} />
@@ -2564,6 +2577,8 @@ function App() {
                 </button>
               ))}
             </section>
+
+            <EmploymentContractAttachments key={selectedEmploymentContract.id} />
 
             <div className="detail-sections">
               {employmentContractDetailSections.map((section) => (
@@ -2790,7 +2805,7 @@ function App() {
 
       {isEmploymentCreatePanelOpen && (
         <div className="detail-backdrop" role="presentation">
-          <article className="detail-panel" aria-label={employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}>
+          <article className="detail-panel" aria-label={isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}>
             <div className="detail-header">
               <button type="button" className="back-button" onClick={closeEmploymentCreatePanel}>
                 <ArrowLeft size={17} />
@@ -2804,13 +2819,13 @@ function App() {
 
             <form className="recipient-form" onSubmit={handleCreateEmploymentContract}>
               <div className="form-heading">
-                <span className="eyebrow">{employmentRenewalSource ? "Renew employment contract" : "New employment contract"}</span>
-                <h2>{employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}</h2>
+                <span className="eyebrow">{isEditingEmploymentContract ? "Edit employment contract" : employmentRenewalSource ? "Renew employment contract" : "New employment contract"}</span>
+                <h2>{isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}</h2>
               </div>
 
               {employmentRenewalSource && (
                 <p>{employmentRenewalSource.workerName}님의 {formatEmploymentPeriod(employmentRenewalSource)} 계약 정보를 불러왔습니다.
-                  내용을 확인하고 새 계약 기간을 입력하세요.</p>
+                  {isEditingEmploymentContract ? "내용을 수정한 뒤 저장하세요." : "내용을 확인하고 새 계약 기간을 입력하세요."}</p>
               )}
 
               {employmentFormErrorMessage && (
