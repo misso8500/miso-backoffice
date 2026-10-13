@@ -911,6 +911,14 @@ const normalizeEmploymentContract = (body, existing = null) => {
     updatedAt: now
   };
 
+  const isValidContractDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  if (!isValidContractDate(contract.contractStartDate) ||
+      (contract.contractEndDate && !isValidContractDate(contract.contractEndDate)) ||
+      (!existing && !contract.contractEndDate)) {
+    throw new Error("계약 시작일과 종료일을 YYYY-MM-DD 형식으로 입력하세요.");
+  }
+
   if (contract.contractEndDate && contract.contractStartDate > contract.contractEndDate) {
     throw new Error("contractStartDate must not be later than contractEndDate");
   }
