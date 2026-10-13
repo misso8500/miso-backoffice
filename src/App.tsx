@@ -1,4 +1,4 @@
-import RecipientGrid from "./RecipientGrid";
+import BasicEntryGrid from "./BasicEntryGrid";
 import EmploymentConditionsDetails from "./EmploymentConditionsDetails";
 import EmploymentConditionsEditor, { createEmptyWorkCondition, type EmploymentConditionFormTerm } from "./EmploymentConditionsEditor";
 import type { AuthUser } from "./auth";
@@ -10,7 +10,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  type ChangeEvent,
   type FormEvent
 } from "react";
 import {
@@ -21,7 +20,6 @@ import {
   ChevronRight,
   Database,
   ClipboardCheck,
-  Download,
   Pencil,
   Plus,
   RefreshCw,
@@ -30,7 +28,6 @@ import {
   Search,
   FileX2,
   Trash2,
-  Upload,
   UserRound,
   Users,
   X
@@ -230,240 +227,6 @@ const maskResidentNumber = (value: string) => {
   return formatted.length > 8 ? `${formatted.slice(0, 8)}${"*".repeat(formatted.length - 8)}` : formatted;
 };
 
-const escapeCsvValue = (value: string | number | boolean | null | undefined) => {
-  const stringValue = value === null || value === undefined ? "" : String(value);
-
-  if (/[",\n\r]/.test(stringValue)) {
-    return `"${stringValue.replace(/"/g, '""')}"`;
-  }
-
-  return stringValue;
-};
-
-const downloadCsv = (
-  filename: string,
-  headers: string[],
-  rows: Array<Array<string | number | boolean | null | undefined>>
-) => {
-  const csv = [headers, ...rows]
-    .map((row) => row.map((value) => escapeCsvValue(value)).join(","))
-    .join("\r\n");
-  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-};
-
-const downloadRecipientCsvExample = () => {
-  downloadCsv(
-    "miso-recipient-example.csv",
-    [
-      "id",
-      "name",
-      "operationalName",
-      "birthDate",
-      "longTermCareNumber",
-      "careGrade",
-      "phone",
-      "address",
-      "representativeName",
-      "representativeRelation",
-      "representativePhone",
-      "serviceType",
-      "caregiverRequirements",
-      "reductionType",
-      "relatedPeople",
-      "serviceStartDate",
-      "serviceEndDate",
-      "enabled"
-    ],
-    [
-      [
-        "recipient-import-001",
-        "김예시",
-        "김예시/3/강서구/독거",
-        "1944-05-10",
-        "LTC-2026-9001",
-        "3등급",
-        "010-1234-5678",
-        "서울시 강서구 예시로 100",
-        "박보호",
-        "자녀",
-        "010-2222-3333",
-        "방문",
-        "여성 요양보호사, 자차 운전 가능",
-        "일반",
-        "홍길동(이웃) 010-0000-0000",
-        "2026-01-01",
-        "2026-12-31",
-        "false"
-      ]
-    ]
-  );
-};
-
-const downloadEmploymentContractCsvExample = () => {
-  downloadCsv(
-    "miso-employment-contract-example.csv",
-    [
-      "workerGroupId",
-      "workerName",
-      "residentRegistrationNumber",
-      "workerPhone",
-      "primaryBank",
-      "bankAccountNumber",
-      "contractStartDate",
-      "contractEndDate",
-      "termOrder",
-      "wageType",
-      "wageAmount",
-      "nonTaxableMealAllowance",
-      "nonTaxableVehicleAllowance",
-      "otherNonTaxablePay",
-      "enabled"
-    ],
-    [
-      [
-        "worker-import-001",
-        "이근로",
-        "941025-1234567",
-        "010-1234-1234",
-        "국민은행",
-        "123-456-789012",
-        "2026-01-01",
-        "2026-12-31",
-        1,
-        "월급",
-        2300000,
-        200000,
-        100000,
-        0,
-        "false"
-      ],
-      [
-        "worker-import-001",
-        "이근로",
-        "941025-1234567",
-        "010-1234-1234",
-        "국민은행",
-        "123-456-789012",
-        "2026-01-01",
-        "2026-12-31",
-        2,
-        "시급",
-        14000,
-        0,
-        50000,
-        0,
-        "false"
-      ]
-    ]
-  );
-};
-
-type CsvRow = Record<string, string>;
-
-const parseCsv = (text: string) => {
-  const normalizedText = text.replace(/^\uFEFF/, "");
-  const rows: string[][] = [];
-  let currentRow: string[] = [];
-  let currentValue = "";
-  let isInsideQuote = false;
-
-  for (let index = 0; index < normalizedText.length; index += 1) {
-    const character = normalizedText[index];
-    const nextCharacter = normalizedText[index + 1];
-
-    if (character === '"' && isInsideQuote && nextCharacter === '"') {
-      currentValue += '"';
-      index += 1;
-      continue;
-    }
-
-    if (character === '"') {
-      isInsideQuote = !isInsideQuote;
-      continue;
-    }
-
-    if (character === "," && !isInsideQuote) {
-      currentRow.push(currentValue.trim());
-      currentValue = "";
-      continue;
-    }
-
-    if ((character === "\n" || character === "\r") && !isInsideQuote) {
-      if (character === "\r" && nextCharacter === "\n") {
-        index += 1;
-      }
-
-      currentRow.push(currentValue.trim());
-      rows.push(currentRow);
-      currentRow = [];
-      currentValue = "";
-      continue;
-    }
-
-    currentValue += character;
-  }
-
-  currentRow.push(currentValue.trim());
-  rows.push(currentRow);
-
-  const [headers = [], ...bodyRows] = rows.filter((row) =>
-    row.some((value) => value.trim().length > 0)
-  );
-
-  return bodyRows.map((row) =>
-    headers.reduce<CsvRow>((accumulator, header, index) => {
-      accumulator[header.trim()] = row[index]?.trim() ?? "";
-      return accumulator;
-    }, {})
-  );
-};
-
-const readCsvFile = (file: File) =>
-  new Promise<CsvRow[]>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => resolve(parseCsv(String(reader.result ?? "")));
-    reader.onerror = () => reject(new Error("CSV 파일을 읽지 못했습니다."));
-    reader.readAsText(file, "utf-8");
-  });
-
-const parseCsvBoolean = (value: string | undefined, defaultValue = false) => {
-  if (!value) {
-    return defaultValue;
-  }
-
-  return ["true", "1", "yes", "y", "활성", "유효"].includes(value.trim().toLocaleLowerCase());
-};
-
-const parseCsvNumber = (value: string | undefined, field: string) => {
-  const numericValue = Number(String(value ?? "").replace(/,/g, ""));
-
-  if (!Number.isFinite(numericValue)) {
-    throw new Error(`${field} 값은 숫자여야 합니다.`);
-  }
-
-  return numericValue;
-};
-
-const requireCsvValue = (row: CsvRow, field: string) => {
-  const value = row[field]?.trim();
-
-  if (!value) {
-    throw new Error(`${field} 값을 입력하세요.`);
-  }
-
-  return value;
-};
-
 const deriveBirthDateFromResidentNumber = (residentRegistrationNumber: string) => {
   const digits = residentRegistrationNumber.replace(/\D/g, "");
 
@@ -632,6 +395,7 @@ const formatDate = (value: string) => !value || !Number.isFinite(Date.parse(valu
 const formatCurrency = (value: number) => `${value.toLocaleString("ko-KR")}원`;
 
 const formatContractTerms = (contract: EmploymentContract) => {
+  if (contract.isDraft && !contract.wageAmount && !contract.contractTerms.some((term) => term.wageAmount)) return "임금·근무 조건 미입력";
   const terms =
     contract.contractTerms.length > 0
       ? contract.contractTerms
@@ -750,6 +514,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [selectedEmploymentContractId, setSelectedEmploymentContractId] = useState<string | null>(
     null
   );
+  const [isEmploymentGridOpen, setIsEmploymentGridOpen] = useState(false);
+  const [employmentRegistrationFilter, setEmploymentRegistrationFilter] = useState("all");
   const [employmentSearchQuery, setEmploymentSearchQuery] = useState("");
   const [visibleResidentNumberIds, setVisibleResidentNumberIds] = useState<Set<string>>(
     () => new Set()
@@ -913,6 +679,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
     return [...employmentContracts]
       .filter((contract) => {
+        if (employmentRegistrationFilter === "draft" && !contract.isDraft) return false;
+        if (employmentRegistrationFilter === "complete" && contract.isDraft) return false;
         if (showEnabledEmploymentOnly && !getEmploymentContractStatus(contract, employmentCurrentYear).valid) {
           return false;
         }
@@ -937,13 +705,15 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           .includes(query);
       })
       .sort(compareEmploymentContracts);
-  }, [employmentContracts, employmentSearchQuery, showEnabledEmploymentOnly, employmentCurrentYear]);
+  }, [employmentContracts, employmentSearchQuery, showEnabledEmploymentOnly, employmentCurrentYear, employmentRegistrationFilter]);
   const employmentWorkerGroups = useMemo(() => {
     const matchingIds = new Set(filteredEmploymentContracts.map((contract) => contract.id));
     return groupEmploymentContracts(employmentContracts.filter((contract) =>
-      !showEnabledEmploymentOnly || getEmploymentContractStatus(contract, employmentCurrentYear).valid
+      (employmentRegistrationFilter !== "draft" || contract.isDraft) &&
+      (employmentRegistrationFilter !== "complete" || !contract.isDraft) &&
+      (!showEnabledEmploymentOnly || getEmploymentContractStatus(contract, employmentCurrentYear).valid)
     )).filter((contracts) => contracts.some((contract) => matchingIds.has(contract.id)));
-  }, [employmentContracts, filteredEmploymentContracts, showEnabledEmploymentOnly, employmentCurrentYear]);
+  }, [employmentContracts, filteredEmploymentContracts, showEnabledEmploymentOnly, employmentCurrentYear, employmentRegistrationFilter]);
   const selectedEmploymentContract =
     employmentContracts.find((contract) => contract.id === selectedEmploymentContractId) ?? null;
   const selectedWorkerHistory = selectedEmploymentContract
@@ -1040,7 +810,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
   const openEmploymentRenewalPanel = (contract: EmploymentContract, editing = false) => {
     setIsEditingEmploymentContract(editing);
-    setIncludeWorkConditions(!editing || Boolean(contract.workConditions));
+    setIncludeWorkConditions(!editing || Boolean(contract.isDraft) || Boolean(contract.workConditions));
     const terms = contract.contractTerms.length ? contract.contractTerms : [{
       wageType: contract.wageType === "시급" ? "시급" as const : "월급" as const,
       wageAmount: contract.wageAmount,
@@ -1065,7 +835,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         condition: { ...(previous ?? createEmptyWorkCondition(id)), termId: id,
           ...(!editing ? { effectiveStartDate: "", effectiveEndDate: "", statusDate: "", matchingStatus: "pending" as const, documentStatus: "needs_confirmation" as const, changeReason: "" } : {}) },
         wageType: term.wageType,
-        wageAmount: String(term.wageAmount),
+        wageAmount: contract.isDraft && !term.wageAmount ? "" : String(term.wageAmount),
         nonTaxableMealAllowance: String(term.nonTaxableMealAllowance),
         nonTaxableVehicleAllowance: String(term.nonTaxableVehicleAllowance),
         otherNonTaxablePay: String(term.otherNonTaxablePay)
@@ -1263,10 +1033,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     }
   };
 
-  const handleCreateEmploymentContract = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleCreateEmploymentContract = async (event?: FormEvent<HTMLFormElement>, saveAsDraft = false) => {
+    event?.preventDefault();
 
-    const missingField = requiredEmploymentContractFields.find(({ key }) => {
+    const missingField = (saveAsDraft ? requiredEmploymentContractFields.filter(({ key }) => key === "workerName") : requiredEmploymentContractFields).find(({ key }) => {
       const value = employmentFormState[key];
       return typeof value !== "string" || !value.trim();
     });
@@ -1276,7 +1046,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       return;
     }
 
-    if (!isValidEmploymentPeriod(employmentFormState.contractStartDate, employmentFormState.contractEndDate)) {
+    if ((!saveAsDraft || (employmentFormState.contractStartDate && employmentFormState.contractEndDate)) && !isValidEmploymentPeriod(employmentFormState.contractStartDate, employmentFormState.contractEndDate)) {
       setEmploymentFormErrorMessage("계약 기간을 확인하세요. 종료일은 시작일보다 빠를 수 없습니다.");
       return;
     }
@@ -1285,7 +1055,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       employmentFormState.residentRegistrationNumber
     );
 
-    if (!derivedWorkerBirthDate) {
+    if (!derivedWorkerBirthDate && (!saveAsDraft || employmentFormState.residentRegistrationNumber.trim())) {
       setEmploymentFormErrorMessage("주민번호 앞 7자리를 확인하세요.");
       return;
     }
@@ -1302,7 +1072,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     const invalidTermIndex = contractTerms.findIndex(
       (term) =>
         !Number.isFinite(term.wageAmount) ||
-        term.wageAmount <= 0 ||
+        (saveAsDraft ? term.wageAmount < 0 : term.wageAmount <= 0) ||
         [term.nonTaxableMealAllowance, term.nonTaxableVehicleAllowance, term.otherNonTaxablePay].some(
           (value) => !Number.isFinite(value) || value < 0
         )
@@ -1318,10 +1088,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     const firstTerm = contractTerms[0];
 
     const newContract: EmploymentContractInput = {
+      isDraft: saveAsDraft,
       ...(isEditingEmploymentContract && employmentRenewalSource ? { updatedAt: employmentRenewalSource.updatedAt } : {}),
       id: isEditingEmploymentContract && employmentRenewalSource ? employmentRenewalSource.id : createEmploymentContractId(),
       workerName: employmentFormState.workerName.trim(),
-      workerBirthDate: derivedWorkerBirthDate,
+      workerBirthDate: derivedWorkerBirthDate ?? "",
       residentRegistrationNumber: formatResidentNumberInput(
         employmentFormState.residentRegistrationNumber.trim()
       ),
@@ -1338,10 +1109,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       recipientAssignments: employmentRenewalSource?.recipientAssignments ?? [],
       contractStartDate: employmentFormState.contractStartDate,
       contractEndDate: employmentFormState.contractEndDate,
-      workDays: employmentRenewalSource?.workDays ?? "미입력",
-      workStartTime: employmentRenewalSource?.workStartTime ?? "09:00",
-      workEndTime: employmentRenewalSource?.workEndTime ?? "18:00",
-      breakMinutes: employmentRenewalSource?.breakMinutes ?? 0,
+      workDays: includeWorkConditions ? employmentFormState.terms[0].condition.workDays : employmentRenewalSource?.workDays || "미입력",
+      workStartTime: includeWorkConditions ? employmentFormState.terms[0].condition.workStartTime : employmentRenewalSource?.workStartTime || "09:00",
+      workEndTime: includeWorkConditions ? employmentFormState.terms[0].condition.workEndTime : employmentRenewalSource?.workEndTime || "18:00",
+      breakMinutes: includeWorkConditions ? employmentFormState.terms[0].condition.breakMinutes : employmentRenewalSource?.breakMinutes ?? 0,
       wageType: firstTerm.wageType,
       wageAmount: firstTerm.wageAmount,
       nonTaxableVehicleAllowance: firstTerm.nonTaxableVehicleAllowance,
@@ -1374,6 +1145,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       setEmploymentContracts((current) => isEditingEmploymentContract
         ? current.map((contract) => contract.id === createdContract.id ? createdContract : contract)
         : [...current, createdContract]);
+      if (saveAsDraft) { setShowEnabledEmploymentOnly(false); setEmploymentRegistrationFilter("draft"); }
+      else if (employmentRenewalSource?.isDraft || !isEditingEmploymentContract) { setEmploymentRegistrationFilter("all"); setShowEnabledEmploymentOnly(false); }
       setSelectedEmploymentContractId(createdContract.id);
       closeEmploymentCreatePanel();
       setEmploymentErrorMessage(null);
@@ -1381,186 +1154,6 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       if (error instanceof Error && error.message.includes("다른 사용자가")) void fetchEmploymentContracts();
       setEmploymentFormErrorMessage(
         error instanceof Error ? error.message : "근로계약 정보를 저장하지 못했습니다."
-      );
-    } finally {
-      setIsEmploymentSaving(false);
-    }
-  };
-
-  const handleRecipientCsvUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!file) {
-      return;
-    }
-
-    setIsSaving(true);
-    setErrorMessage(null);
-
-    try {
-      const rows = await readCsvFile(file);
-
-      if (rows.length === 0) {
-        throw new Error("CSV에 등록할 수급자 행이 없습니다.");
-      }
-
-      const createdRecipients: Recipient[] = [];
-
-      for (const [index, row] of rows.entries()) {
-        const rowNumber = index + 2;
-        const serviceStartDate = requireCsvValue(row, "serviceStartDate");
-        const serviceEndDate = requireCsvValue(row, "serviceEndDate");
-
-        if (serviceStartDate > serviceEndDate) {
-          throw new Error(`${rowNumber}행: serviceStartDate는 serviceEndDate보다 늦을 수 없습니다.`);
-        }
-
-        const recipientInput: RecipientInput = {
-          id: row.id || createRecipientId(),
-          name: requireCsvValue(row, "name"),
-          ...(row.operationalName?.trim() ? { operationalName: row.operationalName.trim() } : {}),
-          birthDate: requireCsvValue(row, "birthDate"),
-          longTermCareNumber: requireCsvValue(row, "longTermCareNumber"),
-          careGrade: requireCsvValue(row, "careGrade"),
-          ...(row.phone ? { phone: formatPhoneNumberInput(row.phone) } : {}),
-          address: requireCsvValue(row, "address"),
-          representativeName: requireCsvValue(row, "representativeName"),
-          representativeRelation: requireCsvValue(row, "representativeRelation"),
-          representativePhone: formatPhoneNumberInput(requireCsvValue(row, "representativePhone")),
-          serviceType: row.serviceType === "가족" ? "가족" : "방문",
-          caregiverRequirements: row.caregiverRequirements?.trim() ?? "",
-          reductionType: row.reductionType === "감경" || row.reductionType === "기초" ? row.reductionType : "일반",
-          relatedPeople: row.relatedPeople?.trim() ?? "",
-          serviceStartDate,
-          serviceEndDate,
-          contractRegisteredDate: serviceStartDate,
-          contractExpiredDate: serviceEndDate,
-          enabled: parseCsvBoolean(row.enabled, false)
-        };
-
-        createdRecipients.push(await createRecipient(recipientInput));
-      }
-
-      setRecipients((current) => [...current, ...createdRecipients]);
-      setShowEnabledOnly(false);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "수급자 CSV 업로드에 실패했습니다.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleEmploymentContractCsvUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!file) {
-      return;
-    }
-
-    setIsEmploymentSaving(true);
-    setEmploymentErrorMessage(null);
-
-    try {
-      const rows = await readCsvFile(file);
-
-      if (rows.length === 0) {
-        throw new Error("CSV에 등록할 근로계약 행이 없습니다.");
-      }
-
-      const groupedRows = rows.reduce<Map<string, CsvRow[]>>((groups, row, index) => {
-        const workerGroupId =
-          row.workerGroupId?.trim() ||
-          `${row.workerName?.trim() ?? "worker"}-${row.residentRegistrationNumber?.trim() ?? index}`;
-        const contractGroupKey = `${workerGroupId}|${row.contractStartDate?.trim() ?? ""}|${row.contractEndDate?.trim() ?? ""}`;
-        const groupRows = groups.get(contractGroupKey) ?? [];
-        groupRows.push(row);
-        groups.set(contractGroupKey, groupRows);
-        return groups;
-      }, new Map<string, CsvRow[]>());
-      const createdContracts: EmploymentContract[] = [];
-
-      for (const [workerGroupId, groupRows] of groupedRows.entries()) {
-        const firstRow = groupRows[0];
-        const contractStartDate = requireCsvValue(firstRow, "contractStartDate");
-        const contractEndDate = requireCsvValue(firstRow, "contractEndDate");
-        if (!isValidEmploymentPeriod(contractStartDate, contractEndDate)) {
-          throw new Error(`${firstRow.workerName}: 계약 기간을 YYYY-MM-DD 형식으로 확인하세요.`);
-        }
-        const residentRegistrationNumber = formatResidentNumberInput(
-          requireCsvValue(firstRow, "residentRegistrationNumber")
-        );
-        const workerBirthDate = deriveBirthDateFromResidentNumber(residentRegistrationNumber);
-
-        if (!workerBirthDate) {
-          throw new Error(`${workerGroupId}: 주민번호 앞 7자리를 확인하세요.`);
-        }
-
-        const contractTerms = groupRows
-          .sort((a, b) => Number(a.termOrder || 0) - Number(b.termOrder || 0))
-          .map((row, index) => {
-            const wageType = requireCsvValue(row, "wageType");
-
-            if (!["월급", "시급"].includes(wageType)) {
-              throw new Error(`${workerGroupId} ${index + 1}번째 계약: wageType은 월급 또는 시급이어야 합니다.`);
-            }
-
-            return {
-              wageType: wageType as "월급" | "시급",
-              wageAmount: parseCsvNumber(row.wageAmount, "wageAmount"),
-              nonTaxableMealAllowance: parseCsvNumber(
-                row.nonTaxableMealAllowance || "0",
-                "nonTaxableMealAllowance"
-              ),
-              nonTaxableVehicleAllowance: parseCsvNumber(
-                row.nonTaxableVehicleAllowance || "0",
-                "nonTaxableVehicleAllowance"
-              ),
-              otherNonTaxablePay: parseCsvNumber(row.otherNonTaxablePay || "0", "otherNonTaxablePay")
-            };
-          });
-        const firstTerm = contractTerms[0];
-        const contractInput: EmploymentContractInput = {
-          id: createEmploymentContractId(),
-          workerName: requireCsvValue(firstRow, "workerName"),
-          workerBirthDate,
-          residentRegistrationNumber,
-          workerPhone: formatPhoneNumberInput(requireCsvValue(firstRow, "workerPhone")),
-          primaryBank: requireCsvValue(firstRow, "primaryBank"),
-          bankAccountNumber: formatBankAccountNumberInput(requireCsvValue(firstRow, "bankAccountNumber")),
-          workerAddress: "미입력",
-          jobTitle: "근로자",
-          employmentType: "근로계약 묶음",
-          workplaceType: "office",
-          workplace: "미입력",
-          recipientAssignments: [],
-          contractStartDate,
-          contractEndDate,
-          workDays: "미입력",
-          workStartTime: "09:00",
-          workEndTime: "18:00",
-          breakMinutes: 0,
-          wageType: firstTerm.wageType,
-          wageAmount: firstTerm.wageAmount,
-          nonTaxableVehicleAllowance: firstTerm.nonTaxableVehicleAllowance,
-          nonTaxableMealAllowance: firstTerm.nonTaxableMealAllowance,
-          taxableExtraPay: firstTerm.otherNonTaxablePay,
-          paymentDate: "미입력",
-          insuranceStatus: "별도 관리",
-          insuranceSnapshots: [],
-          contractTerms,
-          enabled: parseCsvBoolean(firstRow.enabled, false)
-        };
-
-        createdContracts.push(await createEmploymentContract(contractInput));
-      }
-
-      setEmploymentContracts((current) => [...current, ...createdContracts]);
-      setShowEnabledEmploymentOnly(false);
-    } catch (error) {
-      setEmploymentErrorMessage(
-        error instanceof Error ? error.message : "근로계약 CSV 업로드에 실패했습니다."
       );
     } finally {
       setIsEmploymentSaving(false);
@@ -1787,12 +1380,13 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
         </button>
         <span className="resident-number-cell">
-          <span>{visibleResidentNumberIds.has(contract.id)
+          <span>{(visibleResidentNumberIds.has(contract.id)
             ? contract.residentRegistrationNumber
-            : maskResidentNumber(contract.residentRegistrationNumber)}</span>
+            : maskResidentNumber(contract.residentRegistrationNumber)) || "미등록"}</span>
           <button
             type="button"
             className="resident-number-toggle"
+            disabled={!contract.residentRegistrationNumber}
             aria-label={`${contract.workerName} 주민번호 ${visibleResidentNumberIds.has(contract.id) ? "숨기기" : "표기"}`}
             aria-pressed={visibleResidentNumberIds.has(contract.id)}
             onClick={(event) => {
@@ -1815,13 +1409,13 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <em>{status.valid ? "유효함" : status.label.startsWith("계약종료/") ? "계약종료" : status.label}</em>
             <small>{status.valid ? `${employmentCurrentYear}년 계약` : status.label.startsWith("계약종료/")
               ? `${status.label.split("/")[1]} · 올해 계약 기간 아님`
-              : status.label === "비활성화" ? "삭제 처리된 계약" : status.label === "계약기간 확인 필요" ? "시작일·종료일 확인 필요" : "근무 연결 상태 확인 필요"}</small>
+              : status.label === "정보 입력 중" ? "상세 정보를 입력해 주세요" : status.label === "비활성화" ? "삭제 처리된 계약" : status.label === "계약기간 확인 필요" ? "시작일·종료일 확인 필요" : "근무 연결 상태 확인 필요"}</small>
           </span>
-          <small className="matching-summary">{matching.label}</small>
+          {!contract.isDraft && <small className="matching-summary">{matching.label}</small>}
         </span>
         <span className="expiry">
-          <strong>{formatCurrency(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount)}</strong>
-          <small>{contract.contractTerms[0]?.wageType ?? contract.wageType} · 계약 조건 {contract.contractTerms.length || 1}개</small>
+          <strong>{contract.isDraft && !(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount) ? "약정 미입력" : formatCurrency(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount)}</strong>
+          <small>{contract.isDraft ? "상세 입력 필요" : `${contract.contractTerms[0]?.wageType ?? contract.wageType} · 계약 조건 ${contract.contractTerms.length || 1}개`}</small>
         </span>
         <ChevronRight size={18} />
       </div>
@@ -1898,24 +1492,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <button type="button" className="primary-button" onClick={() => setIsRecipientGridOpen(true)}>
               <Plus size={18} /> 표로 여러 명 입력
             </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={downloadRecipientCsvExample}
-            >
-              <Download size={18} />
-              CSV 예제
-            </button>
-            <label className="secondary-button">
-              <Upload size={18} />
-              CSV 업로드
-              <input
-                className="sr-only"
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event) => void handleRecipientCsvUpload(event)}
-              />
-            </label>
+
             <button
               type="button"
               className="primary-button"
@@ -1984,7 +1561,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 {backofficeUsers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
               </select>
               <select className="filter-select" aria-label="계약 상태 필터" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as RecipientStatus | "전체")}>
-                {(["전체", "정보입력중", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status}</option>)}
+                {(["전체", "정보입력중", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status === "정보입력중" ? "정보 입력 중" : status}</option>)}
               </select>
               <div className="density-toggle" aria-label="보기 방식">
                 <button type="button" className={viewDensity === "simple" ? "is-active" : ""} onClick={() => setViewDensity("simple")}>간단</button>
@@ -2063,7 +1640,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                       </span>
                       {viewDensity === "simple" ? (
                         <>
-                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
+                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient) === "정보입력중" ? "정보 입력 중" : getRecipientStatus(recipient)}</em></span>
                           <span className="recipient-address">{!recipient.address || recipient.address === "미등록" ? "주소 미등록" : recipient.address}</span>
                           <span className="primary-contact">
                             <strong>{hasPrimaryContact(recipient) ? `${recipient.representativeName}(${recipient.representativeRelation})` : "연락처 미등록"}</strong>
@@ -2090,7 +1667,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                       ) : (
                         <>
                           <span>{recipient.careGrade || "등급 미등록"}</span>
-                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
+                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient) === "정보입력중" ? "정보 입력 중" : getRecipientStatus(recipient)}</em></span>
                           <span>{recipient.representativeName}<small>{recipient.representativePhone}</small></span>
                           <span className="expiry"><CalendarClock size={15} />{recipient.serviceEndDate || "기간 미등록"}</span>
                         </>
@@ -2143,24 +1720,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 <p>근로자의 계약 기간, 근무시간, 임금과 보험 정보를 기록하고 확인합니다.</p>
               </div>
               <div className="heading-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={downloadEmploymentContractCsvExample}
-                >
-                  <Download size={18} />
-                  CSV 예제
+                <button type="button" className="primary-button" onClick={() => setIsEmploymentGridOpen(true)}>
+                  <Plus size={18} /> 표로 여러 명 입력
                 </button>
-                <label className="secondary-button">
-                  <Upload size={18} />
-                  CSV 업로드
-                  <input
-                    className="sr-only"
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(event) => void handleEmploymentContractCsvUpload(event)}
-                  />
-                </label>
+
+
                 <button
                   type="button"
                   className="primary-button"
@@ -2209,6 +1773,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   <span>계약 시작일 최신순</span>
                 </div>
                 <div className="toolbar-controls">
+                  <select className="filter-select" aria-label="근로계약 등록 상태" value={employmentRegistrationFilter}
+                    onChange={(event) => { setEmploymentRegistrationFilter(event.target.value); if (event.target.value === "draft") setShowEnabledEmploymentOnly(false); }}>
+                    <option value="all">등록 상태 전체</option><option value="draft">정보 입력 중</option><option value="complete">등록 완료</option>
+                  </select>
                   <label className="valid-toggle">
                     <input
                       type="checkbox"
@@ -2285,7 +1853,15 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         )}
       </main>
 
-      {isRecipientGridOpen && <RecipientGrid existing={recipients}
+      {isEmploymentGridOpen && <BasicEntryGrid mode="employment" existingContracts={employmentContracts}
+        onClose={() => setIsEmploymentGridOpen(false)} onContractsSaved={(saved) => {
+          setEmploymentContracts((current) => [...current.filter((contract) => !saved.some((item) => item.id === contract.id)), ...saved]);
+          setIsEmploymentGridOpen(false); setActiveView("employmentContracts"); setEmploymentSearchQuery("");
+          setShowEnabledEmploymentOnly(false); setEmploymentRegistrationFilter("draft");
+          showNotification(`${saved.length}건의 기본 정보를 저장했습니다. 이름을 눌러 상세 정보를 보완해 주세요.`);
+        }} />}
+
+      {isRecipientGridOpen && <BasicEntryGrid existing={recipients}
         onClose={() => setIsRecipientGridOpen(false)} onSaved={(saved) => {
           setRecipients((current) => [...current.filter((recipient) => !saved.some((item) => item.id === recipient.id)), ...saved]);
           setIsRecipientGridOpen(false);
@@ -2456,9 +2032,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 <button type="button" className="secondary-button"
                   onClick={() => openEmploymentRenewalPanel(selectedEmploymentContract, true)}>
                   <Pencil size={17} />
-                  계약 수정
+                  {selectedEmploymentContract.isDraft ? "상세 정보 입력" : "계약 수정"}
                 </button>
                 <button type="button" className="primary-button"
+                  disabled={Boolean(selectedEmploymentContract.isDraft)}
+                  title={selectedEmploymentContract.isDraft ? "상세 정보 등록 후 갱신할 수 있습니다." : undefined}
                   onClick={() => openEmploymentRenewalPanel(selectedEmploymentContract)}>
                   <Plus size={17} />
                   추가/갱신계약
@@ -2488,10 +2066,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             </div>
 
             <div className="recipient-hero employment-hero">
-              <span>계약 조건 {selectedEmploymentContract.contractTerms.length || 1}개</span>
+              <span>{selectedEmploymentContract.isDraft ? "정보 입력 중 · 상세 정보를 보완해 주세요" : `계약 조건 ${selectedEmploymentContract.contractTerms.length || 1}개`}</span>
               <h2>{selectedEmploymentContract.workerName}</h2>
               <p>
-                {getEmploymentBirthDate(selectedEmploymentContract)} ·{" "}
+                {getEmploymentBirthDate(selectedEmploymentContract) || "생년월일 미등록"} ·{" "}
                 {formatEmploymentAge(selectedEmploymentContract) ?? "나이 미계산"} ·{" "}
                 {selectedEmploymentContract.workerPhone ?? "전화번호 미등록"}
                 <strong className="inactive-inline">{getEmploymentContractStatus(selectedEmploymentContract, employmentCurrentYear).label}</strong>
@@ -2499,10 +2077,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <div>
                 <small>대표 금액</small>
                 <strong>
-                  {formatCurrency(
-                    selectedEmploymentContract.contractTerms[0]?.wageAmount ??
-                      selectedEmploymentContract.wageAmount
-                  )}
+                  {selectedEmploymentContract.isDraft && !(selectedEmploymentContract.contractTerms[0]?.wageAmount ?? selectedEmploymentContract.wageAmount)
+                    ? "약정 미입력" : formatCurrency(selectedEmploymentContract.contractTerms[0]?.wageAmount ?? selectedEmploymentContract.wageAmount)}
                 </strong>
               </div>
             </div>
@@ -2532,7 +2108,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                     {section.fields.map((field) => (
                       <div key={field.label}>
                         <dt>{field.label}</dt>
-                        <dd>{field.value(selectedEmploymentContract) ?? "미등록"}</dd>
+                        <dd>{field.value(selectedEmploymentContract) || "미등록"}</dd>
                       </div>
                     ))}
                   </dl>
@@ -2776,9 +2352,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 <h2>{isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}</h2>
               </div>
 
+              {employmentRenewalSource?.isDraft && <p className="condition-review">정보 입력 중인 계약입니다. 임시 저장으로 나누어 보완하고, 필수 정보와 근무 조건을 채운 뒤 상세 정보 등록 완료를 눌러 주세요.</p>}
+
               {employmentRenewalSource && (
                 <p>{employmentRenewalSource.workerName}님의 {formatEmploymentPeriod(employmentRenewalSource)} 계약 정보를 불러왔습니다.
-                  {isEditingEmploymentContract ? "내용을 수정한 뒤 저장하세요." : "내용을 확인하고 새 계약 기간을 입력하세요."}</p>
+                  {isEditingEmploymentContract ? employmentRenewalSource.isDraft ? "아는 만큼 입력한 뒤 임시 저장할 수 있습니다." : "내용을 수정한 뒤 저장하세요." : "내용을 확인하고 새 계약 기간을 입력하세요."}</p>
               )}
 
               {employmentFormErrorMessage && (
@@ -2908,9 +2486,13 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 >
                   취소
                 </button>
+                {(!isEditingEmploymentContract || employmentRenewalSource?.isDraft) && (
+                  <button type="button" className="secondary-button" disabled={isEmploymentSaving}
+                    onClick={() => void handleCreateEmploymentContract(undefined, true)}><Save size={16} /> 입력한 내용 임시 저장</button>
+                )}
                 <button type="submit" className="primary-button" disabled={isEmploymentSaving}>
                   <Save size={18} />
-                  {isEmploymentSaving ? "저장 중" : "저장"}
+                  {isEmploymentSaving ? "저장 중" : employmentRenewalSource?.isDraft ? "상세 정보 등록 완료" : "저장"}
                 </button>
               </div>
             </form>

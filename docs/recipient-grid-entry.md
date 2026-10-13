@@ -32,7 +32,7 @@ Postgres는 `server/postgres/schema.sql`, SQLite는 시작 시 마이그레이�
 
 ## 코드와 검증
 
-- `src/RecipientGrid.tsx`: 표 입력, 붙여넣기, 오류 표시, 저장
+- `src/BasicEntryGrid.tsx`: 표 입력, 붙여넣기, 오류 표시, 저장
 - `src/lib/recipient-grid.ts`: 엑셀 탭 구분 텍스트 파싱과 생년월일 정규화
 - `server/recipient-drafts.mjs`: 임시 등록 기본값, 배치 검증, 재시도 비교
 - `server/api.mjs`, `server/postgres/api.mjs`: 배치 트랜잭션과 상세 보완 저장

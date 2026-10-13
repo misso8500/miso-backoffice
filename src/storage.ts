@@ -141,6 +141,22 @@ export const loadEmploymentContracts = async () => {
   return contracts.map(normalizeEmploymentContract);
 };
 
+export type EmploymentDraftRow = {
+  id: string;
+  workerName: string;
+  residentRegistrationNumber: string;
+  workerPhone: string;
+  primaryBank: string;
+  bankAccountNumber: string;
+  contractStartDate: string;
+  contractEndDate: string;
+};
+
+export const saveEmploymentDraftRows = (rows: EmploymentDraftRow[]) =>
+  requestJson<{ contracts: EmploymentContract[] }>("/api/employment-contracts/bulk-drafts", {
+    method: "POST", body: JSON.stringify({ rows })
+  }).then(({ contracts }) => contracts.map(normalizeEmploymentContract));
+
 export const createEmploymentContract = (contract: EmploymentContractInput) =>
   requestJson<EmploymentContract>("/api/employment-contracts", {
     method: "POST",

@@ -1,3 +1,4 @@
+import { prepareEmploymentBody, prepareEmploymentDraftRows, sameEmploymentDraft } from "./employment-drafts.mjs";
 import { prepareRecipientBody, prepareDraftRows, sameDraft, visibleCareNumber } from "./recipient-drafts.mjs";
 import { normalizeWorkConditions } from "./work-conditions.mjs";
 import { loadEnv } from "./load-env.mjs";
@@ -326,6 +327,7 @@ const ensureEmploymentColumn = (name, definition) => {
   }
 };
 
+ensureEmploymentColumn("is_draft", "INTEGER NOT NULL DEFAULT 0");
 ensureEmploymentColumn("workplace_type", "TEXT NOT NULL DEFAULT 'office'");
 ensureEmploymentColumn("resident_registration_number", "TEXT NOT NULL DEFAULT ''");
 ensureEmploymentColumn("primary_bank", "TEXT NOT NULL DEFAULT ''");
@@ -450,6 +452,7 @@ const contractTermsForContract = (contractId, row) => {
 
 const employmentContractFromRow = (row) => ({
   id: row.id,
+  isDraft: row.is_draft === 1,
   workerName: row.worker_name,
   workerBirthDate: row.worker_birth_date,
   residentRegistrationNumber: row.resident_registration_number,
@@ -502,9 +505,43 @@ const insertEmploymentContract = db.prepare(`
     employment_type, workplace_type, workplace, contract_start_date, contract_end_date, work_days,
     work_start_time, work_end_time, break_minutes, wage_type, wage_amount,
     non_taxable_vehicle_allowance, non_taxable_meal_allowance, taxable_extra_pay,
-    allowance_memo, payment_date, insurance_status, memo, enabled, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    allowance_memo, payment_date, insurance_status, memo, enabled, created_at, updated_at, is_draft
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
+
+const insertEmploymentRecord = (contract) => insertEmploymentContract.run(
+          contract.id,
+          contract.workerName,
+          contract.workerBirthDate,
+          contract.residentRegistrationNumber,
+          contract.workerPhone,
+          contract.primaryBank,
+          contract.bankAccountNumber,
+          contract.workerAddress,
+          contract.jobTitle,
+          contract.employmentType,
+          contract.workplaceType,
+          contract.workplace,
+          contract.contractStartDate,
+          contract.contractEndDate,
+          contract.workDays,
+          contract.workStartTime,
+          contract.workEndTime,
+          contract.breakMinutes,
+          contract.wageType,
+          contract.wageAmount,
+          contract.nonTaxableVehicleAllowance,
+          contract.nonTaxableMealAllowance,
+          contract.taxableExtraPay,
+          contract.allowanceMemo,
+          contract.paymentDate,
+          contract.insuranceStatus,
+          contract.memo,
+          contract.enabled ? 1 : 0,
+          contract.createdAt,
+          contract.updatedAt,
+          contract.isDraft ? 1 : 0
+        );
 
 const insertEmploymentAssignment = db.prepare(`
   INSERT OR IGNORE INTO employment_contract_recipient_assignments (
@@ -639,7 +676,8 @@ if (db.prepare("SELECT COUNT(*) AS count FROM employment_contracts").get().count
       contract.memo,
       contract.enabled ? 1 : 0,
       contract.createdAt,
-      contract.updatedAt
+      contract.updatedAt,
+      contract.isDraft ? 1 : 0
     );
     for (const recipientId of contract.recipientAssignments) {
       insertEmploymentAssignment.run(contract.id, recipientId, new Date().toISOString());
@@ -806,6 +844,7 @@ const assertNumber = (value, field, { min = 0 } = {}) => {
 };
 
 const normalizeEmploymentContract = (body, existing = null) => {
+  body = prepareEmploymentBody(body, existing);
   if (existing && body.updatedAt && body.updatedAt !== existing.updatedAt) {
     throw Object.assign(new Error("다른 사용자가 이 계약을 수정했습니다. 최신 계약을 다시 열어 수정해 주세요."), { status: 409 });
   }
@@ -859,7 +898,7 @@ const normalizeEmploymentContract = (body, existing = null) => {
             ? term.id.trim()
             : `employment-term-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         wageType: assertString(term.wageType, "contractTerm.wageType"),
-        wageAmount: assertNumber(term.wageAmount, "contractTerm.wageAmount", { min: 1 }),
+        wageAmount: assertNumber(term.wageAmount, "contractTerm.wageAmount", { min: body.isDraft ? 0 : 1 }),
         nonTaxableMealAllowance: assertNumber(
           term.nonTaxableMealAllowance ?? 0,
           "contractTerm.nonTaxableMealAllowance"
@@ -880,38 +919,39 @@ const normalizeEmploymentContract = (body, existing = null) => {
 
   const residentRegistrationNumber = assertString(
     body.residentRegistrationNumber,
-    "residentRegistrationNumber"
-  );
+    "residentRegistrationNumber", { optional: body.isDraft }
+  ) ?? "";
   const workerBirthDate =
     assertString(body.workerBirthDate, "workerBirthDate", { optional: true }) ??
     deriveBirthDateFromResidentNumber(residentRegistrationNumber);
 
-  if (!workerBirthDate) {
+  if (!workerBirthDate && (!body.isDraft || residentRegistrationNumber)) {
     throw new Error("residentRegistrationNumber is invalid");
   }
 
   const contract = {
     id: assertString(body.id ?? existing?.id, "id"),
     workerName: assertString(body.workerName, "workerName"),
-    workerBirthDate,
+    workerBirthDate: workerBirthDate ?? "",
+    isDraft: body.isDraft,
     residentRegistrationNumber,
     workerPhone: assertString(body.workerPhone, "workerPhone", { optional: true }),
-    primaryBank: assertString(body.primaryBank, "primaryBank"),
-    bankAccountNumber: assertString(body.bankAccountNumber, "bankAccountNumber"),
-    workerAddress: assertString(body.workerAddress, "workerAddress"),
-    jobTitle: assertString(body.jobTitle, "jobTitle"),
-    employmentType: assertString(body.employmentType, "employmentType"),
+    primaryBank: assertString(body.primaryBank, "primaryBank", { optional: body.isDraft }) ?? "",
+    bankAccountNumber: assertString(body.bankAccountNumber, "bankAccountNumber", { optional: body.isDraft }) ?? "",
+    workerAddress: assertString(body.workerAddress, "workerAddress", { optional: body.isDraft }) ?? "",
+    jobTitle: assertString(body.jobTitle, "jobTitle", { optional: body.isDraft }) ?? "",
+    employmentType: assertString(body.employmentType, "employmentType", { optional: body.isDraft }) ?? "",
     workplaceType,
-    workplace: assertString(body.workplace, "workplace"),
+    workplace: assertString(body.workplace, "workplace", { optional: body.isDraft }) ?? "",
     recipientAssignments,
-    contractStartDate: assertString(body.contractStartDate, "contractStartDate"),
+    contractStartDate: assertString(body.contractStartDate, "contractStartDate", { optional: body.isDraft }) ?? "",
     contractEndDate: assertString(body.contractEndDate, "contractEndDate", { optional: true }),
-    workDays: assertString(body.workDays, "workDays"),
-    workStartTime: assertString(body.workStartTime, "workStartTime"),
-    workEndTime: assertString(body.workEndTime, "workEndTime"),
+    workDays: assertString(body.workDays, "workDays", { optional: body.isDraft }) ?? "",
+    workStartTime: assertString(body.workStartTime, "workStartTime", { optional: body.isDraft }) ?? "",
+    workEndTime: assertString(body.workEndTime, "workEndTime", { optional: body.isDraft }) ?? "",
     breakMinutes: assertNumber(body.breakMinutes, "breakMinutes"),
     wageType: primaryTerm?.wageType ?? assertString(body.wageType, "wageType"),
-    wageAmount: primaryTerm?.wageAmount ?? assertNumber(body.wageAmount, "wageAmount", { min: 1 }),
+    wageAmount: primaryTerm?.wageAmount ?? assertNumber(body.wageAmount, "wageAmount", { min: body.isDraft ? 0 : 1 }),
     nonTaxableVehicleAllowance:
       primaryTerm?.nonTaxableVehicleAllowance ??
       assertNumber(body.nonTaxableVehicleAllowance ?? 0, "nonTaxableVehicleAllowance"),
@@ -921,8 +961,8 @@ const normalizeEmploymentContract = (body, existing = null) => {
     taxableExtraPay:
       primaryTerm?.otherNonTaxablePay ?? assertNumber(body.taxableExtraPay ?? 0, "taxableExtraPay"),
     allowanceMemo: assertString(body.allowanceMemo, "allowanceMemo", { optional: true }),
-    paymentDate: assertString(body.paymentDate, "paymentDate"),
-    insuranceStatus: assertString(body.insuranceStatus, "insuranceStatus"),
+    paymentDate: assertString(body.paymentDate, "paymentDate", { optional: body.isDraft }) ?? "",
+    insuranceStatus: assertString(body.insuranceStatus, "insuranceStatus", { optional: body.isDraft }) ?? "",
     insuranceSnapshots,
     contractTerms,
     memo: assertString(body.memo, "memo", { optional: true }),
@@ -938,21 +978,21 @@ const normalizeEmploymentContract = (body, existing = null) => {
 
   const isValidContractDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
     Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
-  if (!isValidContractDate(contract.contractStartDate) ||
+  if ((!contract.isDraft && !isValidContractDate(contract.contractStartDate)) ||
       (contract.contractEndDate && !isValidContractDate(contract.contractEndDate)) ||
-      (!existing && !contract.contractEndDate)) {
+      (!contract.isDraft && (!existing || existing.isDraft) && !contract.contractEndDate)) {
     throw new Error("계약 시작일과 종료일을 YYYY-MM-DD 형식으로 입력하세요.");
   }
 
-  if (contract.contractEndDate && contract.contractStartDate > contract.contractEndDate) {
+  if (contract.contractStartDate && contract.contractEndDate && contract.contractStartDate > contract.contractEndDate) {
     throw new Error("contractStartDate must not be later than contractEndDate");
   }
 
-  if (contract.workStartTime >= contract.workEndTime) {
+  if ((!contract.isDraft || (contract.workStartTime && contract.workEndTime)) && contract.workStartTime >= contract.workEndTime) {
     throw new Error("workStartTime must be earlier than workEndTime");
   }
 
-  if (contract.workplaceType === "recipient_home" && contract.recipientAssignments.length === 0) {
+  if (!contract.isDraft && contract.workplaceType === "recipient_home" && contract.recipientAssignments.length === 0) {
     throw new Error("recipientAssignments is required when workplaceType is recipient_home");
   }
 
@@ -1050,6 +1090,7 @@ const applyEmploymentContractUpdate = (contract) => {
 };
 
 const replaceEmploymentContractChildren = (contract) => {
+  db.prepare("UPDATE employment_contracts SET is_draft = ? WHERE id = ?").run(contract.isDraft ? 1 : 0, contract.id);
   db.prepare("UPDATE employment_contracts SET work_conditions = ? WHERE id = ?").run(contract.workConditions ? JSON.stringify(contract.workConditions) : null, contract.id);
   db.prepare("DELETE FROM employment_contract_recipient_assignments WHERE employment_contract_id = ?").run(
     contract.id
@@ -1162,6 +1203,29 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (parts[1] === "employment-contracts" && parts[2] === "bulk-drafts" && request.method === "POST") {
+      const contracts = prepareEmploymentDraftRows(await readBody(request)).map((body) => normalizeEmploymentContract(body));
+      const saved = [];
+      db.exec("BEGIN");
+      try {
+        for (const [index, contract] of contracts.entries()) {
+          const row = db.prepare("SELECT * FROM employment_contracts WHERE id = ?").get(contract.id);
+          if (row) {
+            const existing = employmentContractFromRow(row);
+            if (!sameEmploymentDraft(existing, contract)) throw Object.assign(new Error(`${index + 1}행: 이미 저장된 계약과 내용이 다릅니다. 목록을 확인해 주세요.`), { status: 409 });
+            saved.push(existing);
+          } else {
+            insertEmploymentRecord(contract);
+            replaceEmploymentContractChildren(contract);
+            saved.push(employmentContractFromRow(db.prepare("SELECT * FROM employment_contracts WHERE id = ?").get(contract.id)));
+          }
+        }
+        db.exec("COMMIT");
+      } catch (error) { db.exec("ROLLBACK"); throw error; }
+      sendJson(response, 200, { contracts: saved });
+      return;
+    }
+
     if (parts[1] === "employment-contracts") {
       if (!parts[2] && request.method === "GET") {
         const rows = db
@@ -1187,38 +1251,7 @@ const server = createServer(async (request, response) => {
         const contract = normalizeEmploymentContract(await readBody(request));
         db.exec("BEGIN");
         try {
-        insertEmploymentContract.run(
-          contract.id,
-          contract.workerName,
-          contract.workerBirthDate,
-          contract.residentRegistrationNumber,
-          contract.workerPhone,
-          contract.primaryBank,
-          contract.bankAccountNumber,
-          contract.workerAddress,
-          contract.jobTitle,
-          contract.employmentType,
-          contract.workplaceType,
-          contract.workplace,
-          contract.contractStartDate,
-          contract.contractEndDate,
-          contract.workDays,
-          contract.workStartTime,
-          contract.workEndTime,
-          contract.breakMinutes,
-          contract.wageType,
-          contract.wageAmount,
-          contract.nonTaxableVehicleAllowance,
-          contract.nonTaxableMealAllowance,
-          contract.taxableExtraPay,
-          contract.allowanceMemo,
-          contract.paymentDate,
-          contract.insuranceStatus,
-          contract.memo,
-          contract.enabled ? 1 : 0,
-          contract.createdAt,
-          contract.updatedAt
-        );
+        insertEmploymentRecord(contract);
         replaceEmploymentContractChildren(contract);
           db.exec("COMMIT");
         } catch (error) { db.exec("ROLLBACK"); throw error; }

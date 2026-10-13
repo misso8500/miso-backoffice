@@ -14,10 +14,10 @@ function ConditionDetails({ condition, term, recipients }: {
     </div>
     <dl className="condition-detail-grid">
       <div><dt>서비스</dt><dd>{condition.serviceType} · {condition.familyCare ? "가족요양" : "일반 요양"}</dd></div>
-      <div><dt>적용 기간</dt><dd>{condition.effectiveStartDate.replace(/-/g, "")}~{condition.effectiveEndDate.replace(/-/g, "")}</dd></div>
-      <div><dt>근무 일정</dt><dd>{condition.workDays} · {condition.workStartTime}~{condition.workEndTime} · 휴게 {condition.breakMinutes}분</dd></div>
+      <div><dt>적용 기간</dt><dd>{condition.effectiveStartDate.replace(/-/g, "") || "시작일 미입력"}~{condition.effectiveEndDate.replace(/-/g, "") || "종료일 미입력"}</dd></div>
+      <div><dt>근무 일정</dt><dd>{condition.workDays || "요일 미입력"} · {condition.workStartTime || "시작 미입력"}~{condition.workEndTime || "종료 미입력"} · 휴게 {condition.breakMinutes}분</dd></div>
       <div><dt>월 약정 최대 시간</dt><dd>{condition.monthlyHourLimit}시간</dd></div>
-      <div><dt>임금 약정</dt><dd>{term ? `${term.wageType} ${money(term.wageAmount)}` : "확인 필요"}</dd></div>
+      <div><dt>임금 약정</dt><dd>{term?.wageAmount ? `${term.wageType} ${money(term.wageAmount)}` : "약정 미입력"}</dd></div>
       <div><dt>차량동행지원비</dt><dd>{condition.vehicleSupportPerVisit ? `이 수급자 동행 1회당 ${money(condition.vehicleSupportPerVisit)}` : "약정 없음"}</dd></div>
       {condition.statusDate && <div><dt>일시정지·종료 적용일</dt><dd>{condition.statusDate}</dd></div>}
       <div><dt>문서 확인</dt><dd>{condition.documentStatus === "confirmed" ? "확인 완료" : "문서 확인 필요"}</dd></div>
@@ -32,7 +32,7 @@ export default function EmploymentConditionsDetails({ contract, recipients }: { 
   const matching = getMatchingSummary(contract);
   return <section className="employment-work-details" aria-label="수급자별 근로계약 조건">
     <div className="section-title-row"><h3>수급자별 계약 조건</h3><span className="status-chip">{matching.label}</span></div>
-    {!work ? <p className="condition-note">기존 계약입니다. 계약 수정에서 수급자·매칭 상태·근무 조건을 확인해 주세요. 기존 임금·수당은 보존되어 있습니다.</p> : <>
+    {!work ? <p className="condition-note">{contract.isDraft ? "기본 정보가 저장되었습니다. 상세 정보 입력에서 계좌·기간·근무 조건을 보완해 주세요." : "기존 계약입니다. 계약 수정에서 수급자·매칭 상태·근무 조건을 확인해 주세요. 기존 임금·수당은 보존되어 있습니다."}</p> : <>
       <p className="condition-review" role="status">{matching.review}. 보험 가입·제외는 자동 확정하지 않습니다.</p>
       {work.conditions.map((condition) => <ConditionDetails key={condition.termId} condition={condition}
         term={contract.contractTerms.find((term) => term.id === condition.termId)} recipients={recipients} />)}

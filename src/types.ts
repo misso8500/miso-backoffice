@@ -69,6 +69,7 @@ export type TerminateContractInput = {
 };
 
 export type EmploymentContract = {
+  isDraft?: boolean;
   id: string;
   workerName: string;
   workerBirthDate: string;

@@ -118,4 +118,39 @@ test("SQLite API persists recipient conditions and history, and rolls back faile
     assert.equal((await call("recipients/grid-rollback")).status, 404);
     assert.equal((await call("recipients/grid-conflict")).status, 404);
   });
+
+  await t.test("employment table rows support name-only save, partial conditions, registration and rollback", async () => {
+    const rows = [{ id: "employment-grid-a", workerName: "이름만 입력" }, { id: "employment-grid-b", workerName: "기간만 입력", contractStartDate: "2026-01-01" }];
+    const saved = await call("employment-contracts/bulk-drafts", "POST", { rows });
+    assert.equal(saved.status, 200, JSON.stringify(saved.data));
+    const first = saved.data.contracts[0];
+    assert.equal(first.isDraft, true);
+    assert.equal(first.residentRegistrationNumber, "");
+    assert.equal(first.contractStartDate, "");
+    assert.equal(first.wageAmount, 0);
+    assert.equal((await call("employment-contracts/bulk-drafts", "POST", { rows })).status, 200);
+    assert.equal((await call("employment-contracts")).data.filter((item) => item.id === first.id).length, 1);
+    const partial = { ...first, workConditions: { monthlyTravelAllowance: 50000, history: [], conditions: [{
+      ...condition(first.contractTerms[0].id, "", 20000), matchingStatus: "pending", effectiveStartDate: "", effectiveEndDate: "",
+      workDays: "", workStartTime: "", workEndTime: ""
+    }] } };
+    const updated = await call(`employment-contracts/${first.id}`, "PUT", partial);
+    assert.equal(updated.status, 200, JSON.stringify(updated.data));
+    assert.equal(updated.data.isDraft, true);
+    assert.equal(updated.data.workConditions.monthlyTravelAllowance, 50000);
+    assert.equal(updated.data.workConditions.conditions[0].workStartTime, "");
+    assert.equal((await call(`employment-contracts/${first.id}`, "PUT", { ...updated.data, isDraft: false })).status, 400);
+    const complete = { ...legacy, id: first.id, workerName: first.workerName, isDraft: false, updatedAt: updated.data.updatedAt,
+      workplaceType: "office", insuranceSnapshots: [], contractStartDate: "2026-01-01", contractEndDate: "2026-12-31",
+      contractTerms: [term("grid-complete-term")], workConditions: { monthlyTravelAllowance: 50000, history: [],
+        conditions: [{ ...condition("grid-complete-term", "", 20000), matchingStatus: "pending" }] } };
+    const completed = await call(`employment-contracts/${first.id}`, "PUT", complete);
+    assert.equal(completed.status, 200, JSON.stringify(completed.data));
+    assert.equal(completed.data.isDraft, false);
+    assert.equal((await call(`employment-contracts/${first.id}`)).data.workConditions.conditions[0].vehicleSupportPerVisit, 20000);
+    assert.equal((await call("employment-contracts/bulk-drafts", "POST", { rows: [
+      { id: "employment-grid-rollback", workerName: "취소 대상" }, rows[0]
+    ] })).status, 409);
+    assert.equal((await call("employment-contracts/employment-grid-rollback")).status, 404);
+  });
 });

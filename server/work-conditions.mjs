@@ -11,7 +11,10 @@ const text = (value, max = 2000) => {
 };
 
 export const normalizeWorkConditions = (input, contract, existing = null) => {
-  if (input === undefined) return existing?.workConditions;
+  if (input === undefined) {
+    if (!existing?.workConditions) return undefined;
+    input = existing.workConditions;
+  }
   if (!input || !Array.isArray(input.conditions) || input.conditions.length !== contract.contractTerms.length ||
       input.conditions.length === 0 || input.conditions.length > 50) throw new Error("수급자별 계약 조건을 확인하세요.");
   const monthlyTravelAllowance = amount(input.monthlyTravelAllowance, "월정액 교통비", { integer: true });
@@ -25,23 +28,26 @@ export const normalizeWorkConditions = (input, contract, existing = null) => {
     if (item.matchingStatus !== "pending" && !recipientId) throw new Error("매칭된 수급자를 선택하세요.");
     const serviceType = text(item.serviceType, 100);
     if (!serviceType || typeof item.familyCare !== "boolean") throw new Error("서비스 형태와 가족요양 여부를 확인하세요.");
-    const start = item.effectiveStartDate;
-    const end = item.effectiveEndDate;
-    if (!validDate(start) || !validDate(end) || start > end || start < contract.contractStartDate ||
-        (contract.contractEndDate && end > contract.contractEndDate)) throw new Error("조건 적용 기간은 계약 기간 안에 입력하세요.");
+    const start = text(item.effectiveStartDate, 10);
+    const end = text(item.effectiveEndDate, 10);
+    if ((!contract.isDraft && (!start || !end)) || (start && !validDate(start)) || (end && !validDate(end)) ||
+        (start && end && start > end) || (start && contract.contractStartDate && start < contract.contractStartDate) ||
+        (end && contract.contractEndDate && end > contract.contractEndDate)) throw new Error("조건 적용 기간은 계약 기간 안에 입력하세요.");
     const statusDate = text(item.statusDate, 10);
     if ((["paused", "ended"].includes(item.matchingStatus) && !statusDate) ||
-        (statusDate && (!validDate(statusDate) || statusDate < start || statusDate > end))) throw new Error("중단·종료일은 조건 적용 기간 안에 입력하세요.");
+        (statusDate && (!validDate(statusDate) || (start && statusDate < start) || (end && statusDate > end)))) throw new Error("중단·종료일은 조건 적용 기간 안에 입력하세요.");
     const workDays = text(item.workDays, 100);
     const workStartTime = text(item.workStartTime, 5);
     const workEndTime = text(item.workEndTime, 5);
     const isTime = (value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-    if (!workDays || !isTime(workStartTime) || !isTime(workEndTime) || workStartTime >= workEndTime) throw new Error("근무 요일과 시작·종료 시간을 확인하세요.");
+    if ((!contract.isDraft && (!workDays || !workStartTime || !workEndTime)) ||
+        (workStartTime && !isTime(workStartTime)) || (workEndTime && !isTime(workEndTime)) ||
+        (workStartTime && workEndTime && workStartTime >= workEndTime)) throw new Error("근무 요일과 시작·종료 시간을 확인하세요.");
     const breakMinutes = amount(item.breakMinutes, "휴게 시간");
     const minutes = (value) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
-    if (breakMinutes >= minutes(workEndTime) - minutes(workStartTime)) throw new Error("휴게 시간은 근무 시간보다 짧아야 합니다.");
+    if (workStartTime && workEndTime && breakMinutes >= minutes(workEndTime) - minutes(workStartTime)) throw new Error("휴게 시간은 근무 시간보다 짧아야 합니다.");
     const monthlyHourLimit = amount(item.monthlyHourLimit, "월 약정 최대 시간", { max: 744 });
-    if (monthlyHourLimit === 0) throw new Error("월 약정 최대 시간을 입력하세요.");
+    if (!contract.isDraft && monthlyHourLimit === 0) throw new Error("월 약정 최대 시간을 입력하세요.");
     if (!["confirmed", "needs_confirmation"].includes(item.documentStatus)) throw new Error("문서 확인 상태를 선택하세요.");
     return {
       termId: term.id, recipientId, serviceType, familyCare: item.familyCare,
@@ -54,7 +60,7 @@ export const normalizeWorkConditions = (input, contract, existing = null) => {
   // Two conditions for the same recipient may describe successive periods, never overlapping periods.
   for (let i = 0; i < conditions.length; i++) for (let j = i + 1; j < conditions.length; j++) {
     const a = conditions[i], b = conditions[j];
-    if (a.recipientId && a.recipientId === b.recipientId &&
+    if (a.recipientId && a.recipientId === b.recipientId && a.effectiveStartDate && a.effectiveEndDate && b.effectiveStartDate && b.effectiveEndDate &&
         a.effectiveStartDate <= b.effectiveEndDate && b.effectiveStartDate <= a.effectiveEndDate) {
       throw new Error("같은 수급자의 조건 적용 기간이 겹칩니다. 이전 조건 종료일을 먼저 조정하세요.");
     }
@@ -64,6 +70,7 @@ export const normalizeWorkConditions = (input, contract, existing = null) => {
   const changed = existing && (JSON.stringify(existing.workConditions?.conditions ?? []) !== JSON.stringify(conditions) ||
     (existing.workConditions?.monthlyTravelAllowance ?? 0) !== monthlyTravelAllowance ||
     JSON.stringify(withoutIds(existing.contractTerms)) !== JSON.stringify(withoutIds(contract.contractTerms)));
+  if (!changed && input === existing?.workConditions) return existing.workConditions;
   return {
     monthlyTravelAllowance, conditions,
     history: changed ? [...history, {

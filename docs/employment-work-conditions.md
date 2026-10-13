@@ -30,7 +30,7 @@
 
 `employment_contracts.work_conditions`에 월정액 교통비, 조건별 추가 정보, 수정 전 기록을 저장한다. Postgres는 JSONB, SQLite는 JSON 문자열이다. 기존 `contractTerms`는 임금·기존 수당 저장에 그대로 사용하고 조건의 `termId`로 연결한다. 수급자 연결은 기존 관계 테이블에도 반영한다.
 
-Postgres의 새 열은 `server/postgres/schema.sql`에 포함되어 있다. 대상 DB를 확인하고 `npm run supabase:init`으로 적용하거나 API를 재시작하면 시작 시 적용된다. SQLite는 시작 시 열을 추가한다. 기존 레코드는 새 열이 비어 있는 상태로 유지되어 자동으로 매칭 대기로 바뀌지 않는다. 기존 CSV 형식도 그대로 읽는다. CSV로 가져온 계약은 기존 계약과 같이 추가 정보 확인 후 전환한다.
+Postgres의 새 열은 `server/postgres/schema.sql`에 포함되어 있다. 대상 DB를 확인하고 `npm run supabase:init`으로 적용하거나 API를 재시작하면 시작 시 적용된다. SQLite는 시작 시 열을 추가한다. 기존 레코드는 새 열이 비어 있는 상태로 유지되어 자동으로 매칭 대기로 바뀌지 않는다. CSV 업로드·다운로드 기능은 제거되었다. 신규 계약은 공통 표 입력에서 이름만으로 저장하고 상세 화면에서 보완할 수 있다.
 
 계약 본문·조건·연결 정보는 한 트랜잭션으로 저장해 일부 저장 실패 시 원복한다. 다른 사용자가 먼저 수정한 오래된 계약을 덮어쓰려 하면 409 오류로 막는다. 최신 계약을 다시 조회해 수정해야 한다.
 

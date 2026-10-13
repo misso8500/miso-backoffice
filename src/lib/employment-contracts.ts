@@ -21,7 +21,7 @@ export const groupEmploymentContracts = (contracts: EmploymentContract[]) => {
 };
 
 export const formatEmploymentPeriod = (contract: Pick<EmploymentContract, "contractStartDate" | "contractEndDate">) =>
-  `${contract.contractStartDate.replace(/-/g, "")}~${contract.contractEndDate?.replace(/-/g, "") || "종료일 미등록"}`;
+  `${contract.contractStartDate ? contract.contractStartDate.replace(/-/g, "") : "시작일 미등록"}~${contract.contractEndDate?.replace(/-/g, "") || "종료일 미등록"}`;
 
 export const isValidEmploymentPeriod = (start: string, end: string) => {
   const isDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
@@ -53,10 +53,11 @@ export const getMatchingSummary = (contract: Pick<EmploymentContract, "workCondi
 };
 
 export const getEmploymentContractStatus = (
-  contract: Pick<EmploymentContract, "enabled" | "contractStartDate" | "contractEndDate" | "workConditions">,
+  contract: Pick<EmploymentContract, "enabled" | "contractStartDate" | "contractEndDate" | "workConditions" | "isDraft">,
   currentYear = getEmploymentCurrentYear()
 ) => {
   if (!contract.enabled) return { valid: false, label: "비활성화" };
+  if (contract.isDraft) return { valid: false, label: "정보 입력 중" };
   // Legacy contracts without an end date belong only to their recorded start year.
   const end = contract.contractEndDate || `${contract.contractStartDate.slice(0, 4)}-12-31`;
   if (!isValidEmploymentPeriod(contract.contractStartDate, end)) {

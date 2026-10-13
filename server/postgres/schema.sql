@@ -167,3 +167,6 @@ ALTER TABLE employment_contracts ADD COLUMN IF NOT EXISTS work_conditions JSONB;
 
 -- Recipients may be saved before their detailed registration is complete.
 ALTER TABLE recipients ADD COLUMN IF NOT EXISTS is_draft BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Name-only employment entries are distinct from completed contracts.
+ALTER TABLE employment_contracts ADD COLUMN IF NOT EXISTS is_draft BOOLEAN NOT NULL DEFAULT FALSE;
