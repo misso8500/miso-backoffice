@@ -1,6 +1,8 @@
+import EmploymentConditionsDetails from "./EmploymentConditionsDetails";
+import EmploymentConditionsEditor, { createEmptyWorkCondition, type EmploymentConditionFormTerm } from "./EmploymentConditionsEditor";
 import type { AuthUser } from "./auth";
 import EmploymentContractAttachments from "./EmploymentContractAttachments";
-import { getEmploymentContractStatus, getEmploymentCurrentYear, getWorkerKey, groupEmploymentContracts, compareEmploymentContracts, formatEmploymentPeriod, isValidEmploymentPeriod } from "./lib/employment-contracts";
+import { getMatchingSummary, getEmploymentContractStatus, getEmploymentCurrentYear, getWorkerKey, groupEmploymentContracts, compareEmploymentContracts, formatEmploymentPeriod, isValidEmploymentPeriod } from "./lib/employment-contracts";
 import RecognitionHistoryPreview from "./RecognitionHistoryPreview";
 import {
   useCallback,
@@ -49,6 +51,7 @@ import type {
   ContractRestoreType,
   EmploymentContract,
   EmploymentContractInput,
+  EmploymentWorkCondition,
   Recipient,
   RecipientInput
 } from "./types";
@@ -113,26 +116,17 @@ type EmploymentContractFormState = {
   workerPhone: string;
   primaryBank: string;
   bankAccountNumber: string;
+  monthlyTravelAllowance: string;
   terms: EmploymentContractTermFormState[];
 };
 
-type EmploymentContractTermFormState = {
-  id: string;
-  wageType: "월급" | "시급";
-  wageAmount: string;
-  nonTaxableMealAllowance: string;
-  nonTaxableVehicleAllowance: string;
-  otherNonTaxablePay: string;
-};
+type EmploymentContractTermFormState = EmploymentConditionFormTerm;
 
-const createEmptyEmploymentTerm = (): EmploymentContractTermFormState => ({
-  id: `employment-term-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  wageType: "월급",
-  wageAmount: "",
-  nonTaxableMealAllowance: "0",
-  nonTaxableVehicleAllowance: "0",
-  otherNonTaxablePay: "0"
-});
+const createEmptyEmploymentTerm = (): EmploymentContractTermFormState => {
+  const id = `employment-term-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return { id, wageType: "시급", wageAmount: "", nonTaxableMealAllowance: "0",
+    nonTaxableVehicleAllowance: "0", otherNonTaxablePay: "0", condition: createEmptyWorkCondition(id) };
+};
 
 const emptyEmploymentContractForm: EmploymentContractFormState = {
   contractStartDate: "",
@@ -142,6 +136,7 @@ const emptyEmploymentContractForm: EmploymentContractFormState = {
   workerPhone: "",
   primaryBank: "",
   bankAccountNumber: "",
+  monthlyTravelAllowance: "0",
   terms: [createEmptyEmploymentTerm()]
 };
 
@@ -765,6 +760,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [isEmploymentLoading, setIsEmploymentLoading] = useState(true);
   const [employmentErrorMessage, setEmploymentErrorMessage] = useState<string | null>(null);
   const [isEmploymentCreatePanelOpen, setIsEmploymentCreatePanelOpen] = useState(false);
+  const [includeWorkConditions, setIncludeWorkConditions] = useState(true);
   const [isEditingEmploymentContract, setIsEditingEmploymentContract] = useState(false);
   const [employmentRenewalSource, setEmploymentRenewalSource] = useState<EmploymentContract | null>(null);
   const [employmentFormState, setEmploymentFormState] =
@@ -966,16 +962,22 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
   const updateEmploymentTermField = (
     termId: string,
-    field: keyof Omit<EmploymentContractTermFormState, "id">,
+    field: keyof Omit<EmploymentContractTermFormState, "id" | "condition">,
     value: string
   ) => {
     setEmploymentFormState((current) => {
       const terms = current.terms.map((term) =>
-        term.id === termId ? { ...term, [field]: value } : term
+        term.id === termId ? { ...term, [field]: value, condition: { ...term.condition, documentStatus: "needs_confirmation" as const } } : term
       );
 
       return { ...current, terms };
     });
+    setEmploymentFormErrorMessage(null);
+  };
+
+  const updateEmploymentCondition = (id: string, patch: Partial<EmploymentWorkCondition>) => {
+    setEmploymentFormState((current) => ({ ...current, terms: current.terms.map((term) =>
+      term.id === id ? { ...term, condition: { ...term.condition, ...patch, documentStatus: patch.documentStatus ?? "needs_confirmation" } } : term) }));
     setEmploymentFormErrorMessage(null);
   };
 
@@ -1034,6 +1036,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
   const openEmploymentRenewalPanel = (contract: EmploymentContract, editing = false) => {
     setIsEditingEmploymentContract(editing);
+    setIncludeWorkConditions(!editing || Boolean(contract.workConditions));
     const terms = contract.contractTerms.length ? contract.contractTerms : [{
       wageType: contract.wageType === "시급" ? "시급" as const : "월급" as const,
       wageAmount: contract.wageAmount,
@@ -1049,14 +1052,20 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       bankAccountNumber: contract.bankAccountNumber,
       contractStartDate: editing ? contract.contractStartDate : "",
       contractEndDate: editing ? contract.contractEndDate ?? "" : "",
-      terms: terms.map((term) => ({
-        id: createEmptyEmploymentTerm().id,
+      monthlyTravelAllowance: String(contract.workConditions?.monthlyTravelAllowance ?? 0),
+      terms: terms.map((term) => {
+        const id = editing && term.id ? term.id : createEmptyEmploymentTerm().id;
+        const previous = contract.workConditions?.conditions.find((condition) => condition.termId === term.id);
+        return ({
+        id,
+        condition: { ...(previous ?? createEmptyWorkCondition(id)), termId: id,
+          ...(!editing ? { effectiveStartDate: "", effectiveEndDate: "", statusDate: "", matchingStatus: "pending" as const, documentStatus: "needs_confirmation" as const, changeReason: "" } : {}) },
         wageType: term.wageType,
         wageAmount: String(term.wageAmount),
         nonTaxableMealAllowance: String(term.nonTaxableMealAllowance),
         nonTaxableVehicleAllowance: String(term.nonTaxableVehicleAllowance),
         otherNonTaxablePay: String(term.otherNonTaxablePay)
-      }))
+      }); })
     });
     setEmploymentRenewalSource(contract);
     setEmploymentFormErrorMessage(null);
@@ -1065,6 +1074,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   };
 
   const closeEmploymentCreatePanel = () => {
+    setIncludeWorkConditions(true);
     setIsEditingEmploymentContract(false);
     setEmploymentRenewalSource(null);
     setIsEmploymentCreatePanelOpen(false);
@@ -1275,6 +1285,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     }
 
     const contractTerms = employmentFormState.terms.map((term) => ({
+      id: term.id,
       wageType: term.wageType,
       wageAmount: Number(term.wageAmount),
       nonTaxableMealAllowance: Number(term.nonTaxableMealAllowance || 0),
@@ -1301,6 +1312,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     const firstTerm = contractTerms[0];
 
     const newContract: EmploymentContractInput = {
+      ...(isEditingEmploymentContract && employmentRenewalSource ? { updatedAt: employmentRenewalSource.updatedAt } : {}),
       id: isEditingEmploymentContract && employmentRenewalSource ? employmentRenewalSource.id : createEmploymentContractId(),
       workerName: employmentFormState.workerName.trim(),
       workerBirthDate: derivedWorkerBirthDate,
@@ -1331,10 +1343,19 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       taxableExtraPay: firstTerm.otherNonTaxablePay,
       paymentDate: employmentRenewalSource?.paymentDate ?? "미입력",
       insuranceStatus: employmentRenewalSource?.insuranceStatus ?? "별도 관리",
-      insuranceSnapshots: employmentRenewalSource?.insuranceSnapshots ?? [],
+      insuranceSnapshots: isEditingEmploymentContract ? employmentRenewalSource?.insuranceSnapshots ?? []
+        : (employmentRenewalSource?.insuranceSnapshots ?? []).map((snapshot) => ({ ...snapshot, id: undefined })),
       allowanceMemo: employmentRenewalSource?.allowanceMemo,
       memo: employmentRenewalSource?.memo,
       contractTerms,
+      ...(includeWorkConditions ? { workConditions: {
+        monthlyTravelAllowance: Number(employmentFormState.monthlyTravelAllowance || 0),
+        conditions: employmentFormState.terms.map((term) => ({ ...term.condition, termId: term.id,
+          effectiveStartDate: term.condition.effectiveStartDate || employmentFormState.contractStartDate,
+          effectiveEndDate: term.condition.effectiveEndDate || employmentFormState.contractEndDate
+        })),
+        history: []
+      } } : {}),
       enabled: isEditingEmploymentContract ? employmentRenewalSource?.enabled ?? true : true
     };
 
@@ -1351,6 +1372,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       closeEmploymentCreatePanel();
       setEmploymentErrorMessage(null);
     } catch (error) {
+      if (error instanceof Error && error.message.includes("다른 사용자가")) void fetchEmploymentContracts();
       setEmploymentFormErrorMessage(
         error instanceof Error ? error.message : "근로계약 정보를 저장하지 못했습니다."
       );
@@ -1746,6 +1768,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
   const renderEmploymentContractRow = (contract: EmploymentContract, isLatest: boolean) => {
     const status = getEmploymentContractStatus(contract, employmentCurrentYear);
+    const matching = getMatchingSummary(contract);
     return (
       <div
         className={`recipient-row employment-contract-row ${isLatest ? "" : "is-history"}`}
@@ -1786,8 +1809,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <em>{status.valid ? "유효함" : status.label.startsWith("계약종료/") ? "계약종료" : status.label}</em>
             <small>{status.valid ? `${employmentCurrentYear}년 계약` : status.label.startsWith("계약종료/")
               ? `${status.label.split("/")[1]} · 올해 계약 기간 아님`
-              : status.label === "비활성화" ? "삭제 처리된 계약" : "시작일·종료일 확인 필요"}</small>
+              : status.label === "비활성화" ? "삭제 처리된 계약" : status.label === "계약기간 확인 필요" ? "시작일·종료일 확인 필요" : "근무 연결 상태 확인 필요"}</small>
           </span>
+          <small className="matching-summary">{matching.label}</small>
         </span>
         <span className="expiry">
           <strong>{formatCurrency(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount)}</strong>
@@ -2133,6 +2157,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   className="primary-button"
                   onClick={() => {
                     setSelectedEmploymentContractId(null);
+                    setIsEditingEmploymentContract(false);
+                    setEmploymentRenewalSource(null);
+                    setEmploymentFormState({ ...emptyEmploymentContractForm, terms: [createEmptyEmploymentTerm()] });
+                    setEmploymentFormErrorMessage(null);
+                    setIncludeWorkConditions(true);
                     setIsEmploymentCreatePanelOpen(true);
                   }}
                 >
@@ -2470,6 +2499,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 </button>
               ))}
             </section>
+
+            <EmploymentConditionsDetails contract={selectedEmploymentContract} recipients={recipients} />
 
             <EmploymentContractAttachments key={selectedEmploymentContract.id} />
 
@@ -2832,104 +2863,13 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   <p>{formatEmploymentPeriod(employmentFormState)}</p>}
               </section>
 
-              <section className="form-section" aria-labelledby="terms-form-title">
-                <div className="section-title-row">
-                  <h3 id="terms-form-title">계약 정보</h3>
-                  <button type="button" className="secondary-button" onClick={addEmploymentTerm}>
-                    <Plus size={16} />
-                    조건 추가
-                  </button>
-                </div>
-                <div className="contract-term-list">
-                  {employmentFormState.terms.map((term, index) => (
-                    <div className="contract-term-row" key={term.id}>
-                      <strong>{index + 1}</strong>
-                      <label>
-                        <span>월급/시급</span>
-                        <select
-                          value={term.wageType}
-                          onChange={(event) =>
-                            updateEmploymentTermField(
-                              term.id,
-                              "wageType",
-                              event.target.value as "월급" | "시급"
-                            )
-                          }
-                        >
-                          <option>월급</option>
-                          <option>시급</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>금액</span>
-                        <input
-                          type="number"
-                          min="1"
-                          value={term.wageAmount}
-                          onChange={(event) =>
-                            updateEmploymentTermField(term.id, "wageAmount", event.target.value)
-                          }
-                          required
-                        />
-                      </label>
-                      <label>
-                        <span>비과세식대</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={term.nonTaxableMealAllowance}
-                          onChange={(event) =>
-                            updateEmploymentTermField(
-                              term.id,
-                              "nonTaxableMealAllowance",
-                              event.target.value
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        <span>비과세차량</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={term.nonTaxableVehicleAllowance}
-                          onChange={(event) =>
-                            updateEmploymentTermField(
-                              term.id,
-                              "nonTaxableVehicleAllowance",
-                              event.target.value
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        <span>기타비과세</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={term.otherNonTaxablePay}
-                          onChange={(event) =>
-                            updateEmploymentTermField(
-                              term.id,
-                              "otherNonTaxablePay",
-                              event.target.value
-                            )
-                          }
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        onClick={() => removeEmploymentTerm(term.id)}
-                        disabled={employmentFormState.terms.length === 1}
-                      >
-                        <Trash2 size={16} />
-                        <span className="sr-only">계약 삭제</span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </section>
+              <EmploymentConditionsEditor detailed={includeWorkConditions} onEnable={() => setIncludeWorkConditions(true)}
+                terms={employmentFormState.terms} recipients={recipients}
+                startDate={employmentFormState.contractStartDate} endDate={employmentFormState.contractEndDate}
+                monthlyTravelAllowance={employmentFormState.monthlyTravelAllowance}
+                onTravelChange={(value) => updateEmploymentFormField("monthlyTravelAllowance", value)}
+                onAdd={addEmploymentTerm} onRemove={removeEmploymentTerm}
+                onTermChange={updateEmploymentTermField} onConditionChange={updateEmploymentCondition} />
 
               <div className="form-actions">
                 <button

@@ -161,3 +161,6 @@ REVOKE ALL ON TABLE employment_contracts FROM anon, authenticated;
 REVOKE ALL ON TABLE employment_contract_recipient_assignments FROM anon, authenticated;
 REVOKE ALL ON TABLE employment_insurance_snapshots FROM anon, authenticated;
 REVOKE ALL ON TABLE employment_contract_terms FROM anon, authenticated;
+
+-- Optional rich work conditions; NULL preserves legacy contract interpretation.
+ALTER TABLE employment_contracts ADD COLUMN IF NOT EXISTS work_conditions JSONB;

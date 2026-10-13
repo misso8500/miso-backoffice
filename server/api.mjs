@@ -1,3 +1,4 @@
+import { normalizeWorkConditions } from "./work-conditions.mjs";
 import { loadEnv } from "./load-env.mjs";
 import { AuthError, handleAuthRequest } from "./auth.mjs";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -402,6 +403,10 @@ const insuranceSnapshotsForContract = (contractId) =>
       ...(row.memo ? { memo: row.memo } : {})
     }));
 
+if (!db.prepare("PRAGMA table_info(employment_contracts)").all().some((column) => column.name === "work_conditions")) {
+  db.exec("ALTER TABLE employment_contracts ADD COLUMN work_conditions TEXT");
+}
+
 const contractTermsForContract = (contractId, row) => {
   const terms = db
     .prepare(
@@ -423,6 +428,8 @@ const contractTermsForContract = (contractId, row) => {
     }));
 
   if (terms.length > 0) {
+    const order = row.work_conditions ? JSON.parse(row.work_conditions).conditions.map((condition) => condition.termId) : [];
+    if (order.length) terms.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
     return terms;
   }
 
@@ -467,6 +474,7 @@ const employmentContractFromRow = (row) => ({
   paymentDate: row.payment_date,
   insuranceStatus: row.insurance_status,
   insuranceSnapshots: insuranceSnapshotsForContract(row.id),
+  ...(row.work_conditions ? { workConditions: JSON.parse(row.work_conditions) } : {}),
   contractTerms: contractTermsForContract(row.id, row),
   ...(row.memo ? { memo: row.memo } : {}),
   enabled: row.enabled !== 0,
@@ -792,6 +800,9 @@ const assertNumber = (value, field, { min = 0 } = {}) => {
 };
 
 const normalizeEmploymentContract = (body, existing = null) => {
+  if (existing && body.updatedAt && body.updatedAt !== existing.updatedAt) {
+    throw Object.assign(new Error("다른 사용자가 이 계약을 수정했습니다. 최신 계약을 다시 열어 수정해 주세요."), { status: 409 });
+  }
   const now = new Date().toISOString();
   const workplaceType = assertString(body.workplaceType ?? "office", "workplaceType");
 
@@ -914,6 +925,11 @@ const normalizeEmploymentContract = (body, existing = null) => {
     updatedAt: now
   };
 
+  contract.workConditions = normalizeWorkConditions(body.workConditions, contract, existing);
+  if (contract.workConditions) {
+    contract.recipientAssignments = [...new Set(contract.workConditions.conditions.map((condition) => condition.recipientId).filter(Boolean))];
+  }
+
   const isValidContractDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
     Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
   if (!isValidContractDate(contract.contractStartDate) ||
@@ -1027,6 +1043,7 @@ const applyEmploymentContractUpdate = (contract) => {
 };
 
 const replaceEmploymentContractChildren = (contract) => {
+  db.prepare("UPDATE employment_contracts SET work_conditions = ? WHERE id = ?").run(contract.workConditions ? JSON.stringify(contract.workConditions) : null, contract.id);
   db.prepare("DELETE FROM employment_contract_recipient_assignments WHERE employment_contract_id = ?").run(
     contract.id
   );
@@ -1135,6 +1152,8 @@ const server = createServer(async (request, response) => {
 
       if (!parts[2] && request.method === "POST") {
         const contract = normalizeEmploymentContract(await readBody(request));
+        db.exec("BEGIN");
+        try {
         insertEmploymentContract.run(
           contract.id,
           contract.workerName,
@@ -1168,6 +1187,9 @@ const server = createServer(async (request, response) => {
           contract.updatedAt
         );
         replaceEmploymentContractChildren(contract);
+          db.exec("COMMIT");
+        } catch (error) { db.exec("ROLLBACK"); throw error; }
+
         sendJson(response, 201, contract);
         return;
       }
@@ -1186,8 +1208,14 @@ const server = createServer(async (request, response) => {
           existing
         );
 
-        applyEmploymentContractUpdate(contract);
-        replaceEmploymentContractChildren(contract);
+        db.exec("BEGIN");
+        try {
+          const latest = db.prepare("SELECT updated_at FROM employment_contracts WHERE id = ?").get(contract.id);
+          if (latest?.updated_at !== existing.updatedAt) throw Object.assign(new Error("다른 사용자가 이 계약을 수정했습니다. 최신 계약을 다시 열어 수정해 주세요."), { status: 409 });
+          applyEmploymentContractUpdate(contract);
+          replaceEmploymentContractChildren(contract);
+          db.exec("COMMIT");
+        } catch (error) { db.exec("ROLLBACK"); throw error; }
 
         const updatedRow = db.prepare("SELECT * FROM employment_contracts WHERE id = ?").get(parts[2]);
         sendJson(response, 200, employmentContractFromRow(updatedRow));
@@ -1424,10 +1452,10 @@ const server = createServer(async (request, response) => {
       return;
     }
     const message = error instanceof Error ? error.message : "Unknown error";
-    const statusCode = message.includes("UNIQUE constraint failed") ? 409 : 400;
+    const statusCode = error?.status === 409 || message.includes("UNIQUE constraint failed") ? 409 : 400;
     sendJson(response, statusCode, {
       error:
-        statusCode === 409
+        statusCode === 409 && error?.status !== 409
           ? "같은 장기요양인정번호가 이미 등록되어 있습니다."
           : message
     });

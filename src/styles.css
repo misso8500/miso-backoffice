@@ -721,6 +721,93 @@ p {
   background: #faf9fc;
 }
 
+.employment-work-details {
+  margin: 24px 28px;
+}
+
+.employment-condition-card {
+  min-width: 0;
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid #ddd7e8;
+  border-radius: 8px;
+  background: #faf9fc;
+}
+
+.employment-condition-card legend {
+  padding: 0 8px;
+  color: #655180;
+  font-weight: 700;
+}
+
+.condition-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.condition-note, .condition-common-payment p {
+  color: #64606c;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.condition-review, .condition-common-payment {
+  padding: 14px 16px;
+  border-left: 3px solid #9585bd;
+  background: #f2eef8;
+  line-height: 1.7;
+  font-size: 13px;
+}
+
+.condition-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+}
+
+.condition-detail-grid dt {
+  color: #64606c;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+
+.condition-detail-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.legacy-allowance-fields, .condition-history {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.legacy-allowance-fields summary, .condition-history summary {
+  cursor: pointer;
+  padding: 8px 0;
+  color: #655180;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.employment-condition-card textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+@media (max-width: 620px) {
+  .employment-work-details { margin: 20px 18px; }
+  .employment-condition-card { padding: 14px; }
+  .condition-detail-grid { grid-template-columns: 1fr; }
+}
+
 .login-page {
   min-height: 100vh;
   display: grid;

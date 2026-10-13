@@ -1,3 +1,4 @@
+import { normalizeWorkConditions } from "../work-conditions.mjs";
 import { AuthError, handleAuthRequest } from "../auth.mjs";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -223,6 +224,8 @@ const contractTermsForContract = async (contractId, contractRow) => {
   }));
 
   if (terms.length > 0) {
+    const order = contractRow.work_conditions?.conditions?.map((condition) => condition.termId) ?? [];
+    if (order.length) terms.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
     return terms;
   }
 
@@ -267,6 +270,7 @@ const employmentContractFromRow = async (row) => ({
   paymentDate: row.payment_date,
   insuranceStatus: row.insurance_status,
   insuranceSnapshots: await insuranceSnapshotsForContract(row.id),
+  ...(row.work_conditions ? { workConditions: row.work_conditions } : {}),
   contractTerms: await contractTermsForContract(row.id, row),
   ...(row.memo ? { memo: row.memo } : {}),
   enabled: row.enabled !== false,
@@ -333,6 +337,9 @@ const normalizeRecipient = (body, existing = null) => {
 };
 
 const normalizeEmploymentContract = (body, existing = null) => {
+  if (existing && body.updatedAt && body.updatedAt !== existing.updatedAt) {
+    throw Object.assign(new Error("다른 사용자가 이 계약을 수정했습니다. 최신 계약을 다시 열어 수정해 주세요."), { status: 409 });
+  }
   const now = new Date().toISOString();
   const workplaceType = assertString(body.workplaceType ?? "office", "workplaceType");
 
@@ -439,6 +446,11 @@ const normalizeEmploymentContract = (body, existing = null) => {
     createdAt: existing?.createdAt ?? body.createdAt ?? now,
     updatedAt: now
   };
+
+  contract.workConditions = normalizeWorkConditions(body.workConditions, contract, existing);
+  if (contract.workConditions) {
+    contract.recipientAssignments = [...new Set(contract.workConditions.conditions.map((condition) => condition.recipientId).filter(Boolean))];
+  }
 
   const isValidContractDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
     Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
@@ -569,8 +581,8 @@ const insertEvent = async ({
     ]
   );
 
-const insertEmploymentContract = async (contract) =>
-  pool.query(
+const insertEmploymentContract = async (contract, executor = pool) =>
+  executor.query(
     `
       INSERT INTO employment_contracts (
         id, worker_name, worker_birth_date, resident_registration_number, worker_phone,
@@ -619,8 +631,8 @@ const insertEmploymentContract = async (contract) =>
     ]
   );
 
-const updateEmploymentContract = async (contract) =>
-  pool.query(
+const updateEmploymentContract = async (contract, executor = pool) =>
+  executor.query(
     `
       UPDATE employment_contracts SET
         worker_name = $1, worker_birth_date = $2, resident_registration_number = $3,
@@ -666,21 +678,22 @@ const updateEmploymentContract = async (contract) =>
     ]
   );
 
-const replaceEmploymentContractChildren = async (contract) => {
-  await pool.query("DELETE FROM employment_contract_recipient_assignments WHERE employment_contract_id = $1", [
+const replaceEmploymentContractChildren = async (contract, executor = pool) => {
+  await executor.query("UPDATE employment_contracts SET work_conditions = $1 WHERE id = $2", [contract.workConditions ? JSON.stringify(contract.workConditions) : null, contract.id]);
+  await executor.query("DELETE FROM employment_contract_recipient_assignments WHERE employment_contract_id = $1", [
     contract.id
   ]);
-  await pool.query("DELETE FROM employment_insurance_snapshots WHERE employment_contract_id = $1", [
+  await executor.query("DELETE FROM employment_insurance_snapshots WHERE employment_contract_id = $1", [
     contract.id
   ]);
-  await pool.query("DELETE FROM employment_contract_terms WHERE employment_contract_id = $1", [
+  await executor.query("DELETE FROM employment_contract_terms WHERE employment_contract_id = $1", [
     contract.id
   ]);
 
   const now = new Date().toISOString();
 
   for (const recipientId of contract.recipientAssignments) {
-    await pool.query(
+    await executor.query(
       `
         INSERT INTO employment_contract_recipient_assignments (
           employment_contract_id, recipient_id, created_at
@@ -692,7 +705,7 @@ const replaceEmploymentContractChildren = async (contract) => {
   }
 
   for (const snapshot of contract.insuranceSnapshots) {
-    await pool.query(
+    await executor.query(
       `
         INSERT INTO employment_insurance_snapshots (
           id, employment_contract_id, status, effective_start_date, effective_end_date,
@@ -713,7 +726,7 @@ const replaceEmploymentContractChildren = async (contract) => {
   }
 
   for (const term of contract.contractTerms) {
-    await pool.query(
+    await executor.query(
       `
         INSERT INTO employment_contract_terms (
           id, employment_contract_id, wage_type, wage_amount, non_taxable_meal_allowance,
@@ -732,6 +745,24 @@ const replaceEmploymentContractChildren = async (contract) => {
       ]
     );
   }
+};
+
+const saveEmploymentContract = async (contract, updating, expectedUpdatedAt) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (updating) {
+      const { rows } = await client.query("SELECT updated_at FROM employment_contracts WHERE id = $1 FOR UPDATE", [contract.id]);
+      if (rows[0]?.updated_at !== expectedUpdatedAt) throw Object.assign(new Error("다른 사용자가 이 계약을 수정했습니다. 최신 계약을 다시 열어 수정해 주세요."), { status: 409 });
+      await updateEmploymentContract(contract, client);
+    }
+    else await insertEmploymentContract(contract, client);
+    await replaceEmploymentContractChildren(contract, client);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally { client.release(); }
 };
 
 const readEmploymentContractRow = async (contractId) => {
@@ -811,8 +842,7 @@ export const handlePostgresRequest = async (request, response) => {
 
       if (!parts[2] && request.method === "POST") {
         const contract = normalizeEmploymentContract(await readBody(request));
-        await insertEmploymentContract(contract);
-        await replaceEmploymentContractChildren(contract);
+        await saveEmploymentContract(contract, false);
         sendJson(response, 201, contract);
         return;
       }
@@ -831,8 +861,7 @@ export const handlePostgresRequest = async (request, response) => {
           existing
         );
 
-        await updateEmploymentContract(contract);
-        await replaceEmploymentContractChildren(contract);
+        await saveEmploymentContract(contract, true, existing.updatedAt);
 
         const updatedRow = await readEmploymentContractRow(parts[2]);
         sendJson(response, 200, await employmentContractFromRow(updatedRow));
@@ -1045,10 +1074,10 @@ export const handlePostgresRequest = async (request, response) => {
       return;
     }
     const message = error instanceof Error ? error.message : "Unknown error";
-    const statusCode = message.includes("duplicate key") ? 409 : 400;
+    const statusCode = error?.status === 409 || message.includes("duplicate key") ? 409 : 400;
     sendJson(response, statusCode, {
       error:
-        statusCode === 409
+        statusCode === 409 && error?.status !== 409
           ? "중복된 고유값이 이미 등록되어 있습니다."
           : message
     });

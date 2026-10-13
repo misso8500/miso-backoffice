@@ -32,8 +32,28 @@ export const isValidEmploymentPeriod = (start: string, end: string) => {
 export const getEmploymentCurrentYear = (now = new Date()) =>
   Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", year: "numeric" }).format(now));
 
+export const getEmploymentToday = (now = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+
+export const getMatchingSummary = (contract: Pick<EmploymentContract, "workConditions">, today = getEmploymentToday()) => {
+  if (!contract.workConditions) return { count: 0, label: "매칭 정보 확인 필요", review: "기존 계약의 수급자·근무 조건을 확인해 주세요." };
+  const conditions = contract.workConditions.conditions;
+  const active = conditions.filter((condition) => condition.recipientId && condition.matchingStatus !== "pending" &&
+    condition.effectiveStartDate <= today && condition.effectiveEndDate >= today &&
+    (condition.matchingStatus === "active" || condition.statusDate > today));
+  const count = new Set(active.map((condition) => condition.recipientId)).size;
+  const label = count ? `매칭 ${count}명` : conditions.some((condition) => condition.recipientId && condition.matchingStatus !== "pending" && condition.effectiveStartDate > today)
+    ? "근무 예정" : conditions.some((condition) => condition.matchingStatus === "paused") ? "서비스 일시정지"
+    : conditions.some((condition) => condition.matchingStatus === "ended") ? "서비스 종료"
+    : conditions.some((condition) => condition.recipientId && condition.matchingStatus !== "pending" && condition.effectiveEndDate < today)
+      ? "서비스 기간 종료" : "매칭 대기";
+  return { count, label, review: count >= 2 ? "복수 수급자 매칭 · 합산 근무시간 및 보험 가입 검토 필요"
+    : conditions.some((condition) => ["paused", "ended"].includes(condition.matchingStatus))
+      ? "서비스 중단·종료 이력 · 보험 변경 검토 필요" : "연령·겸직·근무시간에 따른 보험 적용 별도 확인" };
+};
+
 export const getEmploymentContractStatus = (
-  contract: Pick<EmploymentContract, "enabled" | "contractStartDate" | "contractEndDate">,
+  contract: Pick<EmploymentContract, "enabled" | "contractStartDate" | "contractEndDate" | "workConditions">,
   currentYear = getEmploymentCurrentYear()
 ) => {
   if (!contract.enabled) return { valid: false, label: "비활성화" };
@@ -43,6 +63,10 @@ export const getEmploymentContractStatus = (
     return { valid: false, label: "계약기간 확인 필요" };
   }
   if (contract.contractStartDate <= `${currentYear}-12-31` && end >= `${currentYear}-01-01`) {
+    if (contract.workConditions) {
+      const matching = getMatchingSummary(contract);
+      if (!matching.count) return { valid: false, label: matching.label };
+    }
     return { valid: true, label: "유효함" };
   }
   const startYear = contract.contractStartDate.slice(0, 4);

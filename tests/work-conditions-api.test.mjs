@@ -1,0 +1,90 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { once } from "node:events";
+import { DatabaseSync } from "node:sqlite";
+
+test("SQLite API persists recipient conditions and history, and rolls back failed saves", { timeout: 20000 }, async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "miso-work-conditions-"));
+  const databasePath = join(directory, "test.sqlite");
+  const authServer = createServer((request, response) => {
+    response.writeHead(request.headers.authorization === "Bearer test-token" ? 200 : 401, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ id: "test-user", email: "test@example.com", email_confirmed_at: "2026-01-01",
+      app_metadata: { provider: "google" }, identities: [{ provider: "google" }], user_metadata: { full_name: "테스트" } }));
+  });
+  let child;
+  t.after(async () => {
+    if (child && child.exitCode === null) { child.kill(); await once(child, "exit"); }
+    await new Promise((resolve) => authServer.close(resolve));
+    await rm(directory, { recursive: true, force: true });
+  });
+  await new Promise((resolve, reject) => { authServer.once("error", reject); authServer.listen(0, "127.0.0.1", resolve); });
+  // Reserve an available port for the child API; no real app/database is used.
+  const reservation = createServer();
+  await new Promise((resolve, reject) => { reservation.once("error", reject); reservation.listen(0, "127.0.0.1", resolve); });
+  const port = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+  child = spawn(process.execPath, ["server/api.mjs"], {
+    cwd: new URL("..", import.meta.url),
+    env: { ...process.env, PORT: String(port), MISO_BACKOFFICE_DB_PATH: databasePath,
+      SUPABASE_URL: `http://127.0.0.1:${authServer.address().port}`, SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
+      AUTH_ALLOWED_EMAILS: "test@example.com" }, stdio: ["ignore", "pipe", "pipe"]
+  });
+  let stderr = "";
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`API startup timed out: ${stderr}`)), 10000);
+    child.stdout.on("data", (chunk) => { if (chunk.toString().includes("API running")) { clearTimeout(timer); resolve(); } });
+    child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`API exited ${code}: ${stderr}`)); });
+    child.once("error", (error) => { clearTimeout(timer); reject(error); });
+  });
+  const call = async (path, method = "GET", body) => {
+    const response = await fetch(`http://127.0.0.1:${port}/api/${path}`, { method,
+      headers: { Authorization: "Bearer test-token", "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined });
+    return { status: response.status, data: await response.json() };
+  };
+  const recipients = (await call("recipients")).data;
+  const legacy = (await call("employment-contracts")).data[0];
+  assert.ok(legacy && recipients.length >= 2);
+  const term = (id) => ({ id, wageType: "시급", wageAmount: 14000, nonTaxableMealAllowance: 0, nonTaxableVehicleAllowance: 0, otherNonTaxablePay: 0 });
+  const condition = (termId, recipientId, perVisit) => ({ termId, recipientId, serviceType: "방문요양", familyCare: false,
+    matchingStatus: "active", statusDate: "", effectiveStartDate: "2026-01-01", effectiveEndDate: "2026-12-31",
+    workDays: "월·수·금", workStartTime: "09:00", workEndTime: "12:00", breakMinutes: 0,
+    monthlyHourLimit: 59.5, vehicleSupportPerVisit: perVisit, changeReason: "", documentStatus: "needs_confirmation" });
+  const input = { ...legacy, id: "api-work-condition-test", contractStartDate: "2026-01-01", contractEndDate: "2026-12-31",
+    insuranceSnapshots: [], contractTerms: [term("test-term-a"), term("test-term-b")],
+    workConditions: { monthlyTravelAllowance: 100000, conditions: [condition("test-term-a", recipients[0].id, 20000), condition("test-term-b", recipients[1].id, 0)], history: [] } };
+  const created = await call("employment-contracts", "POST", input);
+  assert.equal(created.status, 201, JSON.stringify(created.data));
+  let loaded = await call(`employment-contracts/${input.id}`);
+  assert.equal(loaded.data.workConditions.conditions[0].vehicleSupportPerVisit, 20000);
+  assert.equal(loaded.data.workConditions.monthlyTravelAllowance, 100000);
+  assert.deepEqual(loaded.data.contractTerms.map((item) => item.id), ["test-term-a", "test-term-b"]);
+  const stale = structuredClone(loaded.data);
+  loaded.data.contractTerms[0].wageAmount = 15000;
+  const updated = await call(`employment-contracts/${input.id}`, "PUT", loaded.data);
+  assert.equal(updated.status, 200, JSON.stringify(updated.data));
+  assert.equal(updated.data.workConditions.history.length, 1);
+  assert.equal(updated.data.workConditions.history[0].contractTerms[0].wageAmount, 14000);
+  const conflict = await call(`employment-contracts/${input.id}`, "PUT", stale);
+  assert.equal(conflict.status, 409);
+  assert.match(conflict.data.error, /다른 사용자가/);
+  const invalid = structuredClone(updated.data);
+  invalid.contractTerms[0].wageAmount = 16000;
+  invalid.workConditions.conditions[0].recipientId = "nonexistent-recipient";
+  assert.equal((await call(`employment-contracts/${input.id}`, "PUT", invalid)).status, 400);
+  loaded = await call(`employment-contracts/${input.id}`);
+  assert.equal(loaded.data.workConditions.conditions[0].recipientId, recipients[0].id);
+  assert.equal(loaded.data.workConditions.history.length, 1);
+  assert.equal(loaded.data.contractTerms[0].wageAmount, 15000);
+  const connection = new DatabaseSync(databasePath);
+  const persisted = JSON.parse(connection.prepare("SELECT work_conditions FROM employment_contracts WHERE id = ?").get(input.id).work_conditions);
+  connection.close();
+  assert.equal(persisted.conditions[1].vehicleSupportPerVisit, 0);
+  assert.equal(persisted.history.length, 1);
+});
