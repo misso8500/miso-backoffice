@@ -1,3 +1,5 @@
+import { loadEnv } from "./load-env.mjs";
+import { AuthError, handleAuthRequest } from "./auth.mjs";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -7,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, "..");
 const localConfigPath = join(rootDir, "miso-backoffice.local.json");
+loadEnv(rootDir);
 const port = Number(process.env.PORT ?? 5174);
 
 const sampleRecipients = [
@@ -660,7 +663,7 @@ const sendJson = (response, statusCode, payload) => {
   response.writeHead(statusCode, {
     "Access-Control-Allow-Origin": "http://127.0.0.1:5173",
     "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization",
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store"
   });
@@ -1074,6 +1077,8 @@ const server = createServer(async (request, response) => {
   }
 
   try {
+    const authentication = await handleAuthRequest(request, response, sendJson);
+    if (authentication.handled) return;
     const parts = parsePath(request.url ?? "/");
 
     if (parts[0] === "api" && parts[1] === "backoffice-users") {
@@ -1093,35 +1098,8 @@ const server = createServer(async (request, response) => {
         return;
       }
 
-      if (!parts[2] && request.method === "POST") {
-        const body = await readBody(request);
-        const user = {
-          id: assertString(body.id, "id"),
-          name: assertString(body.name, "name"),
-          birthDate: assertString(body.birthDate, "birthDate"),
-          createdAt: new Date().toISOString()
-        };
-        db.prepare("INSERT INTO backoffice_users (id, name, birth_date, created_at) VALUES (?, ?, ?, ?)")
-          .run(user.id, user.name, user.birthDate, user.createdAt);
-        sendJson(response, 201, user);
-        return;
-      }
-
-      if (parts[2] === "sessions" && parts[3] && request.method === "PUT") {
-        const body = await readBody(request);
-        const userId = assertString(body.userId, "userId");
-        const deviceName = assertString(body.deviceName, "deviceName");
-        if (!db.prepare("SELECT id FROM backoffice_users WHERE id = ?").get(userId)) {
-          sendJson(response, 404, { error: "Backoffice user not found" });
-          return;
-        }
-        db.prepare(`
-          INSERT INTO backoffice_sessions (device_id, device_name, user_id, last_seen_at)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(device_id) DO UPDATE SET device_name = excluded.device_name,
-            user_id = excluded.user_id, last_seen_at = excluded.last_seen_at
-        `).run(parts[3], deviceName, userId, new Date().toISOString());
-        sendJson(response, 200, readState());
+      if (request.method !== "GET") {
+        sendJson(response, 405, { error: "사용자 선택 기능은 구글 로그인으로 변경되었습니다." });
         return;
       }
 
@@ -1441,6 +1419,10 @@ const server = createServer(async (request, response) => {
 
     sendJson(response, 404, { error: "Not found" });
   } catch (error) {
+    if (error instanceof AuthError) {
+      sendJson(response, error.status, { error: error.message });
+      return;
+    }
     const message = error instanceof Error ? error.message : "Unknown error";
     const statusCode = message.includes("UNIQUE constraint failed") ? 409 : 400;
     sendJson(response, statusCode, {

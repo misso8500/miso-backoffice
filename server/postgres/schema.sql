@@ -142,3 +142,22 @@ CREATE TABLE IF NOT EXISTS employment_contract_terms (
 
 CREATE INDEX IF NOT EXISTS idx_employment_contract_terms_contract
   ON employment_contract_terms(employment_contract_id, created_at ASC);
+
+-- Business data is served by our authenticated server using the database owner.
+-- Supabase public/ordinary authenticated clients must not read these tables directly.
+ALTER TABLE recipients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE backoffice_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE backoffice_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recipient_contract_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employment_contracts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employment_contract_recipient_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employment_insurance_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employment_contract_terms ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE recipients FROM anon, authenticated;
+REVOKE ALL ON TABLE backoffice_users FROM anon, authenticated;
+REVOKE ALL ON TABLE backoffice_sessions FROM anon, authenticated;
+REVOKE ALL ON TABLE recipient_contract_events FROM anon, authenticated;
+REVOKE ALL ON TABLE employment_contracts FROM anon, authenticated;
+REVOKE ALL ON TABLE employment_contract_recipient_assignments FROM anon, authenticated;
+REVOKE ALL ON TABLE employment_insurance_snapshots FROM anon, authenticated;
+REVOKE ALL ON TABLE employment_contract_terms FROM anon, authenticated;

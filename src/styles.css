@@ -721,6 +721,75 @@ p {
   background: #faf9fc;
 }
 
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #f5f3f8;
+}
+
+.login-card {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  width: min(100%, 460px);
+  padding: 40px 28px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: center;
+  box-shadow: 0 12px 32px rgba(48, 45, 58, 0.08);
+}
+
+.login-card h1, .login-card p {
+  margin: 0;
+}
+
+.login-card p {
+  line-height: 1.8;
+}
+
+.google-login-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 18px;
+  border: 1px solid #bcb7c8;
+  border-radius: 6px;
+  background: white;
+  color: #302d3a;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.google-login-button:hover {
+  background: #f5f3f8;
+}
+
+.google-account {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.google-account > span {
+  display: grid;
+  gap: 3px;
+  overflow-wrap: anywhere;
+}
+
+.google-account small {
+  color: #64606c;
+  font-size: 12px;
+}
+
 .contract-attachments h3 {
   margin: 0;
   font-size: 16px;

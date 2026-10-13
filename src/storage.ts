@@ -1,8 +1,8 @@
+import { getAuthHeaders, authFailureEvent } from "./auth";
 import type {
   EmploymentContract,
   EmploymentContractInput,
   BackofficeState,
-  BackofficeUser,
   Recipient,
   RecipientInput,
   RestoreRecipientInput,
@@ -14,17 +14,23 @@ export const API_UNAVAILABLE_MESSAGE =
 
 const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   let response: Response;
+  const authHeaders = await getAuthHeaders();
 
   try {
     response = await fetch(path, {
+      ...options,
       headers: {
         "Content-Type": "application/json",
-        ...options?.headers
-      },
-      ...options
+        ...options?.headers,
+        ...authHeaders
+      }
     });
   } catch {
     throw new Error(API_UNAVAILABLE_MESSAGE);
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    window.dispatchEvent(new Event(authFailureEvent));
   }
 
   if (!response.ok) {
@@ -100,20 +106,6 @@ export const deleteRecipient = (recipientId: string) =>
 
 export const loadBackofficeState = () =>
   requestJson<BackofficeState>("/api/backoffice-users");
-
-export const createBackofficeUser = (input: { id: string; name: string; birthDate: string }) =>
-  requestJson<BackofficeUser>("/api/backoffice-users", {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
-
-export const activateBackofficeUser = (
-  deviceId: string,
-  input: { userId: string; deviceName: string }
-) => requestJson<BackofficeState>(`/api/backoffice-users/sessions/${deviceId}`, {
-  method: "PUT",
-  body: JSON.stringify(input)
-});
 
 const normalizeEmploymentContract = (contract: EmploymentContract): EmploymentContract => ({
   ...contract,
