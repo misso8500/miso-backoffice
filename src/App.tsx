@@ -1,9 +1,15 @@
+import BasicEntryGrid from "./BasicEntryGrid";
+import EmploymentConditionsDetails from "./EmploymentConditionsDetails";
+import EmploymentConditionsEditor, { createEmptyWorkCondition, type EmploymentConditionFormTerm } from "./EmploymentConditionsEditor";
+import type { AuthUser } from "./auth";
+import EmploymentContractAttachments from "./EmploymentContractAttachments";
+import { getMatchingSummary, getEmploymentContractStatus, getEmploymentCurrentYear, getWorkerKey, groupEmploymentContracts, compareEmploymentContracts, formatEmploymentPeriod, isValidEmploymentPeriod } from "./lib/employment-contracts";
+import RecipientDocuments from "./RecipientDocuments";
 import {
   useCallback,
   useEffect,
   useMemo,
   useState,
-  type ChangeEvent,
   type FormEvent
 } from "react";
 import {
@@ -14,7 +20,6 @@ import {
   ChevronRight,
   Database,
   ClipboardCheck,
-  Download,
   Pencil,
   Plus,
   RefreshCw,
@@ -23,15 +28,12 @@ import {
   Search,
   FileX2,
   Trash2,
-  Upload,
-  UserPlus,
   UserRound,
   Users,
   X
 } from "lucide-react";
 import {
   createEmploymentContract,
-  createBackofficeUser,
   createRecipient,
   deleteRecipient,
   loadEmploymentContracts,
@@ -41,14 +43,13 @@ import {
   terminateContract,
   updateEmploymentContract,
   updateRecipient,
-  activateBackofficeUser
 } from "./storage";
 import type {
-  BackofficeSession,
   BackofficeUser,
   ContractRestoreType,
   EmploymentContract,
   EmploymentContractInput,
+  EmploymentWorkCondition,
   Recipient,
   RecipientInput
 } from "./types";
@@ -106,38 +107,34 @@ type RestoreFormState = {
 };
 
 type EmploymentContractFormState = {
+  contractStartDate: string;
+  contractEndDate: string;
   workerName: string;
   residentRegistrationNumber: string;
   workerPhone: string;
   primaryBank: string;
   bankAccountNumber: string;
+  monthlyTravelAllowance: string;
   terms: EmploymentContractTermFormState[];
 };
 
-type EmploymentContractTermFormState = {
-  id: string;
-  wageType: "월급" | "시급";
-  wageAmount: string;
-  nonTaxableMealAllowance: string;
-  nonTaxableVehicleAllowance: string;
-  otherNonTaxablePay: string;
+type EmploymentContractTermFormState = EmploymentConditionFormTerm;
+
+const createEmptyEmploymentTerm = (): EmploymentContractTermFormState => {
+  const id = `employment-term-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return { id, wageType: "시급", wageAmount: "", nonTaxableMealAllowance: "0",
+    nonTaxableVehicleAllowance: "0", otherNonTaxablePay: "0", condition: createEmptyWorkCondition(id) };
 };
 
-const createEmptyEmploymentTerm = (): EmploymentContractTermFormState => ({
-  id: `employment-term-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  wageType: "월급",
-  wageAmount: "",
-  nonTaxableMealAllowance: "0",
-  nonTaxableVehicleAllowance: "0",
-  otherNonTaxablePay: "0"
-});
-
 const emptyEmploymentContractForm: EmploymentContractFormState = {
+  contractStartDate: "",
+  contractEndDate: "",
   workerName: "",
   residentRegistrationNumber: "",
   workerPhone: "",
   primaryBank: "",
   bankAccountNumber: "",
+  monthlyTravelAllowance: "0",
   terms: [createEmptyEmploymentTerm()]
 };
 
@@ -159,6 +156,8 @@ const requiredEmploymentContractFields: Array<{
   key: keyof EmploymentContractFormState;
   label: string;
 }> = [
+  { key: "contractStartDate", label: "계약 시작일" },
+  { key: "contractEndDate", label: "계약 종료일" },
   { key: "workerName", label: "근로자 이름" },
   { key: "residentRegistrationNumber", label: "주민번호" },
   { key: "workerPhone", label: "전화번호" },
@@ -223,232 +222,9 @@ const formatResidentNumberInput = (value: string) => {
 const formatBankAccountNumberInput = (value: string) =>
   value.replace(/[^\d-]/g, "").replace(/-{2,}/g, "-").slice(0, 32);
 
-const escapeCsvValue = (value: string | number | boolean | null | undefined) => {
-  const stringValue = value === null || value === undefined ? "" : String(value);
-
-  if (/[",\n\r]/.test(stringValue)) {
-    return `"${stringValue.replace(/"/g, '""')}"`;
-  }
-
-  return stringValue;
-};
-
-const downloadCsv = (
-  filename: string,
-  headers: string[],
-  rows: Array<Array<string | number | boolean | null | undefined>>
-) => {
-  const csv = [headers, ...rows]
-    .map((row) => row.map((value) => escapeCsvValue(value)).join(","))
-    .join("\r\n");
-  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-};
-
-const downloadRecipientCsvExample = () => {
-  downloadCsv(
-    "miso-recipient-example.csv",
-    [
-      "id",
-      "name",
-      "operationalName",
-      "birthDate",
-      "longTermCareNumber",
-      "careGrade",
-      "phone",
-      "address",
-      "representativeName",
-      "representativeRelation",
-      "representativePhone",
-      "serviceType",
-      "caregiverRequirements",
-      "reductionType",
-      "relatedPeople",
-      "serviceStartDate",
-      "serviceEndDate",
-      "enabled"
-    ],
-    [
-      [
-        "recipient-import-001",
-        "김예시",
-        "김예시/3/강서구/독거",
-        "1944-05-10",
-        "LTC-2026-9001",
-        "3등급",
-        "010-1234-5678",
-        "서울시 강서구 예시로 100",
-        "박보호",
-        "자녀",
-        "010-2222-3333",
-        "방문",
-        "여성 요양보호사, 자차 운전 가능",
-        "일반",
-        "홍길동(이웃) 010-0000-0000",
-        "2026-01-01",
-        "2026-12-31",
-        "false"
-      ]
-    ]
-  );
-};
-
-const downloadEmploymentContractCsvExample = () => {
-  downloadCsv(
-    "miso-employment-contract-example.csv",
-    [
-      "workerGroupId",
-      "workerName",
-      "residentRegistrationNumber",
-      "workerPhone",
-      "primaryBank",
-      "bankAccountNumber",
-      "termOrder",
-      "wageType",
-      "wageAmount",
-      "nonTaxableMealAllowance",
-      "nonTaxableVehicleAllowance",
-      "otherNonTaxablePay",
-      "enabled"
-    ],
-    [
-      [
-        "worker-import-001",
-        "이근로",
-        "941025-1234567",
-        "010-1234-1234",
-        "국민은행",
-        "123-456-789012",
-        1,
-        "월급",
-        2300000,
-        200000,
-        100000,
-        0,
-        "false"
-      ],
-      [
-        "worker-import-001",
-        "이근로",
-        "941025-1234567",
-        "010-1234-1234",
-        "국민은행",
-        "123-456-789012",
-        2,
-        "시급",
-        14000,
-        0,
-        50000,
-        0,
-        "false"
-      ]
-    ]
-  );
-};
-
-type CsvRow = Record<string, string>;
-
-const parseCsv = (text: string) => {
-  const normalizedText = text.replace(/^\uFEFF/, "");
-  const rows: string[][] = [];
-  let currentRow: string[] = [];
-  let currentValue = "";
-  let isInsideQuote = false;
-
-  for (let index = 0; index < normalizedText.length; index += 1) {
-    const character = normalizedText[index];
-    const nextCharacter = normalizedText[index + 1];
-
-    if (character === '"' && isInsideQuote && nextCharacter === '"') {
-      currentValue += '"';
-      index += 1;
-      continue;
-    }
-
-    if (character === '"') {
-      isInsideQuote = !isInsideQuote;
-      continue;
-    }
-
-    if (character === "," && !isInsideQuote) {
-      currentRow.push(currentValue.trim());
-      currentValue = "";
-      continue;
-    }
-
-    if ((character === "\n" || character === "\r") && !isInsideQuote) {
-      if (character === "\r" && nextCharacter === "\n") {
-        index += 1;
-      }
-
-      currentRow.push(currentValue.trim());
-      rows.push(currentRow);
-      currentRow = [];
-      currentValue = "";
-      continue;
-    }
-
-    currentValue += character;
-  }
-
-  currentRow.push(currentValue.trim());
-  rows.push(currentRow);
-
-  const [headers = [], ...bodyRows] = rows.filter((row) =>
-    row.some((value) => value.trim().length > 0)
-  );
-
-  return bodyRows.map((row) =>
-    headers.reduce<CsvRow>((accumulator, header, index) => {
-      accumulator[header.trim()] = row[index]?.trim() ?? "";
-      return accumulator;
-    }, {})
-  );
-};
-
-const readCsvFile = (file: File) =>
-  new Promise<CsvRow[]>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => resolve(parseCsv(String(reader.result ?? "")));
-    reader.onerror = () => reject(new Error("CSV 파일을 읽지 못했습니다."));
-    reader.readAsText(file, "utf-8");
-  });
-
-const parseCsvBoolean = (value: string | undefined, defaultValue = false) => {
-  if (!value) {
-    return defaultValue;
-  }
-
-  return ["true", "1", "yes", "y", "활성", "유효"].includes(value.trim().toLocaleLowerCase());
-};
-
-const parseCsvNumber = (value: string | undefined, field: string) => {
-  const numericValue = Number(String(value ?? "").replace(/,/g, ""));
-
-  if (!Number.isFinite(numericValue)) {
-    throw new Error(`${field} 값은 숫자여야 합니다.`);
-  }
-
-  return numericValue;
-};
-
-const requireCsvValue = (row: CsvRow, field: string) => {
-  const value = row[field]?.trim();
-
-  if (!value) {
-    throw new Error(`${field} 값을 입력하세요.`);
-  }
-
-  return value;
+const maskResidentNumber = (value: string) => {
+  const formatted = formatResidentNumberInput(value);
+  return formatted.length > 8 ? `${formatted.slice(0, 8)}${"*".repeat(formatted.length - 8)}` : formatted;
 };
 
 const deriveBirthDateFromResidentNumber = (residentRegistrationNumber: string) => {
@@ -588,8 +364,9 @@ const employmentContractDetailSections: Array<{
     ]
   },
   {
-    title: "계약 묶음",
+    title: "계약 정보",
     fields: [
+      { label: "계약 기간", value: formatEmploymentPeriod },
       {
         label: "계약 조건",
         value: (contract) => formatContractTerms(contract)
@@ -599,7 +376,7 @@ const employmentContractDetailSections: Array<{
   {
     title: "시스템 정보",
     fields: [
-      { label: "유효 상태", value: (contract) => (contract.enabled ? "유효함" : "비활성화") },
+      { label: "유효 상태", value: (contract) => getEmploymentContractStatus(contract).label },
       { label: "메모", value: (contract) => contract.memo },
       { label: "내부 ID", value: (contract) => contract.id },
       { label: "생성일시", value: (contract) => contract.createdAt },
@@ -608,7 +385,7 @@ const employmentContractDetailSections: Array<{
   }
 ];
 
-const formatDate = (value: string) =>
+const formatDate = (value: string) => !value || !Number.isFinite(Date.parse(value)) ? "미등록" :
   new Intl.DateTimeFormat("ko-KR", {
     year: "numeric",
     month: "short",
@@ -618,6 +395,7 @@ const formatDate = (value: string) =>
 const formatCurrency = (value: number) => `${value.toLocaleString("ko-KR")}원`;
 
 const formatContractTerms = (contract: EmploymentContract) => {
+  if (contract.isDraft && !contract.wageAmount && !contract.contractTerms.some((term) => term.wageAmount)) return "임금·근무 조건 미입력";
   const terms =
     contract.contractTerms.length > 0
       ? contract.contractTerms
@@ -645,9 +423,10 @@ const formatContractTerms = (contract: EmploymentContract) => {
 
 const isRecipientEnabled = (recipient: Recipient) => recipient.enabled !== false;
 
-type RecipientStatus = "급여시작" | "급여제공중" | "급여갱신필요" | "계약종료예정" | "계약종료";
+type RecipientStatus = "정보입력중" | "급여시작" | "급여제공중" | "급여갱신필요" | "계약종료예정" | "계약종료";
 
 const getRecipientStatus = (recipient: Recipient, now = new Date()): RecipientStatus => {
+  if (recipient.isDraft) return "정보입력중";
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const start = new Date(`${recipient.serviceStartDate}T00:00:00`).getTime();
   const expiry = new Date(`${recipient.serviceEndDate}T00:00:00`).getTime();
@@ -658,18 +437,6 @@ const getRecipientStatus = (recipient: Recipient, now = new Date()): RecipientSt
   if (daysUntilExpiry <= 14) return "계약종료예정";
   if (daysUntilExpiry <= 60) return "급여갱신필요";
   return "급여제공중";
-};
-
-const createBackofficeUserId = () =>
-  `backoffice-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-const getDeviceId = () => {
-  const storageKey = "miso-backoffice-device-id";
-  const stored = window.localStorage.getItem(storageKey);
-  if (stored) return stored;
-  const created = `device-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  window.localStorage.setItem(storageKey, created);
-  return created;
 };
 
 const limitDateYear = (value: string) => {
@@ -695,6 +462,7 @@ const getResidenceSummary = (address: string) => {
 };
 
 const getRecipientDisplayId = (recipient: Recipient) => {
+  if (recipient.isDraft) return recipient.operationalName?.trim() || "기본 정보 저장됨 · 상세 입력 필요";
   const birthYear = recipient.birthDate.slice(0, 4) || "연도미상";
   return recipient.operationalName?.trim() || `${recipient.name}/${recipient.careGrade.replace("등급", "")}/${getResidenceSummary(recipient.address)}/${birthYear}년생`;
 };
@@ -702,7 +470,7 @@ const getRecipientDisplayId = (recipient: Recipient) => {
 const hasPrimaryContact = (recipient: Recipient) =>
   Boolean(recipient.representativeName && recipient.representativeName !== "미등록");
 
-function App() {
+function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Promise<void> }) {
   const [activeView, setActiveView] = useState<"recipients" | "employmentContracts">(
     "recipients"
   );
@@ -716,24 +484,16 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showEnabledOnly, setShowEnabledOnly] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState<RecipientStatus | "전체">("전체");
-  const [selectedWorkerId, setSelectedWorkerId] = useState("all");
+  const [selectedAssignedUserId, setSelectedAssignedUserId] = useState("all");
   const [viewDensity, setViewDensity] = useState<"simple" | "detail">("simple");
+  const [isRecipientGridOpen, setIsRecipientGridOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ id: number; message: string } | null>(null);
+  const [assigningRecipientIds, setAssigningRecipientIds] = useState<string[]>([]);
+  const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
   const [backofficeUsers, setBackofficeUsers] = useState<BackofficeUser[]>([]);
-  const [backofficeSessions, setBackofficeSessions] = useState<BackofficeSession[]>([]);
-  const [deviceId] = useState(getDeviceId);
-  const [activeBackofficeUserId, setActiveBackofficeUserId] = useState(
-    () => window.localStorage.getItem("miso-backoffice-active-user-id") ?? ""
-  );
-  const [isBackofficeUserModalOpen, setIsBackofficeUserModalOpen] = useState(false);
-  const [isBackofficeUserFormOpen, setIsBackofficeUserFormOpen] = useState(false);
-  const [newBackofficeUserName, setNewBackofficeUserName] = useState("");
-  const [newBackofficeUserBirthDate, setNewBackofficeUserBirthDate] = useState("");
-  const [backofficeUserError, setBackofficeUserError] = useState<string | null>(null);
-  const [isBackofficeUserSaving, setIsBackofficeUserSaving] = useState(false);
   const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
   const [editingRecipientId, setEditingRecipientId] = useState<string | null>(null);
   const [formState, setFormState] = useState<RecipientFormState>(emptyRecipientForm);
@@ -754,11 +514,25 @@ function App() {
   const [selectedEmploymentContractId, setSelectedEmploymentContractId] = useState<string | null>(
     null
   );
+  const [isEmploymentGridOpen, setIsEmploymentGridOpen] = useState(false);
+  const [employmentRegistrationFilter, setEmploymentRegistrationFilter] = useState("all");
   const [employmentSearchQuery, setEmploymentSearchQuery] = useState("");
+  const [visibleResidentNumberIds, setVisibleResidentNumberIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [expandedEmploymentWorkerIds, setExpandedEmploymentWorkerIds] = useState<Set<string>>(() => new Set());
   const [showEnabledEmploymentOnly, setShowEnabledEmploymentOnly] = useState(true);
+  const [employmentCurrentYear, setEmploymentCurrentYear] = useState(getEmploymentCurrentYear);
+  useEffect(() => {
+    const timer = window.setInterval(() => setEmploymentCurrentYear(getEmploymentCurrentYear()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [isEmploymentLoading, setIsEmploymentLoading] = useState(true);
   const [employmentErrorMessage, setEmploymentErrorMessage] = useState<string | null>(null);
   const [isEmploymentCreatePanelOpen, setIsEmploymentCreatePanelOpen] = useState(false);
+  const [includeWorkConditions, setIncludeWorkConditions] = useState(true);
+  const [isEditingEmploymentContract, setIsEditingEmploymentContract] = useState(false);
+  const [employmentRenewalSource, setEmploymentRenewalSource] = useState<EmploymentContract | null>(null);
   const [employmentFormState, setEmploymentFormState] =
     useState<EmploymentContractFormState>(emptyEmploymentContractForm);
   const [employmentFormErrorMessage, setEmploymentFormErrorMessage] = useState<string | null>(
@@ -810,11 +584,9 @@ function App() {
     try {
       const state = await loadBackofficeState();
       setBackofficeUsers(state.users);
-      setBackofficeSessions(state.sessions);
+
     } catch (error) {
-      setBackofficeUserError(
-        error instanceof Error ? error.message : "백오피스 사용자 정보를 불러오지 못했습니다."
-      );
+      setErrorMessage(error instanceof Error ? error.message : "담당자 정보를 불러오지 못했습니다.");
     }
   }, []);
 
@@ -823,27 +595,6 @@ function App() {
     void fetchEmploymentContracts();
     void fetchBackofficeState();
   }, [fetchBackofficeState, fetchEmploymentContracts, fetchRecipients]);
-
-  useEffect(() => {
-    const syncBackofficeSession = () => {
-      if (activeBackofficeUserId) {
-        void activateBackofficeUser(deviceId, {
-          userId: activeBackofficeUserId,
-          deviceName: window.location.host || "백오피스 기기"
-        }).then((state) => {
-          setBackofficeUsers(state.users);
-          setBackofficeSessions(state.sessions);
-        }).catch(() => undefined);
-      } else {
-        void fetchBackofficeState();
-      }
-    };
-
-    syncBackofficeSession();
-    const intervalId = window.setInterval(syncBackofficeSession, 15000);
-
-    return () => window.clearInterval(intervalId);
-  }, [activeBackofficeUserId, deviceId, fetchBackofficeState]);
 
   useEffect(() => {
     if (!notification) return;
@@ -884,11 +635,8 @@ function App() {
           return false;
         }
 
-        if (selectedWorkerId !== "all") {
-          const worker = employmentContracts.find((contract) => contract.id === selectedWorkerId);
-          if (!worker?.recipientAssignments.some(({ recipientId }) => recipientId === recipient.id)) {
-            return false;
-          }
+        if (selectedAssignedUserId !== "all" && recipient.assignedBackofficeUserId !== selectedAssignedUserId) {
+          return false;
         }
 
         if (!query) {
@@ -912,34 +660,17 @@ function App() {
           .includes(query);
       })
       .sort((a, b) => a.serviceEndDate.localeCompare(b.serviceEndDate));
-  }, [employmentContracts, recipients, searchQuery, selectedStatus, selectedWorkerId, showEnabledOnly]);
+  }, [recipients, searchQuery, selectedStatus, selectedAssignedUserId, showEnabledOnly]);
 
   const selectedRecipient =
     recipients.find((recipient) => recipient.id === selectedRecipientId) ?? null;
-  const activeBackofficeUser =
-    backofficeUsers.find((user) => user.id === activeBackofficeUserId) ?? null;
+
 
   useEffect(() => {
     setOperationalNameDraft(selectedRecipient?.operationalName ?? "");
     setOperationalNameSaveMessage(null);
   }, [selectedRecipient?.id, selectedRecipient?.operationalName]);
-  const enabledRecipientCount = recipients.filter(isRecipientEnabled).length;
-  const activeWorkers = employmentContracts.filter((contract) => contract.enabled);
-  const getAssignedSocialWorkerNames = (recipientId: string) => {
-    const recipient = recipients.find((item) => item.id === recipientId);
-    const assignedUser = backofficeUsers.find(
-      (user) => user.id === recipient?.assignedBackofficeUserId
-    );
-    if (assignedUser) return [assignedUser.name];
-
-    const names = activeWorkers
-      .filter((worker) =>
-        worker.recipientAssignments.some((assignment) => assignment.recipientId === recipientId)
-      )
-      .map((worker) => worker.workerName);
-
-    return [...new Set(names)];
-  };
+  const enabledRecipientCount = recipients.filter((recipient) => isRecipientEnabled(recipient) && !recipient.isDraft).length;
   const renewalCount = recipients.filter((recipient) =>
     ["급여갱신필요", "계약종료예정"].includes(getRecipientStatus(recipient))
   ).length;
@@ -948,7 +679,9 @@ function App() {
 
     return [...employmentContracts]
       .filter((contract) => {
-        if (showEnabledEmploymentOnly && !contract.enabled) {
+        if (employmentRegistrationFilter === "draft" && !contract.isDraft) return false;
+        if (employmentRegistrationFilter === "complete" && contract.isDraft) return false;
+        if (showEnabledEmploymentOnly && !getEmploymentContractStatus(contract, employmentCurrentYear).valid) {
           return false;
         }
 
@@ -971,12 +704,23 @@ function App() {
           .toLocaleLowerCase()
           .includes(query);
       })
-      .sort((a, b) => b.contractStartDate.localeCompare(a.contractStartDate));
-  }, [employmentContracts, employmentSearchQuery, showEnabledEmploymentOnly]);
+      .sort(compareEmploymentContracts);
+  }, [employmentContracts, employmentSearchQuery, showEnabledEmploymentOnly, employmentCurrentYear, employmentRegistrationFilter]);
+  const employmentWorkerGroups = useMemo(() => {
+    const matchingIds = new Set(filteredEmploymentContracts.map((contract) => contract.id));
+    return groupEmploymentContracts(employmentContracts.filter((contract) =>
+      (employmentRegistrationFilter !== "draft" || contract.isDraft) &&
+      (employmentRegistrationFilter !== "complete" || !contract.isDraft) &&
+      (!showEnabledEmploymentOnly || getEmploymentContractStatus(contract, employmentCurrentYear).valid)
+    )).filter((contracts) => contracts.some((contract) => matchingIds.has(contract.id)));
+  }, [employmentContracts, filteredEmploymentContracts, showEnabledEmploymentOnly, employmentCurrentYear, employmentRegistrationFilter]);
   const selectedEmploymentContract =
     employmentContracts.find((contract) => contract.id === selectedEmploymentContractId) ?? null;
+  const selectedWorkerHistory = selectedEmploymentContract
+    ? employmentContracts.filter((contract) => getWorkerKey(contract) === getWorkerKey(selectedEmploymentContract)).sort(compareEmploymentContracts)
+    : [];
   const enabledEmploymentContractCount = employmentContracts.filter(
-    (contract) => contract.enabled
+    (contract) => getEmploymentContractStatus(contract, employmentCurrentYear).valid
   ).length;
 
   const updateFormField = (field: keyof RecipientFormState, value: string) => {
@@ -992,16 +736,22 @@ function App() {
 
   const updateEmploymentTermField = (
     termId: string,
-    field: keyof Omit<EmploymentContractTermFormState, "id">,
+    field: keyof Omit<EmploymentContractTermFormState, "id" | "condition">,
     value: string
   ) => {
     setEmploymentFormState((current) => {
       const terms = current.terms.map((term) =>
-        term.id === termId ? { ...term, [field]: value } : term
+        term.id === termId ? { ...term, [field]: value, condition: { ...term.condition, documentStatus: "needs_confirmation" as const } } : term
       );
 
       return { ...current, terms };
     });
+    setEmploymentFormErrorMessage(null);
+  };
+
+  const updateEmploymentCondition = (id: string, patch: Partial<EmploymentWorkCondition>) => {
+    setEmploymentFormState((current) => ({ ...current, terms: current.terms.map((term) =>
+      term.id === id ? { ...term, condition: { ...term.condition, ...patch, documentStatus: patch.documentStatus ?? "needs_confirmation" } } : term) }));
     setEmploymentFormErrorMessage(null);
   };
 
@@ -1058,29 +808,72 @@ function App() {
     setIsCreatePanelOpen(true);
   };
 
+  const openEmploymentRenewalPanel = (contract: EmploymentContract, editing = false) => {
+    setIsEditingEmploymentContract(editing);
+    setIncludeWorkConditions(!editing || Boolean(contract.isDraft) || Boolean(contract.workConditions));
+    const terms = contract.contractTerms.length ? contract.contractTerms : [{
+      wageType: contract.wageType === "시급" ? "시급" as const : "월급" as const,
+      wageAmount: contract.wageAmount,
+      nonTaxableMealAllowance: contract.nonTaxableMealAllowance,
+      nonTaxableVehicleAllowance: contract.nonTaxableVehicleAllowance,
+      otherNonTaxablePay: contract.taxableExtraPay
+    }];
+    setEmploymentFormState({
+      workerName: contract.workerName,
+      residentRegistrationNumber: contract.residentRegistrationNumber,
+      workerPhone: contract.workerPhone ?? "",
+      primaryBank: contract.primaryBank,
+      bankAccountNumber: contract.bankAccountNumber,
+      contractStartDate: editing ? contract.contractStartDate : "",
+      contractEndDate: editing ? contract.contractEndDate ?? "" : "",
+      monthlyTravelAllowance: String(contract.workConditions?.monthlyTravelAllowance ?? 0),
+      terms: terms.map((term) => {
+        const id = editing && term.id ? term.id : createEmptyEmploymentTerm().id;
+        const previous = contract.workConditions?.conditions.find((condition) => condition.termId === term.id);
+        return ({
+        id,
+        condition: { ...(previous ?? createEmptyWorkCondition(id)), termId: id,
+          ...(!editing ? { effectiveStartDate: "", effectiveEndDate: "", statusDate: "", matchingStatus: "pending" as const, documentStatus: "needs_confirmation" as const, changeReason: "" } : {}) },
+        wageType: term.wageType,
+        wageAmount: contract.isDraft && !term.wageAmount ? "" : String(term.wageAmount),
+        nonTaxableMealAllowance: String(term.nonTaxableMealAllowance),
+        nonTaxableVehicleAllowance: String(term.nonTaxableVehicleAllowance),
+        otherNonTaxablePay: String(term.otherNonTaxablePay)
+      }); })
+    });
+    setEmploymentRenewalSource(contract);
+    setEmploymentFormErrorMessage(null);
+    setSelectedEmploymentContractId(null);
+    setIsEmploymentCreatePanelOpen(true);
+  };
+
   const closeEmploymentCreatePanel = () => {
+    setIncludeWorkConditions(true);
+    setIsEditingEmploymentContract(false);
+    setEmploymentRenewalSource(null);
     setIsEmploymentCreatePanelOpen(false);
     setEmploymentFormState(emptyEmploymentContractForm);
     setEmploymentFormErrorMessage(null);
   };
 
-  const handleCreateRecipient = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleCreateRecipient = async (event?: FormEvent<HTMLFormElement>, saveAsDraft = false) => {
+    event?.preventDefault();
 
-    const missingField = requiredFormFields.find(({ key }) => !formState[key].trim());
+    const missingField = (saveAsDraft ? requiredFormFields.filter(({ key }) => key === "name") : requiredFormFields).find(({ key }) => !formState[key].trim());
 
     if (missingField) {
       setFormErrorMessage(`${missingField.label}을(를) 입력하세요.`);
       return;
     }
 
-    if (formState.serviceStartDate > formState.serviceEndDate) {
+    if (formState.serviceStartDate && formState.serviceEndDate && formState.serviceStartDate > formState.serviceEndDate) {
       setFormErrorMessage("장기요양이용계약 시작일은 만료일보다 늦을 수 없습니다.");
       return;
     }
 
     const recipientBeingEdited = recipients.find((recipient) => recipient.id === editingRecipientId);
     const recipientToSave: RecipientInput = {
+      isDraft: saveAsDraft,
       id: recipientBeingEdited?.id ?? createRecipientId(),
       name: formState.name.trim(),
       operationalName: formState.operationalName.trim(),
@@ -1115,6 +908,7 @@ function App() {
       setRecipients((current) => recipientBeingEdited
         ? current.map((recipient) => recipient.id === savedRecipient.id ? savedRecipient : recipient)
         : [...current, savedRecipient]);
+      if (recipientBeingEdited?.isDraft && !savedRecipient.isDraft) setSelectedStatus("전체");
       setSelectedRecipientId(savedRecipient.id);
       showNotification(
         recipientBeingEdited
@@ -1218,72 +1012,31 @@ function App() {
     }
   };
 
-  const handleCreateBackofficeUser = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!newBackofficeUserName.trim() || !newBackofficeUserBirthDate) {
-      setBackofficeUserError("이름과 생년월일을 모두 입력하세요.");
-      return;
-    }
-
-    setIsBackofficeUserSaving(true);
+  const handleAssignedBackofficeUserUpdate = async (recipient: Recipient, userId: string) => {
+    if (assigningRecipientIds.includes(recipient.id) || (recipient.assignedBackofficeUserId ?? "") === userId) return;
+    setAssigningRecipientIds((current) => [...current, recipient.id]);
+    setAssignmentErrors((current) => ({ ...current, [recipient.id]: "" }));
     try {
-      const created = await createBackofficeUser({
-        id: createBackofficeUserId(),
-        name: newBackofficeUserName.trim(),
-        birthDate: newBackofficeUserBirthDate
-      });
-      setBackofficeUsers((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
-      setNewBackofficeUserName("");
-      setNewBackofficeUserBirthDate("");
-      setIsBackofficeUserFormOpen(false);
-      setBackofficeUserError(null);
-      showNotification("백오피스 사용자를 생성하였습니다.");
+      const updated = await updateRecipient({ ...recipient, assignedBackofficeUserId: userId || undefined });
+      setRecipients((current) => current.map((item) => item.id === updated.id ? updated : item));
+      const user = backofficeUsers.find((item) => item.id === userId);
+      showNotification(userId
+        ? `${recipient.name}님의 담당 사회복지사를 ${user?.name ?? "선택한 사용자"}(으)로 배정했습니다.`
+        : `${recipient.name}님의 담당 사회복지사 배정을 해제했습니다.`);
     } catch (error) {
-      setBackofficeUserError(error instanceof Error ? error.message : "사용자를 생성하지 못했습니다.");
+      setAssignmentErrors((current) => ({
+        ...current,
+        [recipient.id]: error instanceof Error ? error.message : "담당 사회복지사를 저장하지 못했습니다."
+      }));
     } finally {
-      setIsBackofficeUserSaving(false);
+      setAssigningRecipientIds((current) => current.filter((id) => id !== recipient.id));
     }
   };
 
-  const handleActivateBackofficeUser = async (user: BackofficeUser) => {
-    setIsBackofficeUserSaving(true);
-    try {
-      const state = await activateBackofficeUser(deviceId, {
-        userId: user.id,
-        deviceName: window.location.host || "백오피스 기기"
-      });
-      window.localStorage.setItem("miso-backoffice-active-user-id", user.id);
-      setActiveBackofficeUserId(user.id);
-      setBackofficeUsers(state.users);
-      setBackofficeSessions(state.sessions);
-      setIsBackofficeUserModalOpen(false);
-      setBackofficeUserError(null);
-      showNotification(`${user.name} 사용자로 전환하였습니다.`);
-    } catch (error) {
-      setBackofficeUserError(error instanceof Error ? error.message : "사용자를 활성화하지 못했습니다.");
-    } finally {
-      setIsBackofficeUserSaving(false);
-    }
-  };
+  const handleCreateEmploymentContract = async (event?: FormEvent<HTMLFormElement>, saveAsDraft = false) => {
+    event?.preventDefault();
 
-  const handleAssignedBackofficeUserUpdate = async (userId: string) => {
-    if (!selectedRecipient) return;
-    setIsSaving(true);
-    try {
-      const updated = await updateRecipient({ ...selectedRecipient, assignedBackofficeUserId: userId || undefined });
-      setRecipients((current) => current.map((recipient) => recipient.id === updated.id ? updated : recipient));
-      showNotification("수급자 정보를 저장하였습니다.");
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "담당 사회복지사를 저장하지 못했습니다.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCreateEmploymentContract = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    const missingField = requiredEmploymentContractFields.find(({ key }) => {
+    const missingField = (saveAsDraft ? requiredEmploymentContractFields.filter(({ key }) => key === "workerName") : requiredEmploymentContractFields).find(({ key }) => {
       const value = employmentFormState[key];
       return typeof value !== "string" || !value.trim();
     });
@@ -1293,16 +1046,22 @@ function App() {
       return;
     }
 
+    if ((!saveAsDraft || (employmentFormState.contractStartDate && employmentFormState.contractEndDate)) && !isValidEmploymentPeriod(employmentFormState.contractStartDate, employmentFormState.contractEndDate)) {
+      setEmploymentFormErrorMessage("계약 기간을 확인하세요. 종료일은 시작일보다 빠를 수 없습니다.");
+      return;
+    }
+
     const derivedWorkerBirthDate = deriveBirthDateFromResidentNumber(
       employmentFormState.residentRegistrationNumber
     );
 
-    if (!derivedWorkerBirthDate) {
+    if (!derivedWorkerBirthDate && (!saveAsDraft || employmentFormState.residentRegistrationNumber.trim())) {
       setEmploymentFormErrorMessage("주민번호 앞 7자리를 확인하세요.");
       return;
     }
 
     const contractTerms = employmentFormState.terms.map((term) => ({
+      id: term.id,
       wageType: term.wageType,
       wageAmount: Number(term.wageAmount),
       nonTaxableMealAllowance: Number(term.nonTaxableMealAllowance || 0),
@@ -1313,7 +1072,7 @@ function App() {
     const invalidTermIndex = contractTerms.findIndex(
       (term) =>
         !Number.isFinite(term.wageAmount) ||
-        term.wageAmount <= 0 ||
+        (saveAsDraft ? term.wageAmount < 0 : term.wageAmount <= 0) ||
         [term.nonTaxableMealAllowance, term.nonTaxableVehicleAllowance, term.otherNonTaxablePay].some(
           (value) => !Number.isFinite(value) || value < 0
         )
@@ -1329,9 +1088,11 @@ function App() {
     const firstTerm = contractTerms[0];
 
     const newContract: EmploymentContractInput = {
-      id: createEmploymentContractId(),
+      isDraft: saveAsDraft,
+      ...(isEditingEmploymentContract && employmentRenewalSource ? { updatedAt: employmentRenewalSource.updatedAt } : {}),
+      id: isEditingEmploymentContract && employmentRenewalSource ? employmentRenewalSource.id : createEmploymentContractId(),
       workerName: employmentFormState.workerName.trim(),
-      workerBirthDate: derivedWorkerBirthDate,
+      workerBirthDate: derivedWorkerBirthDate ?? "",
       residentRegistrationNumber: formatResidentNumberInput(
         employmentFormState.residentRegistrationNumber.trim()
       ),
@@ -1340,213 +1101,59 @@ function App() {
         : {}),
       primaryBank: employmentFormState.primaryBank.trim(),
       bankAccountNumber: formatBankAccountNumberInput(employmentFormState.bankAccountNumber.trim()),
-      workerAddress: "미입력",
-      jobTitle: "근로자",
-      employmentType: "근로계약 묶음",
-      workplaceType: "office",
-      workplace: "미입력",
-      recipientAssignments: [],
-      contractStartDate: new Date().toISOString().slice(0, 10),
-      workDays: "미입력",
-      workStartTime: "09:00",
-      workEndTime: "18:00",
-      breakMinutes: 0,
+      workerAddress: employmentRenewalSource?.workerAddress ?? "미입력",
+      jobTitle: employmentRenewalSource?.jobTitle ?? "근로자",
+      employmentType: employmentRenewalSource?.employmentType ?? "근로계약 묶음",
+      workplaceType: employmentRenewalSource?.workplaceType ?? "office",
+      workplace: employmentRenewalSource?.workplace ?? "미입력",
+      recipientAssignments: employmentRenewalSource?.recipientAssignments ?? [],
+      contractStartDate: employmentFormState.contractStartDate,
+      contractEndDate: employmentFormState.contractEndDate,
+      workDays: includeWorkConditions ? employmentFormState.terms[0].condition.workDays : employmentRenewalSource?.workDays || "미입력",
+      workStartTime: includeWorkConditions ? employmentFormState.terms[0].condition.workStartTime : employmentRenewalSource?.workStartTime || "09:00",
+      workEndTime: includeWorkConditions ? employmentFormState.terms[0].condition.workEndTime : employmentRenewalSource?.workEndTime || "18:00",
+      breakMinutes: includeWorkConditions ? employmentFormState.terms[0].condition.breakMinutes : employmentRenewalSource?.breakMinutes ?? 0,
       wageType: firstTerm.wageType,
       wageAmount: firstTerm.wageAmount,
       nonTaxableVehicleAllowance: firstTerm.nonTaxableVehicleAllowance,
       nonTaxableMealAllowance: firstTerm.nonTaxableMealAllowance,
       taxableExtraPay: firstTerm.otherNonTaxablePay,
-      paymentDate: "미입력",
-      insuranceStatus: "별도 관리",
-      insuranceSnapshots: [],
+      paymentDate: employmentRenewalSource?.paymentDate ?? "미입력",
+      insuranceStatus: employmentRenewalSource?.insuranceStatus ?? "별도 관리",
+      insuranceSnapshots: isEditingEmploymentContract ? employmentRenewalSource?.insuranceSnapshots ?? []
+        : (employmentRenewalSource?.insuranceSnapshots ?? []).map((snapshot) => ({ ...snapshot, id: undefined })),
+      allowanceMemo: employmentRenewalSource?.allowanceMemo,
+      memo: employmentRenewalSource?.memo,
       contractTerms,
-      enabled: true
+      ...(includeWorkConditions ? { workConditions: {
+        monthlyTravelAllowance: Number(employmentFormState.monthlyTravelAllowance || 0),
+        conditions: employmentFormState.terms.map((term) => ({ ...term.condition, termId: term.id,
+          effectiveStartDate: term.condition.effectiveStartDate || employmentFormState.contractStartDate,
+          effectiveEndDate: term.condition.effectiveEndDate || employmentFormState.contractEndDate
+        })),
+        history: []
+      } } : {}),
+      enabled: isEditingEmploymentContract ? employmentRenewalSource?.enabled ?? true : true
     };
 
     setIsEmploymentSaving(true);
 
     try {
-      const createdContract = await createEmploymentContract(newContract);
-      setEmploymentContracts((current) => [...current, createdContract]);
+      const createdContract = isEditingEmploymentContract
+        ? await updateEmploymentContract(newContract)
+        : await createEmploymentContract(newContract);
+      setEmploymentContracts((current) => isEditingEmploymentContract
+        ? current.map((contract) => contract.id === createdContract.id ? createdContract : contract)
+        : [...current, createdContract]);
+      if (saveAsDraft) { setShowEnabledEmploymentOnly(false); setEmploymentRegistrationFilter("draft"); }
+      else if (employmentRenewalSource?.isDraft || !isEditingEmploymentContract) { setEmploymentRegistrationFilter("all"); setShowEnabledEmploymentOnly(false); }
       setSelectedEmploymentContractId(createdContract.id);
       closeEmploymentCreatePanel();
       setEmploymentErrorMessage(null);
     } catch (error) {
+      if (error instanceof Error && error.message.includes("다른 사용자가")) void fetchEmploymentContracts();
       setEmploymentFormErrorMessage(
         error instanceof Error ? error.message : "근로계약 정보를 저장하지 못했습니다."
-      );
-    } finally {
-      setIsEmploymentSaving(false);
-    }
-  };
-
-  const handleRecipientCsvUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!file) {
-      return;
-    }
-
-    setIsSaving(true);
-    setErrorMessage(null);
-
-    try {
-      const rows = await readCsvFile(file);
-
-      if (rows.length === 0) {
-        throw new Error("CSV에 등록할 수급자 행이 없습니다.");
-      }
-
-      const createdRecipients: Recipient[] = [];
-
-      for (const [index, row] of rows.entries()) {
-        const rowNumber = index + 2;
-        const serviceStartDate = requireCsvValue(row, "serviceStartDate");
-        const serviceEndDate = requireCsvValue(row, "serviceEndDate");
-
-        if (serviceStartDate > serviceEndDate) {
-          throw new Error(`${rowNumber}행: serviceStartDate는 serviceEndDate보다 늦을 수 없습니다.`);
-        }
-
-        const recipientInput: RecipientInput = {
-          id: row.id || createRecipientId(),
-          name: requireCsvValue(row, "name"),
-          ...(row.operationalName?.trim() ? { operationalName: row.operationalName.trim() } : {}),
-          birthDate: requireCsvValue(row, "birthDate"),
-          longTermCareNumber: requireCsvValue(row, "longTermCareNumber"),
-          careGrade: requireCsvValue(row, "careGrade"),
-          ...(row.phone ? { phone: formatPhoneNumberInput(row.phone) } : {}),
-          address: requireCsvValue(row, "address"),
-          representativeName: requireCsvValue(row, "representativeName"),
-          representativeRelation: requireCsvValue(row, "representativeRelation"),
-          representativePhone: formatPhoneNumberInput(requireCsvValue(row, "representativePhone")),
-          serviceType: row.serviceType === "가족" ? "가족" : "방문",
-          caregiverRequirements: row.caregiverRequirements?.trim() ?? "",
-          reductionType: row.reductionType === "감경" || row.reductionType === "기초" ? row.reductionType : "일반",
-          relatedPeople: row.relatedPeople?.trim() ?? "",
-          serviceStartDate,
-          serviceEndDate,
-          contractRegisteredDate: serviceStartDate,
-          contractExpiredDate: serviceEndDate,
-          enabled: parseCsvBoolean(row.enabled, false)
-        };
-
-        createdRecipients.push(await createRecipient(recipientInput));
-      }
-
-      setRecipients((current) => [...current, ...createdRecipients]);
-      setShowEnabledOnly(false);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "수급자 CSV 업로드에 실패했습니다.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleEmploymentContractCsvUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!file) {
-      return;
-    }
-
-    setIsEmploymentSaving(true);
-    setEmploymentErrorMessage(null);
-
-    try {
-      const rows = await readCsvFile(file);
-
-      if (rows.length === 0) {
-        throw new Error("CSV에 등록할 근로계약 행이 없습니다.");
-      }
-
-      const groupedRows = rows.reduce<Map<string, CsvRow[]>>((groups, row, index) => {
-        const workerGroupId =
-          row.workerGroupId?.trim() ||
-          `${row.workerName?.trim() ?? "worker"}-${row.residentRegistrationNumber?.trim() ?? index}`;
-        const groupRows = groups.get(workerGroupId) ?? [];
-        groupRows.push(row);
-        groups.set(workerGroupId, groupRows);
-        return groups;
-      }, new Map<string, CsvRow[]>());
-      const createdContracts: EmploymentContract[] = [];
-
-      for (const [workerGroupId, groupRows] of groupedRows.entries()) {
-        const firstRow = groupRows[0];
-        const residentRegistrationNumber = formatResidentNumberInput(
-          requireCsvValue(firstRow, "residentRegistrationNumber")
-        );
-        const workerBirthDate = deriveBirthDateFromResidentNumber(residentRegistrationNumber);
-
-        if (!workerBirthDate) {
-          throw new Error(`${workerGroupId}: 주민번호 앞 7자리를 확인하세요.`);
-        }
-
-        const contractTerms = groupRows
-          .sort((a, b) => Number(a.termOrder || 0) - Number(b.termOrder || 0))
-          .map((row, index) => {
-            const wageType = requireCsvValue(row, "wageType");
-
-            if (!["월급", "시급"].includes(wageType)) {
-              throw new Error(`${workerGroupId} ${index + 1}번째 계약: wageType은 월급 또는 시급이어야 합니다.`);
-            }
-
-            return {
-              wageType: wageType as "월급" | "시급",
-              wageAmount: parseCsvNumber(row.wageAmount, "wageAmount"),
-              nonTaxableMealAllowance: parseCsvNumber(
-                row.nonTaxableMealAllowance || "0",
-                "nonTaxableMealAllowance"
-              ),
-              nonTaxableVehicleAllowance: parseCsvNumber(
-                row.nonTaxableVehicleAllowance || "0",
-                "nonTaxableVehicleAllowance"
-              ),
-              otherNonTaxablePay: parseCsvNumber(row.otherNonTaxablePay || "0", "otherNonTaxablePay")
-            };
-          });
-        const firstTerm = contractTerms[0];
-        const contractInput: EmploymentContractInput = {
-          id: workerGroupId || createEmploymentContractId(),
-          workerName: requireCsvValue(firstRow, "workerName"),
-          workerBirthDate,
-          residentRegistrationNumber,
-          workerPhone: formatPhoneNumberInput(requireCsvValue(firstRow, "workerPhone")),
-          primaryBank: requireCsvValue(firstRow, "primaryBank"),
-          bankAccountNumber: formatBankAccountNumberInput(requireCsvValue(firstRow, "bankAccountNumber")),
-          workerAddress: "미입력",
-          jobTitle: "근로자",
-          employmentType: "근로계약 묶음",
-          workplaceType: "office",
-          workplace: "미입력",
-          recipientAssignments: [],
-          contractStartDate: new Date().toISOString().slice(0, 10),
-          workDays: "미입력",
-          workStartTime: "09:00",
-          workEndTime: "18:00",
-          breakMinutes: 0,
-          wageType: firstTerm.wageType,
-          wageAmount: firstTerm.wageAmount,
-          nonTaxableVehicleAllowance: firstTerm.nonTaxableVehicleAllowance,
-          nonTaxableMealAllowance: firstTerm.nonTaxableMealAllowance,
-          taxableExtraPay: firstTerm.otherNonTaxablePay,
-          paymentDate: "미입력",
-          insuranceStatus: "별도 관리",
-          insuranceSnapshots: [],
-          contractTerms,
-          enabled: parseCsvBoolean(firstRow.enabled, false)
-        };
-
-        createdContracts.push(await createEmploymentContract(contractInput));
-      }
-
-      setEmploymentContracts((current) => [...current, ...createdContracts]);
-      setShowEnabledEmploymentOnly(false);
-    } catch (error) {
-      setEmploymentErrorMessage(
-        error instanceof Error ? error.message : "근로계약 CSV 업로드에 실패했습니다."
       );
     } finally {
       setIsEmploymentSaving(false);
@@ -1758,6 +1365,63 @@ function App() {
     }
   };
 
+  const renderEmploymentContractRow = (contract: EmploymentContract, isLatest: boolean) => {
+    const status = getEmploymentContractStatus(contract, employmentCurrentYear);
+    const matching = getMatchingSummary(contract);
+    return (
+      <div
+        className={`recipient-row employment-contract-row ${isLatest ? "" : "is-history"}`}
+        onClick={() => setSelectedEmploymentContractId(contract.id)}
+      >
+        <button type="button" className="recipient-name employment-worker-button"
+          aria-label={`${contract.workerName} 근로계약 상세 보기`}>
+          <strong>{contract.workerName}</strong>
+          <small className="contract-order-label">{isLatest ? "최신 계약" : "이전 계약"}</small>
+
+        </button>
+        <span className="resident-number-cell">
+          <span>{(visibleResidentNumberIds.has(contract.id)
+            ? contract.residentRegistrationNumber
+            : maskResidentNumber(contract.residentRegistrationNumber)) || "미등록"}</span>
+          <button
+            type="button"
+            className="resident-number-toggle"
+            disabled={!contract.residentRegistrationNumber}
+            aria-label={`${contract.workerName} 주민번호 ${visibleResidentNumberIds.has(contract.id) ? "숨기기" : "표기"}`}
+            aria-pressed={visibleResidentNumberIds.has(contract.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              setVisibleResidentNumberIds((previous) => {
+                const next = new Set(previous);
+                if (next.has(contract.id)) next.delete(contract.id);
+                else next.add(contract.id);
+                return next;
+              });
+            }}
+          >
+            {visibleResidentNumberIds.has(contract.id) ? "숨기기" : "표기"}
+          </button>
+        </span>
+        <span>{contract.workerPhone ?? "미등록"}</span>
+        <span className="employment-period-cell">
+          <strong className="employment-period">{formatEmploymentPeriod(contract)}</strong>
+          <span className={`employment-validity ${status.valid ? "is-valid" : "is-invalid"}`}>
+            <em>{status.valid ? "유효함" : status.label.startsWith("계약종료/") ? "계약종료" : status.label}</em>
+            <small>{status.valid ? `${employmentCurrentYear}년 계약` : status.label.startsWith("계약종료/")
+              ? `${status.label.split("/")[1]} · 올해 계약 기간 아님`
+              : status.label === "정보 입력 중" ? "상세 정보를 입력해 주세요" : status.label === "비활성화" ? "삭제 처리된 계약" : status.label === "계약기간 확인 필요" ? "시작일·종료일 확인 필요" : "근무 연결 상태 확인 필요"}</small>
+          </span>
+          {!contract.isDraft && <small className="matching-summary">{matching.label}</small>}
+        </span>
+        <span className="expiry">
+          <strong>{contract.isDraft && !(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount) ? "약정 미입력" : formatCurrency(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount)}</strong>
+          <small>{contract.isDraft ? "상세 입력 필요" : `${contract.contractTerms[0]?.wageType ?? contract.wageType} · 계약 조건 ${contract.contractTerms.length || 1}개`}</small>
+        </span>
+        <ChevronRight size={18} />
+      </div>
+    );
+  };
+
   return (
     <div className="app-shell">
       {notification && (
@@ -1777,20 +1441,11 @@ function App() {
           </div>
         </div>
         <div className="header-actions">
-          <button
-            type="button"
-            className="backoffice-user-button"
-            onClick={() => { setIsBackofficeUserModalOpen(true); setBackofficeUserError(null); }}
-          >
-            <UserRound size={17} />
-            백오피스 사용자
-          </button>
-          {activeBackofficeUser && (
-            <button type="button" className="active-user-card" onClick={() => setIsBackofficeUserModalOpen(true)}>
-              <span>{activeBackofficeUser.name}</span>
-              <i aria-label="접속 중" />
-            </button>
-          )}
+          <div className="google-account">
+            <UserRound size={17} aria-hidden="true" />
+            <span><strong>{authUser.name}</strong><small>{authUser.email}</small></span>
+            <button type="button" className="secondary-button" onClick={() => void onSignOut()}>로그아웃</button>
+          </div>
           <nav className="view-tabs" aria-label="관리 메뉴">
             <button
               type="button"
@@ -1834,24 +1489,10 @@ function App() {
             <p>기본 정보와 장기요양이용계약 기간을 기록하고 확인합니다.</p>
           </div>
           <div className="heading-actions">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={downloadRecipientCsvExample}
-            >
-              <Download size={18} />
-              CSV 예제
+            <button type="button" className="primary-button" onClick={() => setIsRecipientGridOpen(true)}>
+              <Plus size={18} /> 표로 여러 명 입력
             </button>
-            <label className="secondary-button">
-              <Upload size={18} />
-              CSV 업로드
-              <input
-                className="sr-only"
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event) => void handleRecipientCsvUpload(event)}
-              />
-            </label>
+
             <button
               type="button"
               className="primary-button"
@@ -1915,12 +1556,12 @@ function App() {
               <span>장기요양이용계약 만료일 오름차순</span>
             </div>
             <div className="toolbar-controls">
-              <select className="filter-select" aria-label="담당 근무자 필터" value={selectedWorkerId} onChange={(event) => setSelectedWorkerId(event.target.value)}>
+              <select className="filter-select" aria-label="담당 사회복지사 필터" value={selectedAssignedUserId} onChange={(event) => setSelectedAssignedUserId(event.target.value)}>
                 <option value="all">담당자 전체</option>
-                {activeWorkers.map((worker) => <option key={worker.id} value={worker.id}>{worker.workerName} · {worker.recipientAssignments.length}명</option>)}
+                {backofficeUsers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
               </select>
               <select className="filter-select" aria-label="계약 상태 필터" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as RecipientStatus | "전체")}>
-                {(["전체", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status}</option>)}
+                {(["전체", "정보입력중", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status === "정보입력중" ? "정보 입력 중" : status}</option>)}
               </select>
               <div className="density-toggle" aria-label="보기 방식">
                 <button type="button" className={viewDensity === "simple" ? "is-active" : ""} onClick={() => setViewDensity("simple")}>간단</button>
@@ -1981,6 +1622,7 @@ function App() {
                       tabIndex={0}
                       onClick={() => setSelectedRecipientId(recipient.id)}
                       onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           setSelectedRecipientId(recipient.id);
@@ -1998,24 +1640,36 @@ function App() {
                       </span>
                       {viewDensity === "simple" ? (
                         <>
-                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
-                          <span className="recipient-address">{recipient.address === "미등록" ? "주소 미등록" : recipient.address}</span>
+                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient) === "정보입력중" ? "정보 입력 중" : getRecipientStatus(recipient)}</em></span>
+                          <span className="recipient-address">{!recipient.address || recipient.address === "미등록" ? "주소 미등록" : recipient.address}</span>
                           <span className="primary-contact">
                             <strong>{hasPrimaryContact(recipient) ? `${recipient.representativeName}(${recipient.representativeRelation})` : "연락처 미등록"}</strong>
                             <small>{hasPrimaryContact(recipient) ? recipient.representativePhone : "상세 정보에서 등록해 주세요"}</small>
                           </span>
-                          <span className="assigned-worker">
-                            {getAssignedSocialWorkerNames(recipient.id).length > 0
-                              ? getAssignedSocialWorkerNames(recipient.id).join(", ")
-                              : "미배정"}
-                          </span>
+                          <div className="inline-assignment" onClick={(event) => event.stopPropagation()}>
+                            <select
+                              aria-label={`${recipient.name} 담당 사회복지사`}
+                              aria-busy={assigningRecipientIds.includes(recipient.id)}
+                              value={recipient.assignedBackofficeUserId ?? ""}
+                              disabled={assigningRecipientIds.includes(recipient.id)}
+                              onChange={(event) => void handleAssignedBackofficeUserUpdate(recipient, event.target.value)}
+                            >
+                              <option value="">미배정</option>
+                              {backofficeUsers.map((user) => (
+                                <option key={user.id} value={user.id}>{user.name}</option>
+                              ))}
+                            </select>
+                            {assigningRecipientIds.includes(recipient.id) && <small role="status">저장 중…</small>}
+                            {backofficeUsers.length === 0 && <small>담당자 정보가 등록되지 않았습니다.</small>}
+                            {assignmentErrors[recipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[recipient.id]}</small>}
+                          </div>
                         </>
                       ) : (
                         <>
-                          <span>{recipient.careGrade}</span>
-                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient)}</em></span>
+                          <span>{recipient.careGrade || "등급 미등록"}</span>
+                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient) === "정보입력중" ? "정보 입력 중" : getRecipientStatus(recipient)}</em></span>
                           <span>{recipient.representativeName}<small>{recipient.representativePhone}</small></span>
-                          <span className="expiry"><CalendarClock size={15} />{recipient.serviceEndDate}</span>
+                          <span className="expiry"><CalendarClock size={15} />{recipient.serviceEndDate || "기간 미등록"}</span>
                         </>
                       )}
                       {viewDensity === "simple" ? (
@@ -2066,29 +1720,21 @@ function App() {
                 <p>근로자의 계약 기간, 근무시간, 임금과 보험 정보를 기록하고 확인합니다.</p>
               </div>
               <div className="heading-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={downloadEmploymentContractCsvExample}
-                >
-                  <Download size={18} />
-                  CSV 예제
+                <button type="button" className="primary-button" onClick={() => setIsEmploymentGridOpen(true)}>
+                  <Plus size={18} /> 표로 여러 명 입력
                 </button>
-                <label className="secondary-button">
-                  <Upload size={18} />
-                  CSV 업로드
-                  <input
-                    className="sr-only"
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(event) => void handleEmploymentContractCsvUpload(event)}
-                  />
-                </label>
+
+
                 <button
                   type="button"
                   className="primary-button"
                   onClick={() => {
                     setSelectedEmploymentContractId(null);
+                    setIsEditingEmploymentContract(false);
+                    setEmploymentRenewalSource(null);
+                    setEmploymentFormState({ ...emptyEmploymentContractForm, terms: [createEmptyEmploymentTerm()] });
+                    setEmploymentFormErrorMessage(null);
+                    setIncludeWorkConditions(true);
                     setIsEmploymentCreatePanelOpen(true);
                   }}
                 >
@@ -2096,7 +1742,7 @@ function App() {
                   근로계약 등록
                 </button>
                 <div className="summary-card">
-                  <span>유효 계약</span>
+                  <span>{employmentCurrentYear}년 유효 계약</span>
                   <strong>{enabledEmploymentContractCount}건</strong>
                 </div>
               </div>
@@ -2127,13 +1773,17 @@ function App() {
                   <span>계약 시작일 최신순</span>
                 </div>
                 <div className="toolbar-controls">
+                  <select className="filter-select" aria-label="근로계약 등록 상태" value={employmentRegistrationFilter}
+                    onChange={(event) => { setEmploymentRegistrationFilter(event.target.value); if (event.target.value === "draft") setShowEnabledEmploymentOnly(false); }}>
+                    <option value="all">등록 상태 전체</option><option value="draft">정보 입력 중</option><option value="complete">등록 완료</option>
+                  </select>
                   <label className="valid-toggle">
                     <input
                       type="checkbox"
                       checked={showEnabledEmploymentOnly}
                       onChange={(event) => setShowEnabledEmploymentOnly(event.target.checked)}
                     />
-                    <span>유효함</span>
+                    <span>올해 유효 계약만</span>
                   </label>
                   <label className="search-box">
                     <Search size={18} />
@@ -2163,38 +1813,38 @@ function App() {
                     <span>근로자</span>
                     <span>주민번호</span>
                     <span>전화번호</span>
-                    <span>계약 조건</span>
+                    <span>계약 기간 · 유효 상태</span>
                     <span>대표 금액</span>
                     <span aria-hidden="true" />
                   </div>
                   <ul>
-                    {filteredEmploymentContracts.map((contract) => (
-                      <li key={contract.id}>
-                        <button
-                          type="button"
-                          className={`recipient-row ${contract.enabled ? "" : "is-disabled"}`}
-                          onClick={() => setSelectedEmploymentContractId(contract.id)}
-                        >
-                          <span className="recipient-name">
-                            <strong>{contract.workerName}</strong>
-                            <small>
-                              {contract.workerPhone ?? "연락처 미등록"}
-                              {!contract.enabled && <em className="status-chip">비활성화</em>}
-                            </small>
-                          </span>
-                          <span>{contract.residentRegistrationNumber}</span>
-                          <span>{contract.workerPhone ?? "미등록"}</span>
-                          <span>
-                            {contract.contractTerms.length || 1}개
-                            <small>{formatContractTerms(contract).split("\n")[0]}</small>
-                          </span>
-                          <span className="expiry">
-                            {formatCurrency(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount)}
-                          </span>
-                          <ChevronRight size={18} />
-                        </button>
+                    {employmentWorkerGroups.map((contracts) => {
+                      const contract = contracts[0];
+                      const workerKey = getWorkerKey(contract);
+                      const expanded = expandedEmploymentWorkerIds.has(workerKey);
+                      return (
+                      <li key={workerKey} className={`employment-worker-group ${expanded ? "is-expanded" : ""}`}>
+                        {renderEmploymentContractRow(contract, true)}
+                        {contracts.length > 1 && (
+                          <div className="employment-list-history">
+                            <button type="button" className="secondary-button"
+                              aria-expanded={expanded} aria-controls={`employment-history-${contract.id}`}
+                              onClick={() => setExpandedEmploymentWorkerIds((previous) => {
+                                const next = new Set(previous);
+                                if (next.has(workerKey)) next.delete(workerKey); else next.add(workerKey);
+                                return next;
+                              })}>
+                              계약 {contracts.length}건 · {expanded ? "이전 계약 접기" : "이전 계약 펼치기"}
+                            </button>
+                            <div id={`employment-history-${contract.id}`} hidden={!expanded}>
+                              {contracts.slice(1).map((history) => (
+                                <div key={history.id}>{renderEmploymentContractRow(history, false)}</div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </li>
-                    ))}
+                    ); })}
                   </ul>
                 </div>
               )}
@@ -2202,6 +1852,23 @@ function App() {
           </>
         )}
       </main>
+
+      {isEmploymentGridOpen && <BasicEntryGrid mode="employment" existingContracts={employmentContracts}
+        onClose={() => setIsEmploymentGridOpen(false)} onContractsSaved={(saved) => {
+          setEmploymentContracts((current) => [...current.filter((contract) => !saved.some((item) => item.id === contract.id)), ...saved]);
+          setIsEmploymentGridOpen(false); setActiveView("employmentContracts"); setEmploymentSearchQuery("");
+          setShowEnabledEmploymentOnly(false); setEmploymentRegistrationFilter("draft");
+          showNotification(`${saved.length}건의 기본 정보를 저장했습니다. 이름을 눌러 상세 정보를 보완해 주세요.`);
+        }} />}
+
+      {isRecipientGridOpen && <BasicEntryGrid existing={recipients}
+        onClose={() => setIsRecipientGridOpen(false)} onSaved={(saved) => {
+          setRecipients((current) => [...current.filter((recipient) => !saved.some((item) => item.id === recipient.id)), ...saved]);
+          setIsRecipientGridOpen(false);
+          setActiveView("recipients"); setSelectedStatus("정보입력중"); setShowEnabledOnly(true);
+          setSearchQuery(""); setSelectedAssignedUserId("all");
+          showNotification(`${saved.length}명의 기본 정보를 저장했습니다. 이름을 눌러 상세 정보를 보완해 주세요.`);
+        }} />}
 
       {selectedRecipient && (
         <div className="detail-backdrop" role="presentation">
@@ -2227,13 +1894,15 @@ function App() {
                   onClick={() => openRecipientEditPanel(selectedRecipient)}
                 >
                   <Pencil size={17} />
-                  전체 정보 수정
+                  {selectedRecipient.isDraft ? "상세 정보 입력" : "전체 정보 수정"}
                 </button>
                 {isRecipientEnabled(selectedRecipient) ? (
                   <>
                     <button
                       type="button"
                       className="warning-button"
+                      disabled={Boolean(selectedRecipient.isDraft)}
+                      title={selectedRecipient.isDraft ? "상세 정보 등록 후 이용할 수 있습니다." : undefined}
                       onClick={() => openTerminateDialog(selectedRecipient)}
                     >
                       <FileX2 size={17} />
@@ -2273,11 +1942,11 @@ function App() {
             </div>
 
             <div className="recipient-hero">
-              <span>{selectedRecipient.longTermCareNumber}</span>
+              <span>{selectedRecipient.isDraft ? "정보 입력 중 · 상세 정보를 보완해 주세요" : selectedRecipient.longTermCareNumber}</span>
               <h2>{selectedRecipient.name}</h2>
               <p>
-                {selectedRecipient.careGrade} · 대표 연락자{" "}
-                {selectedRecipient.representativeName}
+                {selectedRecipient.careGrade || "등급 미등록"} · 대표 연락자{" "}
+                {selectedRecipient.representativeName || "미등록"}
                 {!isRecipientEnabled(selectedRecipient) && (
                   <strong className="inactive-inline">비활성화된 수급자</strong>
                 )}
@@ -2308,16 +1977,20 @@ function App() {
                 <span>담당 사회복지사</span>
                 <select
                   value={selectedRecipient.assignedBackofficeUserId ?? ""}
-                  onChange={(event) => void handleAssignedBackofficeUserUpdate(event.target.value)}
-                  disabled={isSaving}
+                  onChange={(event) => void handleAssignedBackofficeUserUpdate(selectedRecipient, event.target.value)}
+                  disabled={isSaving || assigningRecipientIds.includes(selectedRecipient.id)}
                 >
                   <option value="">미배정</option>
                   {backofficeUsers.map((user) => (
-                    <option key={user.id} value={user.id}>{user.name} · {user.birthDate}</option>
+                    <option key={user.id} value={user.id}>{user.name}</option>
                   ))}
                 </select>
               </label>
+              {assigningRecipientIds.includes(selectedRecipient.id) && <small role="status">저장 중…</small>}
+              {assignmentErrors[selectedRecipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[selectedRecipient.id]}</small>}
             </div>
+
+            <RecipientDocuments key={selectedRecipient.id} recipientId={selectedRecipient.id} recipientName={selectedRecipient.name} />
 
             <div className="detail-sections">
               {detailSections.map((section) => (
@@ -2327,7 +2000,7 @@ function App() {
                     {section.fields.map((field) => (
                       <div key={field.label}>
                         <dt>{field.label}</dt>
-                        <dd>{field.value(selectedRecipient) ?? "미등록"}</dd>
+                        <dd>{field.value(selectedRecipient) || "미등록"}</dd>
                       </div>
                     ))}
                   </dl>
@@ -2342,7 +2015,7 @@ function App() {
         <div className="detail-backdrop" role="presentation">
           <article
             className={`detail-panel ${
-              selectedEmploymentContract.enabled ? "" : "is-disabled-detail"
+              getEmploymentContractStatus(selectedEmploymentContract, employmentCurrentYear).valid ? "" : "is-disabled-detail"
             }`}
             aria-label={`${selectedEmploymentContract.workerName} 근로계약 상세 정보`}
           >
@@ -2356,6 +2029,18 @@ function App() {
                 목록으로
               </button>
               <div className="detail-actions">
+                <button type="button" className="secondary-button"
+                  onClick={() => openEmploymentRenewalPanel(selectedEmploymentContract, true)}>
+                  <Pencil size={17} />
+                  {selectedEmploymentContract.isDraft ? "상세 정보 입력" : "계약 수정"}
+                </button>
+                <button type="button" className="primary-button"
+                  disabled={Boolean(selectedEmploymentContract.isDraft)}
+                  title={selectedEmploymentContract.isDraft ? "상세 정보 등록 후 갱신할 수 있습니다." : undefined}
+                  onClick={() => openEmploymentRenewalPanel(selectedEmploymentContract)}>
+                  <Plus size={17} />
+                  추가/갱신계약
+                </button>
                 {selectedEmploymentContract.enabled && (
                   <button
                     type="button"
@@ -2381,26 +2066,39 @@ function App() {
             </div>
 
             <div className="recipient-hero employment-hero">
-              <span>계약 조건 {selectedEmploymentContract.contractTerms.length || 1}개</span>
+              <span>{selectedEmploymentContract.isDraft ? "정보 입력 중 · 상세 정보를 보완해 주세요" : `계약 조건 ${selectedEmploymentContract.contractTerms.length || 1}개`}</span>
               <h2>{selectedEmploymentContract.workerName}</h2>
               <p>
-                {getEmploymentBirthDate(selectedEmploymentContract)} ·{" "}
+                {getEmploymentBirthDate(selectedEmploymentContract) || "생년월일 미등록"} ·{" "}
                 {formatEmploymentAge(selectedEmploymentContract) ?? "나이 미계산"} ·{" "}
                 {selectedEmploymentContract.workerPhone ?? "전화번호 미등록"}
-                {!selectedEmploymentContract.enabled && (
-                  <strong className="inactive-inline">비활성화된 계약</strong>
-                )}
+                <strong className="inactive-inline">{getEmploymentContractStatus(selectedEmploymentContract, employmentCurrentYear).label}</strong>
               </p>
               <div>
                 <small>대표 금액</small>
                 <strong>
-                  {formatCurrency(
-                    selectedEmploymentContract.contractTerms[0]?.wageAmount ??
-                      selectedEmploymentContract.wageAmount
-                  )}
+                  {selectedEmploymentContract.isDraft && !(selectedEmploymentContract.contractTerms[0]?.wageAmount ?? selectedEmploymentContract.wageAmount)
+                    ? "약정 미입력" : formatCurrency(selectedEmploymentContract.contractTerms[0]?.wageAmount ?? selectedEmploymentContract.wageAmount)}
                 </strong>
               </div>
             </div>
+
+            <section className="employment-history" aria-label="근로자 계약 이력">
+              <h3>계약 이력 ({selectedWorkerHistory.length}건)</h3>
+              {selectedWorkerHistory.map((history, index) => (
+                <button type="button" className="employment-history-item" key={history.id}
+                  aria-pressed={history.id === selectedEmploymentContract.id}
+                  onClick={() => setSelectedEmploymentContractId(history.id)}>
+                  <span>{formatEmploymentPeriod(history)}</span>
+                  <span>{index === 0 ? "최신 계약" : "이전 계약"} · {getEmploymentContractStatus(history, employmentCurrentYear).label}</span>
+                  <span>{history.id === selectedEmploymentContract.id ? "선택됨" : "상세 보기"}</span>
+                </button>
+              ))}
+            </section>
+
+            <EmploymentConditionsDetails contract={selectedEmploymentContract} recipients={recipients} />
+
+            <EmploymentContractAttachments key={selectedEmploymentContract.id} />
 
             <div className="detail-sections">
               {employmentContractDetailSections.map((section) => (
@@ -2410,7 +2108,7 @@ function App() {
                     {section.fields.map((field) => (
                       <div key={field.label}>
                         <dt>{field.label}</dt>
-                        <dd>{field.value(selectedEmploymentContract) ?? "미등록"}</dd>
+                        <dd>{field.value(selectedEmploymentContract) || "미등록"}</dd>
                       </div>
                     ))}
                   </dl>
@@ -2440,6 +2138,10 @@ function App() {
                 <span className="eyebrow">{editingRecipientId ? "Edit recipient" : "New recipient"}</span>
                 <h2>{editingRecipientId ? "수급자 정보 수정" : "수급자 등록"}</h2>
               </div>
+
+              {recipients.find((recipient) => recipient.id === editingRecipientId)?.isDraft && (
+                <p className="condition-review">정보 입력 중인 수급자입니다. 입력한 내용 임시 저장으로 나누어 저장할 수 있으며, 필수 정보를 채운 뒤 상세 정보 등록 완료를 눌러 주세요.</p>
+              )}
 
               {formErrorMessage && (
                 <div className="form-error" role="alert">
@@ -2495,6 +2197,7 @@ function App() {
                       onChange={(event) => updateFormField("careGrade", event.target.value)}
                       required
                     >
+                      <option value="">등급 선택 / 미등록</option>
                       <option>1등급</option>
                       <option>2등급</option>
                       <option>3등급</option>
@@ -2615,9 +2318,13 @@ function App() {
                 <button type="button" className="secondary-button" onClick={closeCreatePanel}>
                   취소
                 </button>
+                {(!editingRecipientId || recipients.find((recipient) => recipient.id === editingRecipientId)?.isDraft) && (
+                  <button type="button" className="secondary-button" disabled={isSaving}
+                    onClick={() => void handleCreateRecipient(undefined, true)}><Save size={16} /> 입력한 내용 임시 저장</button>
+                )}
                 <button type="submit" className="primary-button" disabled={isSaving}>
                   <Save size={18} />
-                  {isSaving ? "저장 중" : editingRecipientId ? "수정 저장" : "저장"}
+                  {isSaving ? "저장 중" : recipients.find((recipient) => recipient.id === editingRecipientId)?.isDraft ? "상세 정보 등록 완료" : editingRecipientId ? "수정 저장" : "저장"}
                 </button>
               </div>
             </form>
@@ -2627,7 +2334,7 @@ function App() {
 
       {isEmploymentCreatePanelOpen && (
         <div className="detail-backdrop" role="presentation">
-          <article className="detail-panel" aria-label="근로계약 등록">
+          <article className="detail-panel" aria-label={isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}>
             <div className="detail-header">
               <button type="button" className="back-button" onClick={closeEmploymentCreatePanel}>
                 <ArrowLeft size={17} />
@@ -2641,9 +2348,16 @@ function App() {
 
             <form className="recipient-form" onSubmit={handleCreateEmploymentContract}>
               <div className="form-heading">
-                <span className="eyebrow">New employment contract</span>
-                <h2>근로계약 등록</h2>
+                <span className="eyebrow">{isEditingEmploymentContract ? "Edit employment contract" : employmentRenewalSource ? "Renew employment contract" : "New employment contract"}</span>
+                <h2>{isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}</h2>
               </div>
+
+              {employmentRenewalSource?.isDraft && <p className="condition-review">정보 입력 중인 계약입니다. 임시 저장으로 나누어 보완하고, 필수 정보와 근무 조건을 채운 뒤 상세 정보 등록 완료를 눌러 주세요.</p>}
+
+              {employmentRenewalSource && (
+                <p>{employmentRenewalSource.workerName}님의 {formatEmploymentPeriod(employmentRenewalSource)} 계약 정보를 불러왔습니다.
+                  {isEditingEmploymentContract ? employmentRenewalSource.isDraft ? "아는 만큼 입력한 뒤 임시 저장할 수 있습니다." : "내용을 수정한 뒤 저장하세요." : "내용을 확인하고 새 계약 기간을 입력하세요."}</p>
+              )}
 
               {employmentFormErrorMessage && (
                 <div className="form-error" role="alert">
@@ -2739,104 +2453,30 @@ function App() {
                 </div>
               </section>
 
-              <section className="form-section" aria-labelledby="terms-form-title">
-                <div className="section-title-row">
-                  <h3 id="terms-form-title">계약 정보</h3>
-                  <button type="button" className="secondary-button" onClick={addEmploymentTerm}>
-                    <Plus size={16} />
-                    계약 추가
-                  </button>
+              <section className="form-section" aria-labelledby="employment-period-title">
+                <h3 id="employment-period-title">계약 기간</h3>
+                <div className="form-grid">
+                  <label><span>계약 시작일</span>
+                    <input type="date" {...dateInputLimits} required value={employmentFormState.contractStartDate}
+                      onChange={(event) => updateEmploymentFormField("contractStartDate", limitDateYear(event.target.value))} />
+                  </label>
+                  <label><span>계약 종료일</span>
+                    <input type="date" {...dateInputLimits} min={employmentFormState.contractStartDate || dateInputLimits.min}
+                      required value={employmentFormState.contractEndDate}
+                      onChange={(event) => updateEmploymentFormField("contractEndDate", limitDateYear(event.target.value))} />
+                  </label>
                 </div>
-                <div className="contract-term-list">
-                  {employmentFormState.terms.map((term, index) => (
-                    <div className="contract-term-row" key={term.id}>
-                      <strong>{index + 1}</strong>
-                      <label>
-                        <span>월급/시급</span>
-                        <select
-                          value={term.wageType}
-                          onChange={(event) =>
-                            updateEmploymentTermField(
-                              term.id,
-                              "wageType",
-                              event.target.value as "월급" | "시급"
-                            )
-                          }
-                        >
-                          <option>월급</option>
-                          <option>시급</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>금액</span>
-                        <input
-                          type="number"
-                          min="1"
-                          value={term.wageAmount}
-                          onChange={(event) =>
-                            updateEmploymentTermField(term.id, "wageAmount", event.target.value)
-                          }
-                          required
-                        />
-                      </label>
-                      <label>
-                        <span>비과세식대</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={term.nonTaxableMealAllowance}
-                          onChange={(event) =>
-                            updateEmploymentTermField(
-                              term.id,
-                              "nonTaxableMealAllowance",
-                              event.target.value
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        <span>비과세차량</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={term.nonTaxableVehicleAllowance}
-                          onChange={(event) =>
-                            updateEmploymentTermField(
-                              term.id,
-                              "nonTaxableVehicleAllowance",
-                              event.target.value
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        <span>기타비과세</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={term.otherNonTaxablePay}
-                          onChange={(event) =>
-                            updateEmploymentTermField(
-                              term.id,
-                              "otherNonTaxablePay",
-                              event.target.value
-                            )
-                          }
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        onClick={() => removeEmploymentTerm(term.id)}
-                        disabled={employmentFormState.terms.length === 1}
-                      >
-                        <Trash2 size={16} />
-                        <span className="sr-only">계약 삭제</span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                {employmentFormState.contractStartDate && employmentFormState.contractEndDate &&
+                  <p>{formatEmploymentPeriod(employmentFormState)}</p>}
               </section>
+
+              <EmploymentConditionsEditor detailed={includeWorkConditions} onEnable={() => setIncludeWorkConditions(true)}
+                terms={employmentFormState.terms} recipients={recipients}
+                startDate={employmentFormState.contractStartDate} endDate={employmentFormState.contractEndDate}
+                monthlyTravelAllowance={employmentFormState.monthlyTravelAllowance}
+                onTravelChange={(value) => updateEmploymentFormField("monthlyTravelAllowance", value)}
+                onAdd={addEmploymentTerm} onRemove={removeEmploymentTerm}
+                onTermChange={updateEmploymentTermField} onConditionChange={updateEmploymentCondition} />
 
               <div className="form-actions">
                 <button
@@ -2846,62 +2486,17 @@ function App() {
                 >
                   취소
                 </button>
+                {(!isEditingEmploymentContract || employmentRenewalSource?.isDraft) && (
+                  <button type="button" className="secondary-button" disabled={isEmploymentSaving}
+                    onClick={() => void handleCreateEmploymentContract(undefined, true)}><Save size={16} /> 입력한 내용 임시 저장</button>
+                )}
                 <button type="submit" className="primary-button" disabled={isEmploymentSaving}>
                   <Save size={18} />
-                  {isEmploymentSaving ? "저장 중" : "저장"}
+                  {isEmploymentSaving ? "저장 중" : employmentRenewalSource?.isDraft ? "상세 정보 등록 완료" : "저장"}
                 </button>
               </div>
             </form>
           </article>
-        </div>
-      )}
-
-      {isBackofficeUserModalOpen && (
-        <div className="alert-backdrop" role="presentation">
-          <section className="alert-dialog backoffice-user-dialog" role="dialog" aria-modal="true" aria-labelledby="backoffice-user-title">
-            <div className="dialog-heading">
-              <div>
-                <h2 id="backoffice-user-title">백오피스 사용자</h2>
-                <p>이 기기에서 사용할 사용자를 선택하세요.</p>
-              </div>
-              <button type="button" className="icon-button" onClick={() => setIsBackofficeUserModalOpen(false)} aria-label="닫기">
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="backoffice-user-list">
-              {backofficeUsers.length === 0 && <p className="empty-user-message">등록된 사용자가 없습니다.</p>}
-              {backofficeUsers.map((user) => {
-                const sessions = backofficeSessions.filter((session) => session.userId === user.id);
-                return (
-                  <button key={user.id} type="button" className={user.id === activeBackofficeUserId ? "is-active" : ""} onClick={() => void handleActivateBackofficeUser(user)} disabled={isBackofficeUserSaving}>
-                    <span><strong>{user.name}</strong><small>{user.birthDate}</small></span>
-                    <span className="user-presence">
-                      {sessions.map((session) => (
-                        <small key={session.deviceId}><i />{session.deviceId === deviceId ? "이 기기" : session.deviceName}</small>
-                      ))}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {!isBackofficeUserFormOpen ? (
-              <button type="button" className="secondary-button" onClick={() => setIsBackofficeUserFormOpen(true)}>
-                <UserPlus size={17} /> 신규 근로자 생성
-              </button>
-            ) : (
-              <form className="backoffice-user-create-form" onSubmit={handleCreateBackofficeUser}>
-                <label><span>이름</span><input value={newBackofficeUserName} onChange={(event) => setNewBackofficeUserName(event.target.value)} required /></label>
-                <label><span>생년월일</span><input type="date" {...dateInputLimits} value={newBackofficeUserBirthDate} onChange={(event) => setNewBackofficeUserBirthDate(limitDateYear(event.target.value))} required /></label>
-                <div className="alert-actions">
-                  <button type="button" className="secondary-button" onClick={() => setIsBackofficeUserFormOpen(false)}>취소</button>
-                  <button type="submit" className="primary-button" disabled={isBackofficeUserSaving}>{isBackofficeUserSaving ? "생성 중" : "확인"}</button>
-                </div>
-              </form>
-            )}
-            {backofficeUserError && <div className="form-error" role="alert"><AlertTriangle size={18} />{backofficeUserError}</div>}
-          </section>
         </div>
       )}
 

@@ -1,0 +1,36 @@
+.recognition-preview { margin: 24px 0; padding: 20px; border: 1px solid #d7d0e5; border-radius: 12px; background: #faf9fc; color: #383442; }
+.recognition-preview header, .recognition-preview-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.recognition-preview h3 { margin: 8px 0 0; font-size: 18px; }
+.recognition-preview h4 { margin: 0; }
+.recognition-preview-badge { padding: 4px 8px; border-radius: 5px; background: #ebe5f5; color: #655080; font-size: 12px; font-weight: 700; }
+.recognition-preview-note, .recognition-preview small { color: #756f80; font-size: 12px; line-height: 1.6; }
+.recognition-preview button, .recognition-preview select { padding: 8px 10px; border: 1px solid #d7d0e5; border-radius: 6px; background: white; color: #58466d; font: inherit; font-size: 13px; }
+.recognition-preview button { cursor: pointer; }
+.recognition-preview button:disabled { opacity: .5; cursor: default; }
+.recognition-preview-comparison { display: flex; align-items: center; gap: 12px; margin: 20px 0 24px; flex-wrap: wrap; }
+.recognition-preview-comparison > div { display: grid; gap: 6px; flex: 1; min-width: 100px; padding: 16px; border: 1px solid #e2ddea; border-radius: 8px; background: white; }
+.recognition-preview-comparison strong { font-size: 26px; }
+.recognition-preview-comparison span { font-size: 13px; color: #756f80; }
+.recognition-preview-comparison .recognition-preview-current { border-color: #9882b6; background: #f0eaf8; }
+.recognition-preview-history { margin-top: 10px; padding: 14px; border: 1px solid #e2ddea; border-radius: 8px; background: white; }
+.recognition-preview-history summary { cursor: pointer; line-height: 1.8; }
+.recognition-preview-history summary span, .recognition-preview-history summary small { margin-left: 12px; font-size: 12px; }
+.recognition-preview-history ul { padding-left: 20px; }
+.recognition-preview-history li { margin: 8px 0; font-size: 13px; }
+.recognition-preview-history li small { display: block; }
+.recognition-preview-add { margin-top: 12px; padding: 14px; background: #f0eaf8; border-radius: 8px; font-size: 13px; }
+
+.recognition-preview-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.recognition-preview-dates label { display: grid; gap: 6px; }
+.recognition-preview-dates input { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px; border: 1px solid #d7d0e5; border-radius: 6px; background: white; color: #383442; font: inherit; }
+.recognition-preview-add [role="alert"] { color: #8a2d2d; }
+@media (max-width: 480px) { .recognition-preview-dates { grid-template-columns: 1fr; } }
+.recognition-attachments { margin-top: 12px; padding-top: 14px; border-top: 1px solid #d7d0e5; min-width: 0; }
+.recognition-attachment-controls { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.recognition-attachment-controls label, .recognition-reason { display: grid; gap: 6px; font-size: 13px; min-width: 0; }
+.recognition-attachment-controls input { width: 100%; min-width: 0; max-width: 280px; font: inherit; }
+.recognition-reason { margin-bottom: 14px; }
+.recognition-attachment-list { padding: 0; list-style: none; }
+.recognition-attachment-list li { padding: 12px 0; border-top: 1px solid #e2ddea; font-size: 13px; }
+.recognition-attachment-file { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.recognition-attachment-file a { color: #58466d; overflow-wrap: anywhere; }

@@ -8,14 +8,15 @@
 
 ## Development Setup
 
-현재 MVP는 `learning-wiki` 레퍼런스와 같은 로컬 우선 구조를 사용한다.
+기본 실행은 Supabase Postgres와 Google 로그인 인증을 사용한다. SQLite는 명시적으로 선택하는 로컬 검증용 옵션이다.
 
 ```text
 Browser
   -> Vite dev server: http://127.0.0.1:5173
   -> /api proxy
   -> Node API server: http://127.0.0.1:5174
-  -> SQLite: data/miso-backoffice.sqlite
+  -> Google 로그인·허용 계정 검증
+  -> Supabase Postgres (SQLite는 api:sqlite로 선택)
 ```
 
 주요 기술은 다음과 같다.
@@ -54,7 +55,13 @@ DB 파일 경로는 다음 순서로 결정된다.
 2. 프로젝트 루트의 `miso-backoffice.local.json`
 3. 기본값 `data/miso-backoffice.sqlite`
 
-개인정보가 포함될 수 있으므로 실제 DB 파일과 개인별 설정 파일은 Git에 커밋하지 않는다. 로컬 SQLite 구조는 단일 사용자 MVP 검증을 위한 기반이며, 여러 사용자의 동시 접속이 필요해지면 인증과 서버형 데이터베이스 구조를 별도로 도입한다.
+개인정보가 포함될 수 있으므로 실제 DB 파일과 개인별 설정 파일은 Git에 커밋하지 않는다. SQLite 모드에서도 구글 로그인 인증을 요구한다.
+
+### Google 로그인 준비
+
+처음 유지보수하는 개발자를 위한 [구글 로그인 개발·운영 인수인계](docs/google-login-handover.md)에 구조, 코드 위치, 계정 관리, 점검 및 오류 해결 절차를 정리했다.
+
+실행 전에 [구글 로그인 설정 안내](docs/google-login.md)를 따라 Google OAuth, Supabase Google provider, 허용 이메일 목록을 설정한다. 기존 사용자 선택은 제거되었으며, 로그인 전에는 업무 화면과 API에 접근할 수 없다.
 
 ### Supabase 준비
 
@@ -67,16 +74,16 @@ npm run supabase:init
 npm run api
 ```
 
-Supabase 대시보드의 **Connect** 화면에서 연결 문자열을 복사해 `.env.local`의 `DATABASE_URL`에 넣는다. 비밀번호의 특수문자는 URL 인코딩하고 `sslmode=require` 또는 `PGSSLMODE=require`를 사용한다. `.env.local`은 Git에서 제외된다. 서버 실행 후 `GET /api/health`로 실제 연결 상태를 확인할 수 있다.
+Supabase 대시보드의 **Connect** 화면에서 연결 문자열을 복사해 `.env.local`의 `DATABASE_URL`에 넣는다. 비밀번호의 특수문자는 URL 인코딩하고 `sslmode=require` 또는 `PGSSLMODE=require`를 사용한다. `.env.local`은 Git에서 제외된다. `npm run supabase:check`로 연결 상태를 확인한다. `GET /api/health`도 로그인 토큰을 요구한다.
 
 ### Supabase + Vercel 배포
 
 1. Supabase 프로젝트를 만들고 로컬에서 `npm run supabase:init`을 실행하거나 SQL Editor에서 `server/postgres/schema.sql`을 실행한다.
 2. Supabase의 **Connect** 화면에서 배포 환경에 맞는 pooler 연결 문자열을 복사한다.
-3. Vercel에 저장소를 연결하고 환경 변수 `DATABASE_URL`, `PGSSLMODE=require`를 등록한다.
+3. Vercel에 저장소를 연결하고 환경 변수 `DATABASE_URL`, `PGSSLMODE=require`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `AUTH_ALLOWED_EMAILS`를 등록한다.
 4. Vercel에서 배포한다. `vercel.json`이 Vite 결과물(`dist`)과 `/api/*` 서버리스 함수를 함께 배포한다.
 
-브라우저에 Supabase service-role 키를 노출하지 않는다. 모든 데이터 요청은 같은 도메인의 `/api` 함수를 거쳐 Postgres에 연결된다. 실제 운영 전에 인증과 사용자별 접근 권한을 추가해야 한다.
+브라우저에 Supabase service-role 키를 노출하지 않는다. 모든 데이터 요청은 같은 도메인의 `/api` 함수를 거쳐 Postgres에 연결된다. 서버는 구글 로그인과 허용 이메일 목록을 검사한다. 실제 운영 전에 OAuth 설정, 허용·비허용 계정 접근 테스트 및 RLS 스키마 적용을 완료해야 한다.
 
 ## Product Definition
 

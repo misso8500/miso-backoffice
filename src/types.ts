@@ -1,4 +1,5 @@
 export type Recipient = {
+  isDraft?: boolean;
   id: string;
   name: string;
   operationalName?: string;
@@ -68,6 +69,7 @@ export type TerminateContractInput = {
 };
 
 export type EmploymentContract = {
+  isDraft?: boolean;
   id: string;
   workerName: string;
   workerBirthDate: string;
@@ -97,6 +99,7 @@ export type EmploymentContract = {
   insuranceStatus: string;
   insuranceSnapshots: EmploymentInsuranceSnapshot[];
   contractTerms: EmploymentContractTerm[];
+  workConditions?: EmploymentWorkConditions;
   memo?: string;
   enabled: boolean;
   createdAt: string;
@@ -110,6 +113,36 @@ export type EmploymentContractTerm = {
   nonTaxableMealAllowance: number;
   nonTaxableVehicleAllowance: number;
   otherNonTaxablePay: number;
+};
+
+export type EmploymentWorkCondition = {
+  termId: string;
+  recipientId: string;
+  serviceType: string;
+  familyCare: boolean;
+  matchingStatus: "pending" | "active" | "paused" | "ended";
+  statusDate: string;
+  effectiveStartDate: string;
+  effectiveEndDate: string;
+  workDays: string;
+  workStartTime: string;
+  workEndTime: string;
+  breakMinutes: number;
+  monthlyHourLimit: number;
+  vehicleSupportPerVisit: number;
+  changeReason: string;
+  documentStatus: "confirmed" | "needs_confirmation";
+};
+
+export type EmploymentWorkConditions = {
+  monthlyTravelAllowance: number;
+  conditions: EmploymentWorkCondition[];
+  history: {
+    changedAt: string;
+    monthlyTravelAllowance: number;
+    conditions: EmploymentWorkCondition[];
+    contractTerms: EmploymentContractTerm[];
+  }[];
 };
 
 export type EmploymentRecipientAssignment = {

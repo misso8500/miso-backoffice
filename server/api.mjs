@@ -1,3 +1,11 @@
+import { handleRecipientDocuments } from "./recipient-documents.mjs";
+import { DriveError } from "./drive.mjs";
+import { handleDriveRequest } from "./drive.mjs";
+import { prepareEmploymentBody, prepareEmploymentDraftRows, sameEmploymentDraft } from "./employment-drafts.mjs";
+import { prepareRecipientBody, prepareDraftRows, sameDraft, visibleCareNumber } from "./recipient-drafts.mjs";
+import { normalizeWorkConditions } from "./work-conditions.mjs";
+import { loadEnv } from "./load-env.mjs";
+import { AuthError, handleAuthRequest } from "./auth.mjs";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -7,6 +15,7 @@ import { DatabaseSync } from "node:sqlite";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, "..");
 const localConfigPath = join(rootDir, "miso-backoffice.local.json");
+loadEnv(rootDir);
 const port = Number(process.env.PORT ?? 5174);
 
 const sampleRecipients = [
@@ -306,6 +315,7 @@ const ensureRecipientColumn = (name, definition) => {
   }
 };
 
+ensureRecipientColumn("is_draft", "INTEGER NOT NULL DEFAULT 0");
 ensureRecipientColumn("service_type", "TEXT NOT NULL DEFAULT '방문'");
 ensureRecipientColumn("caregiver_requirements", "TEXT NOT NULL DEFAULT ''");
 ensureRecipientColumn("reduction_type", "TEXT NOT NULL DEFAULT '일반'");
@@ -320,6 +330,7 @@ const ensureEmploymentColumn = (name, definition) => {
   }
 };
 
+ensureEmploymentColumn("is_draft", "INTEGER NOT NULL DEFAULT 0");
 ensureEmploymentColumn("workplace_type", "TEXT NOT NULL DEFAULT 'office'");
 ensureEmploymentColumn("resident_registration_number", "TEXT NOT NULL DEFAULT ''");
 ensureEmploymentColumn("primary_bank", "TEXT NOT NULL DEFAULT ''");
@@ -335,7 +346,8 @@ const recipientFromRow = (row) => ({
   ...(row.operational_name ? { operationalName: row.operational_name } : {}),
   ...(row.assigned_backoffice_user_id ? { assignedBackofficeUserId: row.assigned_backoffice_user_id } : {}),
   birthDate: row.birth_date,
-  longTermCareNumber: row.long_term_care_number,
+  isDraft: row.is_draft === 1,
+  longTermCareNumber: visibleCareNumber(row.long_term_care_number),
   careGrade: row.care_grade,
   ...(row.phone ? { phone: row.phone } : {}),
   address: row.address,
@@ -399,6 +411,10 @@ const insuranceSnapshotsForContract = (contractId) =>
       ...(row.memo ? { memo: row.memo } : {})
     }));
 
+if (!db.prepare("PRAGMA table_info(employment_contracts)").all().some((column) => column.name === "work_conditions")) {
+  db.exec("ALTER TABLE employment_contracts ADD COLUMN work_conditions TEXT");
+}
+
 const contractTermsForContract = (contractId, row) => {
   const terms = db
     .prepare(
@@ -420,6 +436,8 @@ const contractTermsForContract = (contractId, row) => {
     }));
 
   if (terms.length > 0) {
+    const order = row.work_conditions ? JSON.parse(row.work_conditions).conditions.map((condition) => condition.termId) : [];
+    if (order.length) terms.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
     return terms;
   }
 
@@ -437,6 +455,7 @@ const contractTermsForContract = (contractId, row) => {
 
 const employmentContractFromRow = (row) => ({
   id: row.id,
+  isDraft: row.is_draft === 1,
   workerName: row.worker_name,
   workerBirthDate: row.worker_birth_date,
   residentRegistrationNumber: row.resident_registration_number,
@@ -464,6 +483,7 @@ const employmentContractFromRow = (row) => ({
   paymentDate: row.payment_date,
   insuranceStatus: row.insurance_status,
   insuranceSnapshots: insuranceSnapshotsForContract(row.id),
+  ...(row.work_conditions ? { workConditions: JSON.parse(row.work_conditions) } : {}),
   contractTerms: contractTermsForContract(row.id, row),
   ...(row.memo ? { memo: row.memo } : {}),
   enabled: row.enabled !== 0,
@@ -477,8 +497,8 @@ const insertRecipient = db.prepare(`
     representative_name, representative_relation, representative_phone,
     service_type, caregiver_requirements, reduction_type, related_people,
     service_start_date, service_end_date, contract_registered_date,
-    contract_expired_date, enabled, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    contract_expired_date, enabled, created_at, updated_at, is_draft
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertEmploymentContract = db.prepare(`
@@ -488,9 +508,43 @@ const insertEmploymentContract = db.prepare(`
     employment_type, workplace_type, workplace, contract_start_date, contract_end_date, work_days,
     work_start_time, work_end_time, break_minutes, wage_type, wage_amount,
     non_taxable_vehicle_allowance, non_taxable_meal_allowance, taxable_extra_pay,
-    allowance_memo, payment_date, insurance_status, memo, enabled, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    allowance_memo, payment_date, insurance_status, memo, enabled, created_at, updated_at, is_draft
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
+
+const insertEmploymentRecord = (contract) => insertEmploymentContract.run(
+          contract.id,
+          contract.workerName,
+          contract.workerBirthDate,
+          contract.residentRegistrationNumber,
+          contract.workerPhone,
+          contract.primaryBank,
+          contract.bankAccountNumber,
+          contract.workerAddress,
+          contract.jobTitle,
+          contract.employmentType,
+          contract.workplaceType,
+          contract.workplace,
+          contract.contractStartDate,
+          contract.contractEndDate,
+          contract.workDays,
+          contract.workStartTime,
+          contract.workEndTime,
+          contract.breakMinutes,
+          contract.wageType,
+          contract.wageAmount,
+          contract.nonTaxableVehicleAllowance,
+          contract.nonTaxableMealAllowance,
+          contract.taxableExtraPay,
+          contract.allowanceMemo,
+          contract.paymentDate,
+          contract.insuranceStatus,
+          contract.memo,
+          contract.enabled ? 1 : 0,
+          contract.createdAt,
+          contract.updatedAt,
+          contract.isDraft ? 1 : 0
+        );
 
 const insertEmploymentAssignment = db.prepare(`
   INSERT OR IGNORE INTO employment_contract_recipient_assignments (
@@ -587,7 +641,8 @@ if (db.prepare("SELECT COUNT(*) AS count FROM recipients").get().count === 0) {
       recipient.contractExpiredDate,
       recipient.enabled ? 1 : 0,
       recipient.createdAt,
-      recipient.updatedAt
+      recipient.updatedAt,
+      recipient.isDraft ? 1 : 0
     );
   }
 }
@@ -624,7 +679,8 @@ if (db.prepare("SELECT COUNT(*) AS count FROM employment_contracts").get().count
       contract.memo,
       contract.enabled ? 1 : 0,
       contract.createdAt,
-      contract.updatedAt
+      contract.updatedAt,
+      contract.isDraft ? 1 : 0
     );
     for (const recipientId of contract.recipientAssignments) {
       insertEmploymentAssignment.run(contract.id, recipientId, new Date().toISOString());
@@ -660,7 +716,7 @@ const sendJson = (response, statusCode, payload) => {
   response.writeHead(statusCode, {
     "Access-Control-Allow-Origin": "http://127.0.0.1:5173",
     "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization",
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store"
   });
@@ -740,38 +796,40 @@ const deriveBirthDateFromResidentNumber = (residentRegistrationNumber) => {
 };
 
 const normalizeRecipient = (body, existing = null) => {
+  body = prepareRecipientBody(body, existing);
   const now = new Date().toISOString();
   const recipient = {
+    isDraft: body.isDraft,
     id: assertString(body.id ?? existing?.id, "id"),
     name: assertString(body.name, "name"),
     operationalName: assertString(body.operationalName, "operationalName", { optional: true }),
     assignedBackofficeUserId: assertString(body.assignedBackofficeUserId, "assignedBackofficeUserId", { optional: true }),
-    birthDate: assertString(body.birthDate, "birthDate"),
+    birthDate: assertString(body.birthDate, "birthDate", { optional: body.isDraft }) ?? "",
     longTermCareNumber: assertString(body.longTermCareNumber, "longTermCareNumber"),
-    careGrade: assertString(body.careGrade, "careGrade"),
+    careGrade: assertString(body.careGrade, "careGrade", { optional: body.isDraft }) ?? "",
     phone: assertString(body.phone, "phone", { optional: true }),
-    address: assertString(body.address, "address"),
-    representativeName: assertString(body.representativeName, "representativeName"),
-    representativeRelation: assertString(body.representativeRelation, "representativeRelation"),
-    representativePhone: assertString(body.representativePhone, "representativePhone"),
+    address: assertString(body.address, "address", { optional: body.isDraft }) ?? "",
+    representativeName: assertString(body.representativeName, "representativeName", { optional: body.isDraft }) ?? "",
+    representativeRelation: assertString(body.representativeRelation, "representativeRelation", { optional: body.isDraft }) ?? "",
+    representativePhone: assertString(body.representativePhone, "representativePhone", { optional: body.isDraft }) ?? "",
     serviceType: assertString(body.serviceType ?? existing?.serviceType ?? "방문", "serviceType"),
     caregiverRequirements: assertString(body.caregiverRequirements ?? existing?.caregiverRequirements, "caregiverRequirements", { optional: true }) ?? "",
     reductionType: assertString(body.reductionType ?? existing?.reductionType ?? "일반", "reductionType"),
     relatedPeople: assertString(body.relatedPeople ?? existing?.relatedPeople, "relatedPeople", { optional: true }) ?? "",
-    serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate"),
-    serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate"),
-    contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate"),
-    contractExpiredDate: assertString(body.contractExpiredDate, "contractExpiredDate"),
+    serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate", { optional: body.isDraft }) ?? "",
+    serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate", { optional: body.isDraft }) ?? "",
+    contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate", { optional: body.isDraft }) ?? "",
+    contractExpiredDate: assertString(body.contractExpiredDate, "contractExpiredDate", { optional: body.isDraft }) ?? "",
     enabled: typeof body.enabled === "boolean" ? body.enabled : existing?.enabled ?? true,
     createdAt: existing?.createdAt ?? body.createdAt ?? now,
     updatedAt: now
   };
 
-  if (recipient.serviceStartDate > recipient.serviceEndDate) {
+  if (recipient.serviceStartDate && recipient.serviceEndDate && recipient.serviceStartDate > recipient.serviceEndDate) {
     throw new Error("serviceStartDate must not be later than serviceEndDate");
   }
 
-  if (recipient.contractRegisteredDate > recipient.contractExpiredDate) {
+  if (recipient.contractRegisteredDate && recipient.contractExpiredDate && recipient.contractRegisteredDate > recipient.contractExpiredDate) {
     throw new Error("contractRegisteredDate must not be later than contractExpiredDate");
   }
 
@@ -789,6 +847,10 @@ const assertNumber = (value, field, { min = 0 } = {}) => {
 };
 
 const normalizeEmploymentContract = (body, existing = null) => {
+  body = prepareEmploymentBody(body, existing);
+  if (existing && body.updatedAt && body.updatedAt !== existing.updatedAt) {
+    throw Object.assign(new Error("다른 사용자가 이 계약을 수정했습니다. 최신 계약을 다시 열어 수정해 주세요."), { status: 409 });
+  }
   const now = new Date().toISOString();
   const workplaceType = assertString(body.workplaceType ?? "office", "workplaceType");
 
@@ -839,7 +901,7 @@ const normalizeEmploymentContract = (body, existing = null) => {
             ? term.id.trim()
             : `employment-term-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         wageType: assertString(term.wageType, "contractTerm.wageType"),
-        wageAmount: assertNumber(term.wageAmount, "contractTerm.wageAmount", { min: 1 }),
+        wageAmount: assertNumber(term.wageAmount, "contractTerm.wageAmount", { min: body.isDraft ? 0 : 1 }),
         nonTaxableMealAllowance: assertNumber(
           term.nonTaxableMealAllowance ?? 0,
           "contractTerm.nonTaxableMealAllowance"
@@ -860,38 +922,39 @@ const normalizeEmploymentContract = (body, existing = null) => {
 
   const residentRegistrationNumber = assertString(
     body.residentRegistrationNumber,
-    "residentRegistrationNumber"
-  );
+    "residentRegistrationNumber", { optional: body.isDraft }
+  ) ?? "";
   const workerBirthDate =
     assertString(body.workerBirthDate, "workerBirthDate", { optional: true }) ??
     deriveBirthDateFromResidentNumber(residentRegistrationNumber);
 
-  if (!workerBirthDate) {
+  if (!workerBirthDate && (!body.isDraft || residentRegistrationNumber)) {
     throw new Error("residentRegistrationNumber is invalid");
   }
 
   const contract = {
     id: assertString(body.id ?? existing?.id, "id"),
     workerName: assertString(body.workerName, "workerName"),
-    workerBirthDate,
+    workerBirthDate: workerBirthDate ?? "",
+    isDraft: body.isDraft,
     residentRegistrationNumber,
     workerPhone: assertString(body.workerPhone, "workerPhone", { optional: true }),
-    primaryBank: assertString(body.primaryBank, "primaryBank"),
-    bankAccountNumber: assertString(body.bankAccountNumber, "bankAccountNumber"),
-    workerAddress: assertString(body.workerAddress, "workerAddress"),
-    jobTitle: assertString(body.jobTitle, "jobTitle"),
-    employmentType: assertString(body.employmentType, "employmentType"),
+    primaryBank: assertString(body.primaryBank, "primaryBank", { optional: body.isDraft }) ?? "",
+    bankAccountNumber: assertString(body.bankAccountNumber, "bankAccountNumber", { optional: body.isDraft }) ?? "",
+    workerAddress: assertString(body.workerAddress, "workerAddress", { optional: body.isDraft }) ?? "",
+    jobTitle: assertString(body.jobTitle, "jobTitle", { optional: body.isDraft }) ?? "",
+    employmentType: assertString(body.employmentType, "employmentType", { optional: body.isDraft }) ?? "",
     workplaceType,
-    workplace: assertString(body.workplace, "workplace"),
+    workplace: assertString(body.workplace, "workplace", { optional: body.isDraft }) ?? "",
     recipientAssignments,
-    contractStartDate: assertString(body.contractStartDate, "contractStartDate"),
+    contractStartDate: assertString(body.contractStartDate, "contractStartDate", { optional: body.isDraft }) ?? "",
     contractEndDate: assertString(body.contractEndDate, "contractEndDate", { optional: true }),
-    workDays: assertString(body.workDays, "workDays"),
-    workStartTime: assertString(body.workStartTime, "workStartTime"),
-    workEndTime: assertString(body.workEndTime, "workEndTime"),
+    workDays: assertString(body.workDays, "workDays", { optional: body.isDraft }) ?? "",
+    workStartTime: assertString(body.workStartTime, "workStartTime", { optional: body.isDraft }) ?? "",
+    workEndTime: assertString(body.workEndTime, "workEndTime", { optional: body.isDraft }) ?? "",
     breakMinutes: assertNumber(body.breakMinutes, "breakMinutes"),
     wageType: primaryTerm?.wageType ?? assertString(body.wageType, "wageType"),
-    wageAmount: primaryTerm?.wageAmount ?? assertNumber(body.wageAmount, "wageAmount", { min: 1 }),
+    wageAmount: primaryTerm?.wageAmount ?? assertNumber(body.wageAmount, "wageAmount", { min: body.isDraft ? 0 : 1 }),
     nonTaxableVehicleAllowance:
       primaryTerm?.nonTaxableVehicleAllowance ??
       assertNumber(body.nonTaxableVehicleAllowance ?? 0, "nonTaxableVehicleAllowance"),
@@ -901,8 +964,8 @@ const normalizeEmploymentContract = (body, existing = null) => {
     taxableExtraPay:
       primaryTerm?.otherNonTaxablePay ?? assertNumber(body.taxableExtraPay ?? 0, "taxableExtraPay"),
     allowanceMemo: assertString(body.allowanceMemo, "allowanceMemo", { optional: true }),
-    paymentDate: assertString(body.paymentDate, "paymentDate"),
-    insuranceStatus: assertString(body.insuranceStatus, "insuranceStatus"),
+    paymentDate: assertString(body.paymentDate, "paymentDate", { optional: body.isDraft }) ?? "",
+    insuranceStatus: assertString(body.insuranceStatus, "insuranceStatus", { optional: body.isDraft }) ?? "",
     insuranceSnapshots,
     contractTerms,
     memo: assertString(body.memo, "memo", { optional: true }),
@@ -911,15 +974,28 @@ const normalizeEmploymentContract = (body, existing = null) => {
     updatedAt: now
   };
 
-  if (contract.contractEndDate && contract.contractStartDate > contract.contractEndDate) {
+  contract.workConditions = normalizeWorkConditions(body.workConditions, contract, existing);
+  if (contract.workConditions) {
+    contract.recipientAssignments = [...new Set(contract.workConditions.conditions.map((condition) => condition.recipientId).filter(Boolean))];
+  }
+
+  const isValidContractDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  if ((!contract.isDraft && !isValidContractDate(contract.contractStartDate)) ||
+      (contract.contractEndDate && !isValidContractDate(contract.contractEndDate)) ||
+      (!contract.isDraft && (!existing || existing.isDraft) && !contract.contractEndDate)) {
+    throw new Error("계약 시작일과 종료일을 YYYY-MM-DD 형식으로 입력하세요.");
+  }
+
+  if (contract.contractStartDate && contract.contractEndDate && contract.contractStartDate > contract.contractEndDate) {
     throw new Error("contractStartDate must not be later than contractEndDate");
   }
 
-  if (contract.workStartTime >= contract.workEndTime) {
+  if ((!contract.isDraft || (contract.workStartTime && contract.workEndTime)) && contract.workStartTime >= contract.workEndTime) {
     throw new Error("workStartTime must be earlier than workEndTime");
   }
 
-  if (contract.workplaceType === "recipient_home" && contract.recipientAssignments.length === 0) {
+  if (!contract.isDraft && contract.workplaceType === "recipient_home" && contract.recipientAssignments.length === 0) {
     throw new Error("recipientAssignments is required when workplaceType is recipient_home");
   }
 
@@ -941,7 +1017,7 @@ const applyRecipientUpdate = (recipient) => {
       phone = ?, address = ?, representative_name = ?, representative_relation = ?,
       representative_phone = ?, service_start_date = ?, service_end_date = ?,
       service_type = ?, caregiver_requirements = ?, reduction_type = ?, related_people = ?,
-      contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?
+      contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?, is_draft = ?
     WHERE id = ?
   `).run(
     recipient.name,
@@ -965,6 +1041,7 @@ const applyRecipientUpdate = (recipient) => {
     recipient.contractExpiredDate,
     recipient.enabled ? 1 : 0,
     recipient.updatedAt,
+    recipient.isDraft ? 1 : 0,
     recipient.id
   );
 };
@@ -1016,6 +1093,8 @@ const applyEmploymentContractUpdate = (contract) => {
 };
 
 const replaceEmploymentContractChildren = (contract) => {
+  db.prepare("UPDATE employment_contracts SET is_draft = ? WHERE id = ?").run(contract.isDraft ? 1 : 0, contract.id);
+  db.prepare("UPDATE employment_contracts SET work_conditions = ? WHERE id = ?").run(contract.workConditions ? JSON.stringify(contract.workConditions) : null, contract.id);
   db.prepare("DELETE FROM employment_contract_recipient_assignments WHERE employment_contract_id = ?").run(
     contract.id
   );
@@ -1059,6 +1138,10 @@ const replaceEmploymentContractChildren = (contract) => {
   }
 };
 
+db.exec(`CREATE TABLE IF NOT EXISTS recipient_documents (
+  recipient_id TEXT PRIMARY KEY REFERENCES recipients(id), folder_id TEXT NOT NULL UNIQUE,
+  payload TEXT NOT NULL, version TEXT NOT NULL
+)`);
 const server = createServer(async (request, response) => {
   if (request.method === "OPTIONS") {
     sendJson(response, 204, {});
@@ -1066,6 +1149,19 @@ const server = createServer(async (request, response) => {
   }
 
   try {
+    const authentication = await handleAuthRequest(request, response, sendJson);
+    if (authentication.handled) return;
+    if (await handleDriveRequest(request, response, sendJson)) return;
+    if (await handleRecipientDocuments(request, response, sendJson, {
+      exists: id => Boolean(db.prepare('SELECT 1 FROM recipients WHERE id=?').get(id)),
+      get: id => { const row = db.prepare('SELECT payload FROM recipient_documents WHERE recipient_id=?').get(id); return row ? JSON.parse(row.payload) : null; },
+      save: (id, payload, version) => {
+        const result = version === null
+          ? db.prepare('INSERT INTO recipient_documents(recipient_id,folder_id,payload,version) VALUES(?,?,?,?) ON CONFLICT(recipient_id) DO NOTHING').run(id,payload.folderId,JSON.stringify(payload),payload.version)
+          : db.prepare('UPDATE recipient_documents SET folder_id=?,payload=?,version=? WHERE recipient_id=? AND version=?').run(payload.folderId,JSON.stringify(payload),payload.version,id,version);
+        if (!result.changes) throw new DriveError(409, '다른 사용자가 변경했습니다. 다시 불러와 주세요.');
+      }
+    })) return;
     const parts = parsePath(request.url ?? "/");
 
     if (parts[0] === "api" && parts[1] === "backoffice-users") {
@@ -1085,35 +1181,8 @@ const server = createServer(async (request, response) => {
         return;
       }
 
-      if (!parts[2] && request.method === "POST") {
-        const body = await readBody(request);
-        const user = {
-          id: assertString(body.id, "id"),
-          name: assertString(body.name, "name"),
-          birthDate: assertString(body.birthDate, "birthDate"),
-          createdAt: new Date().toISOString()
-        };
-        db.prepare("INSERT INTO backoffice_users (id, name, birth_date, created_at) VALUES (?, ?, ?, ?)")
-          .run(user.id, user.name, user.birthDate, user.createdAt);
-        sendJson(response, 201, user);
-        return;
-      }
-
-      if (parts[2] === "sessions" && parts[3] && request.method === "PUT") {
-        const body = await readBody(request);
-        const userId = assertString(body.userId, "userId");
-        const deviceName = assertString(body.deviceName, "deviceName");
-        if (!db.prepare("SELECT id FROM backoffice_users WHERE id = ?").get(userId)) {
-          sendJson(response, 404, { error: "Backoffice user not found" });
-          return;
-        }
-        db.prepare(`
-          INSERT INTO backoffice_sessions (device_id, device_name, user_id, last_seen_at)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(device_id) DO UPDATE SET device_name = excluded.device_name,
-            user_id = excluded.user_id, last_seen_at = excluded.last_seen_at
-        `).run(parts[3], deviceName, userId, new Date().toISOString());
-        sendJson(response, 200, readState());
+      if (request.method !== "GET") {
+        sendJson(response, 405, { error: "사용자 선택 기능은 구글 로그인으로 변경되었습니다." });
         return;
       }
 
@@ -1123,6 +1192,55 @@ const server = createServer(async (request, response) => {
 
     if (parts[0] !== "api" || !["recipients", "employment-contracts"].includes(parts[1])) {
       sendJson(response, 404, { error: "Not found" });
+      return;
+    }
+
+    if (parts[1] === "recipients" && parts[2] === "bulk-drafts" && request.method === "POST") {
+      const rows = prepareDraftRows(await readBody(request)).map((row) => normalizeRecipient(row));
+      const saved = [];
+      db.exec("BEGIN");
+      try {
+        for (const [index, recipient] of rows.entries()) {
+          const existing = readRecipient(recipient.id);
+          if (existing) {
+            if (!sameDraft(existing, recipient)) throw Object.assign(new Error(`${index + 1}행: 이미 저장된 행과 내용이 다릅니다. 목록을 확인해 주세요.`), { status: 409 });
+            saved.push(existing);
+          } else {
+            insertRecipient.run(recipient.id, recipient.name, recipient.operationalName, recipient.assignedBackofficeUserId,
+              recipient.birthDate, recipient.longTermCareNumber, recipient.careGrade, recipient.phone, recipient.address,
+              recipient.representativeName, recipient.representativeRelation, recipient.representativePhone,
+              recipient.serviceType, recipient.caregiverRequirements, recipient.reductionType, recipient.relatedPeople,
+              recipient.serviceStartDate, recipient.serviceEndDate, recipient.contractRegisteredDate, recipient.contractExpiredDate,
+              recipient.enabled ? 1 : 0, recipient.createdAt, recipient.updatedAt, 1);
+            saved.push(readRecipient(recipient.id));
+          }
+        }
+        db.exec("COMMIT");
+      } catch (error) { db.exec("ROLLBACK"); throw error; }
+      sendJson(response, 200, { recipients: saved });
+      return;
+    }
+
+    if (parts[1] === "employment-contracts" && parts[2] === "bulk-drafts" && request.method === "POST") {
+      const contracts = prepareEmploymentDraftRows(await readBody(request)).map((body) => normalizeEmploymentContract(body));
+      const saved = [];
+      db.exec("BEGIN");
+      try {
+        for (const [index, contract] of contracts.entries()) {
+          const row = db.prepare("SELECT * FROM employment_contracts WHERE id = ?").get(contract.id);
+          if (row) {
+            const existing = employmentContractFromRow(row);
+            if (!sameEmploymentDraft(existing, contract)) throw Object.assign(new Error(`${index + 1}행: 이미 저장된 계약과 내용이 다릅니다. 목록을 확인해 주세요.`), { status: 409 });
+            saved.push(existing);
+          } else {
+            insertEmploymentRecord(contract);
+            replaceEmploymentContractChildren(contract);
+            saved.push(employmentContractFromRow(db.prepare("SELECT * FROM employment_contracts WHERE id = ?").get(contract.id)));
+          }
+        }
+        db.exec("COMMIT");
+      } catch (error) { db.exec("ROLLBACK"); throw error; }
+      sendJson(response, 200, { contracts: saved });
       return;
     }
 
@@ -1149,39 +1267,13 @@ const server = createServer(async (request, response) => {
 
       if (!parts[2] && request.method === "POST") {
         const contract = normalizeEmploymentContract(await readBody(request));
-        insertEmploymentContract.run(
-          contract.id,
-          contract.workerName,
-          contract.workerBirthDate,
-          contract.residentRegistrationNumber,
-          contract.workerPhone,
-          contract.primaryBank,
-          contract.bankAccountNumber,
-          contract.workerAddress,
-          contract.jobTitle,
-          contract.employmentType,
-          contract.workplaceType,
-          contract.workplace,
-          contract.contractStartDate,
-          contract.contractEndDate,
-          contract.workDays,
-          contract.workStartTime,
-          contract.workEndTime,
-          contract.breakMinutes,
-          contract.wageType,
-          contract.wageAmount,
-          contract.nonTaxableVehicleAllowance,
-          contract.nonTaxableMealAllowance,
-          contract.taxableExtraPay,
-          contract.allowanceMemo,
-          contract.paymentDate,
-          contract.insuranceStatus,
-          contract.memo,
-          contract.enabled ? 1 : 0,
-          contract.createdAt,
-          contract.updatedAt
-        );
+        db.exec("BEGIN");
+        try {
+        insertEmploymentRecord(contract);
         replaceEmploymentContractChildren(contract);
+          db.exec("COMMIT");
+        } catch (error) { db.exec("ROLLBACK"); throw error; }
+
         sendJson(response, 201, contract);
         return;
       }
@@ -1200,8 +1292,14 @@ const server = createServer(async (request, response) => {
           existing
         );
 
-        applyEmploymentContractUpdate(contract);
-        replaceEmploymentContractChildren(contract);
+        db.exec("BEGIN");
+        try {
+          const latest = db.prepare("SELECT updated_at FROM employment_contracts WHERE id = ?").get(contract.id);
+          if (latest?.updated_at !== existing.updatedAt) throw Object.assign(new Error("다른 사용자가 이 계약을 수정했습니다. 최신 계약을 다시 열어 수정해 주세요."), { status: 409 });
+          applyEmploymentContractUpdate(contract);
+          replaceEmploymentContractChildren(contract);
+          db.exec("COMMIT");
+        } catch (error) { db.exec("ROLLBACK"); throw error; }
 
         const updatedRow = db.prepare("SELECT * FROM employment_contracts WHERE id = ?").get(parts[2]);
         sendJson(response, 200, employmentContractFromRow(updatedRow));
@@ -1305,9 +1403,10 @@ const server = createServer(async (request, response) => {
         recipient.contractExpiredDate,
         recipient.enabled ? 1 : 0,
         recipient.createdAt,
-        recipient.updatedAt
+        recipient.updatedAt,
+        recipient.isDraft ? 1 : 0
       );
-      sendJson(response, 201, recipient);
+      sendJson(response, 201, { ...recipient, longTermCareNumber: visibleCareNumber(recipient.longTermCareNumber) });
       return;
     }
 
@@ -1433,11 +1532,15 @@ const server = createServer(async (request, response) => {
 
     sendJson(response, 404, { error: "Not found" });
   } catch (error) {
+    if (error instanceof AuthError) {
+      sendJson(response, error.status, { error: error.message });
+      return;
+    }
     const message = error instanceof Error ? error.message : "Unknown error";
-    const statusCode = message.includes("UNIQUE constraint failed") ? 409 : 400;
+    const statusCode = error?.status === 409 || message.includes("UNIQUE constraint failed") ? 409 : 400;
     sendJson(response, statusCode, {
       error:
-        statusCode === 409
+        statusCode === 409 && error?.status !== 409
           ? "같은 장기요양인정번호가 이미 등록되어 있습니다."
           : message
     });
