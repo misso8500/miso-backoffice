@@ -1,3 +1,4 @@
+import { handleDriveRequest } from "./drive.mjs";
 import { prepareEmploymentBody, prepareEmploymentDraftRows, sameEmploymentDraft } from "./employment-drafts.mjs";
 import { prepareRecipientBody, prepareDraftRows, sameDraft, visibleCareNumber } from "./recipient-drafts.mjs";
 import { normalizeWorkConditions } from "./work-conditions.mjs";
@@ -1144,6 +1145,7 @@ const server = createServer(async (request, response) => {
   try {
     const authentication = await handleAuthRequest(request, response, sendJson);
     if (authentication.handled) return;
+    if (await handleDriveRequest(request, response, sendJson)) return;
     const parts = parsePath(request.url ?? "/");
 
     if (parts[0] === "api" && parts[1] === "backoffice-users") {
