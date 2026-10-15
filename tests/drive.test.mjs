@@ -45,3 +45,19 @@ test('Drive sanitizes upstream errors', async () => {
   const drive = reader(() => { throw new Error('private key secret'); });
   await assert.rejects(drive.list(), (error) => error.status === 502 && !error.message.includes('secret'));
 });
+
+test('Vercel JSON credentials override local paths and exclude supplied endpoints', async () => {
+  const { getDriveAuthOptions } = await import('../server/drive.mjs');
+  const key = { type: 'service_account', client_email: 'reader@test.iam.gserviceaccount.com', private_key: '-----BEGIN PRIVATE KEY-----\nexample\n-----END PRIVATE KEY-----\n', token_uri: 'https://untrusted.example', universe_domain: 'untrusted.example' };
+  const options = getDriveAuthOptions({ GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify(key), GOOGLE_APPLICATION_CREDENTIALS: '/local/path' });
+  assert.equal(options.keyFile, undefined);assert.equal(options.credentials.client_email,key.client_email);
+  assert.equal(options.credentials.token_uri,'https://oauth2.googleapis.com/token');
+  assert.equal(options.credentials.universe_domain,undefined);
+  assert.equal(getDriveAuthOptions({ GOOGLE_APPLICATION_CREDENTIALS: '/local/path' }).keyFile,'/local/path');
+});
+test('invalid deployment credentials fail closed without echoing private values', async () => {
+  const { getDriveAuthOptions } = await import('../server/drive.mjs');
+  for(const json of ['private-secret',JSON.stringify({ type:'external_account', private_key:'private-secret' }), 'null']) {
+    assert.throws(()=>getDriveAuthOptions({GOOGLE_SERVICE_ACCOUNT_JSON:json,GOOGLE_APPLICATION_CREDENTIALS:'/fallback'}), error=>error.status===503&&!error.message.includes('private-secret'));
+  }
+});

@@ -5,14 +5,32 @@ const validId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{10,200}$
 export class DriveError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
+export function getDriveAuthOptions(env = process.env) {
+  const scopes = ['https://www.googleapis.com/auth/drive.readonly'];
+  if (env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    let value;
+    try { value = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON); } catch {
+      throw new DriveError(503, 'GOOGLE_SERVICE_ACCOUNT_JSON의 JSON 형식을 확인해 주세요.');
+    }
+    if (value?.type !== 'service_account' || typeof value.client_email !== 'string' ||
+        !value.client_email.endsWith('.iam.gserviceaccount.com') || typeof value.private_key !== 'string' ||
+        !value.private_key.startsWith('-----BEGIN PRIVATE KEY-----') || !value.private_key.includes('-----END PRIVATE KEY-----')) {
+      throw new DriveError(503, '서비스 계정 JSON의 종류, 이메일, 비공개 키를 확인해 주세요.');
+    }
+    // Only accept service account key fields; do not trust credential-supplied endpoints.
+    return { scopes, credentials: { type: 'service_account', client_email: value.client_email,
+      private_key: value.private_key, token_uri: 'https://oauth2.googleapis.com/token' } };
+  }
+  if (env.GOOGLE_APPLICATION_CREDENTIALS) return { scopes, keyFile: env.GOOGLE_APPLICATION_CREDENTIALS };
+  throw new DriveError(503, '서버의 Drive 인증 정보가 설정되지 않았습니다.');
+}
 export function createDriveReader(env = process.env, dependencies = {}) {
   const folderId = env.DRIVE_TEST_FOLDER_ID;
   let auth;
   async function call(path, params = {}) {
     if (!validId(folderId)) throw new DriveError(503, 'Drive 테스트 폴더가 설정되지 않았습니다.');
-    if (!dependencies.token && !env.GOOGLE_APPLICATION_CREDENTIALS) throw new DriveError(503, '서버의 Drive 인증 파일이 설정되지 않았습니다.');
     try {
-      auth ??= new GoogleAuth({ keyFile: env.GOOGLE_APPLICATION_CREDENTIALS, scopes: ['https://www.googleapis.com/auth/drive.readonly'] });
+      if (!dependencies.token) auth ??= new GoogleAuth(getDriveAuthOptions(env));
       const token = dependencies.token ? await dependencies.token() : await auth.getAccessToken();
       const url = new URL(`https://www.googleapis.com/drive/v3/${path}`);
       Object.entries({ supportsAllDrives: 'true', ...params }).forEach(([key, value]) => url.searchParams.set(key, value));
