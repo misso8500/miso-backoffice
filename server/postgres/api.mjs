@@ -293,6 +293,9 @@ const employmentContractFromRow = async (row) => ({
 const planStore = createPostgresPlanStore(pool, recipientFromRow, async (executor,id)=>{
   const result=await executor.query('SELECT payload FROM recipient_documents WHERE recipient_id=$1',[id]);
   return result.rows[0]?.payload?.periods??[];
+}, async executor=>{
+  const result=await executor.query("SELECT recipient_id, payload->'periods' AS periods FROM recipient_documents");
+  return result.rows.map(row=>({recipient_id:row.recipient_id,periods:(row.periods??[]).map(p=>({id:p.id,startDate:p.startDate,endDate:p.endDate}))}));
 });
 
 const readRecipient = async (recipientId) => {

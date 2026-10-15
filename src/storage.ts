@@ -175,7 +175,7 @@ export const updateEmploymentContract = (contract: EmploymentContractInput) =>
 export const updateRecipientServicePeriod = (id: string, input: { serviceStartDate: string; serviceEndDate: string; reason: 'renewal' | 'correction'; updatedAt: string }) =>
   requestJson<Recipient>(`/api/recipients/${id}/service-period`, { method: 'PUT', body: JSON.stringify(input) });
 
-export type RecipientPeriodEvent = { id: string; type: string; serviceStartDate: string; serviceEndDate: string; memo?: string; createdAt: string };
+export type RecipientPeriodEvent = { id: string; type: string; serviceStartDate: string; serviceEndDate: string; memo?: string; createdAt: string; contractExpiredDate?: string };
 export const loadRecipientPeriodEvents = (id: string) => requestJson<RecipientPeriodEvent[]>(`/api/recipients/${id}/contract-events`);
 
 export const loadRecipientPlan = (id: string) => requestJson<RecipientPlanState>(`/api/recipients/${id}/plan`).then(validatePlanResponse);

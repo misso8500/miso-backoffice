@@ -93,6 +93,15 @@ test("SQLite API persists recipient conditions and history, and rolls back faile
     assert.equal((await call(`recipients/${id}`,'PUT',{...detail,medicalHistory:'이력 없는 변경'})).status,400);
     const profile=await call(`recipients/${id}`,'PUT',{...detail,phone:'010-4444-5555'});assert.equal(profile.status,200);assert.equal(profile.data.medicalHistory,notes.medicalHistory);
   });
+  await t.test("validity list includes recognition dates without document file or folder payloads", async () => {
+    const db=new DatabaseSync(databasePath);
+    const period={id:'recognition-test',startDate:'2026-09-09',endDate:'2028-09-08'};
+    try {db.prepare('INSERT INTO recipient_documents(recipient_id,folder_id,payload,version) VALUES(?,?,?,?)').run('period-profile-test','test-only-folder',JSON.stringify({periods:[period],pages:[{fileId:'private-image'}]}),'test-version');} finally {db.close();}
+    const list=await call('recipients');assert.equal(list.status,200);
+    const recipient=list.data.find(r=>r.id==='period-profile-test');assert.deepEqual(recipient.recognitionPeriods,[period]);
+    assert.equal(recipient.pages,undefined);assert.equal(recipient.folderId,undefined);assert.equal(JSON.stringify(recipient).includes('private-image'),false);
+    const detail=await call('recipients/period-profile-test');assert.deepEqual(detail.data.recognitionPeriods,[period]);
+  });
   const legacy = (await call("employment-contracts")).data[0];
   assert.ok(legacy && recipients.length >= 2);
   const term = (id) => ({ id, wageType: "시급", wageAmount: 14000, nonTaxableMealAllowance: 0, nonTaxableVehicleAllowance: 0, otherNonTaxablePay: 0 });

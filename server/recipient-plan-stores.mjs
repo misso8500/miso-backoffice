@@ -5,8 +5,8 @@ const values=(id,p)=>[p.id,id,p.version,JSON.stringify(p.notes),p.effectiveDate,
 function summarySql(){return `WITH latest_plans AS (
  SELECT *,ROW_NUMBER() OVER(PARTITION BY recipient_id,COALESCE(plan_id,id) ORDER BY revision DESC) AS logical_rank FROM recipient_plans)
  SELECT * FROM latest_plans WHERE logical_rank=1`;}
-function enrich(recipients,rows){const byId=new Map();for(const row of rows){const group=byId.get(row.recipient_id)??[];group.push(row);byId.set(row.recipient_id,group);}return recipients.map(r=>attachRecipientPlan(r,byId.get(r.id)??[]));}
-export function createPostgresPlanStore(pool,fromRow,recognitionFor=async()=>[]){
+function enrich(recipients,rows,recognitions=[]){const byId=new Map();for(const row of rows){const group=byId.get(row.recipient_id)??[];group.push(row);byId.set(row.recipient_id,group);}const periods=new Map(recognitions.map(r=>[r.recipient_id,r.periods]));return recipients.map(r=>({...attachRecipientPlan(r,byId.get(r.id)??[]),recognitionPeriods:periods.get(r.id)??[]}));}
+export function createPostgresPlanStore(pool,fromRow,recognitionFor=async()=>[],recognitionAll=async()=>[]){
   const read=async(executor,id,locked=false)=>{
     const result=await executor.query(`SELECT * FROM recipients WHERE id=$1${locked?' FOR UPDATE':''}`,[id]);
     if(!result.rows[0])throw missing();
@@ -15,7 +15,7 @@ export function createPostgresPlanStore(pool,fromRow,recognitionFor=async()=>[])
   };
   return {
     async get(id){const {recipient,versions}=await read(pool,id);return buildPlanState(recipient,versions,planToday(),await recognitionFor(pool,id));},
-    async enrich(recipients){if(!recipients.length)return [];const result=await pool.query(summarySql());return enrich(recipients,result.rows);},
+    async enrich(recipients){if(!recipients.length)return [];const result=await pool.query(summarySql());return enrich(recipients,result.rows,await recognitionAll(pool));},
     async save(id,body,user){const client=await pool.connect();try{
       await client.query('BEGIN');const {recipient,versions}=await read(client,id,true);
       for(const p of preparePlanVersions(body,recipient,versions,user))await client.query(`INSERT INTO recipient_plans(${columns}) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,values(id,p));
@@ -26,7 +26,7 @@ export function createPostgresPlanStore(pool,fromRow,recognitionFor=async()=>[])
     }
   };
 }
-export function createSqlitePlanStore(db,fromRow,recognitionFor=()=>[]){
+export function createSqlitePlanStore(db,fromRow,recognitionFor=()=>[],recognitionAll=()=>[]){
   db.exec(`CREATE TABLE IF NOT EXISTS recipient_plans (
     id TEXT PRIMARY KEY,recipient_id TEXT NOT NULL REFERENCES recipients(id),revision INTEGER NOT NULL,payload TEXT NOT NULL,
     effective_date TEXT,change_reason TEXT NOT NULL,change_kind TEXT NOT NULL,source_revision INTEGER,
@@ -37,7 +37,7 @@ export function createSqlitePlanStore(db,fromRow,recognitionFor=()=>[]){
   const read=id=>{const row=db.prepare('SELECT * FROM recipients WHERE id=?').get(id);if(!row)throw missing();return {recipient:fromRow(row),versions:db.prepare('SELECT * FROM recipient_plans WHERE recipient_id=? ORDER BY revision DESC').all(id).map(planFromRow)};};
   return {
     get(id){const {recipient,versions}=read(id);return buildPlanState(recipient,versions,planToday(),recognitionFor(db,id));},
-    enrich(recipients){return enrich(recipients,db.prepare(summarySql()).all());},
+    enrich(recipients){return enrich(recipients,db.prepare(summarySql()).all(),recognitionAll(db));},
     save(id,body,user){db.exec('BEGIN IMMEDIATE');try{
       const {recipient,versions}=read(id);for(const p of preparePlanVersions(body,recipient,versions,user))db.prepare(`INSERT INTO recipient_plans(${columns}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values(id,p));
       db.exec('COMMIT');

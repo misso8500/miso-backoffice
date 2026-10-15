@@ -596,7 +596,7 @@ const selectRecipientById = db.prepare(`
 const planStore = createSqlitePlanStore(db, recipientFromRow, (executor,id)=>{
   const row=executor.prepare('SELECT payload FROM recipient_documents WHERE recipient_id=?').get(id);
   return row?JSON.parse(row.payload).periods??[]:[];
-});
+}, executor=>executor.prepare('SELECT recipient_id,payload FROM recipient_documents').all().map(row=>({recipient_id:row.recipient_id,periods:(JSON.parse(row.payload).periods??[]).map(p=>({id:p.id,startDate:p.startDate,endDate:p.endDate}))})));
 
 const readRecipient = (recipientId) => {
   const row = selectRecipientById.get(recipientId);
