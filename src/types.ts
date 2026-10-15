@@ -14,6 +14,7 @@ export type Recipient = {
   representativePhone: string;
   serviceType: "방문" | "가족";
   caregiverRequirements: string;
+  medicalHistory?: string;
   reductionType: "일반" | "감경" | "기초";
   relatedPeople: string;
   serviceStartDate: string;

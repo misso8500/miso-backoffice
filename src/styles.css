@@ -2024,3 +2024,15 @@ p {
 @media (max-width: 600px) {
   .recognition-document-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+
+.service-period-editor { margin: 24px 0; padding: 20px; border: 1px solid #d7d0e5; border-radius: 10px; background: #faf9fc; }
+.service-period-editor h3 { margin: 0; }
+.service-period-editor p { line-height: 1.7; }
+.service-period-editor select { display: block; padding: 10px; font: inherit; }
+.service-period-editor button[type="submit"] { margin-top: 16px; }
+.recipient-focus-table { overflow-x: auto; }
+.recipient-focus-table .table-head, .recipient-focus-table .recipient-row { display: grid; grid-template-columns: 1.1fr 1.6fr 1.2fr 1.1fr 1.1fr 80px; min-width: 900px; gap: 14px; }
+.recipient-focus-table .recipient-row > span:not(.recipient-name) { display: block; }
+.recipient-focus-table .recipient-note-cell { white-space: pre-wrap; line-height: 1.6; overflow-wrap: anywhere; }
+.recipient-focus-table .recipient-row small { display: block; margin-top: 6px; }

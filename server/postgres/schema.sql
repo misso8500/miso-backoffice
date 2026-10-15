@@ -180,3 +180,5 @@ CREATE TABLE IF NOT EXISTS recipient_documents (
 );
 ALTER TABLE recipient_documents ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE recipient_documents FROM anon, authenticated;
+
+ALTER TABLE recipients ADD COLUMN IF NOT EXISTS medical_history TEXT NOT NULL DEFAULT '';

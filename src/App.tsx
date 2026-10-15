@@ -1,3 +1,7 @@
+import RecipientList, { type RecipientView } from "./RecipientList";
+import RecipientServicePeriod from "./RecipientServicePeriod";
+import { dateInputError } from "./lib/date-input";
+import DateInput from "./DateInput";
 import BasicEntryGrid from "./BasicEntryGrid";
 import EmploymentConditionsDetails from "./EmploymentConditionsDetails";
 import EmploymentConditionsEditor, { createEmptyWorkCondition, type EmploymentConditionFormTerm } from "./EmploymentConditionsEditor";
@@ -10,13 +14,13 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   type FormEvent
 } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   Briefcase,
-  CalendarClock,
   ChevronRight,
   Database,
   ClipboardCheck,
@@ -67,6 +71,7 @@ type RecipientFormState = {
   representativePhone: string;
   serviceType: "방문" | "가족";
   caregiverRequirements: string;
+  medicalHistory: string;
   reductionType: "일반" | "감경" | "기초";
   relatedPeople: string;
   serviceStartDate: string;
@@ -88,6 +93,7 @@ const emptyRecipientForm: RecipientFormState = {
   representativePhone: "",
   serviceType: "방문",
   caregiverRequirements: "",
+  medicalHistory: "",
   reductionType: "일반",
   relatedPeople: "",
   serviceStartDate: "",
@@ -310,6 +316,7 @@ const detailSections: Array<{
       { label: "장기요양인정번호", value: (recipient) => recipient.longTermCareNumber },
       { label: "장기요양등급", value: (recipient) => recipient.careGrade },
       { label: "수급자 연락처", value: (recipient) => recipient.phone },
+      { label: "병력 · 건강 메모", value: (recipient) => recipient.medicalHistory },
       { label: "수급자 주소", value: (recipient) => recipient.address }
     ]
   },
@@ -446,30 +453,6 @@ const limitDateYear = (value: string) => {
 
 const dateInputLimits = { min: "1000-01-01", max: "9999-12-31" } as const;
 
-const regionAliases: Record<string, string> = {
-  서울특별시: "서울", 서울시: "서울", 부산광역시: "부산", 대구광역시: "대구",
-  인천광역시: "인천", 광주광역시: "광주", 대전광역시: "대전", 울산광역시: "울산",
-  세종특별자치시: "세종", 제주특별자치도: "제주"
-};
-
-const getResidenceSummary = (address: string) => {
-  if (!address.trim() || address.trim() === "미등록") return "거주지 미등록";
-
-  const parts = address.trim().split(/\s+/);
-  const region = regionAliases[parts[0]] ?? parts[0].replace(/(특별시|광역시|특별자치시|특별자치도)$/, "");
-  const neighborhood = parts.slice(1).find((part) => /(동|읍|면|리)$/.test(part));
-  return [region, neighborhood ?? parts[1]].filter(Boolean).join(" ");
-};
-
-const getRecipientDisplayId = (recipient: Recipient) => {
-  if (recipient.isDraft) return recipient.operationalName?.trim() || "기본 정보 저장됨 · 상세 입력 필요";
-  const birthYear = recipient.birthDate.slice(0, 4) || "연도미상";
-  return recipient.operationalName?.trim() || `${recipient.name}/${recipient.careGrade.replace("등급", "")}/${getResidenceSummary(recipient.address)}/${birthYear}년생`;
-};
-
-const hasPrimaryContact = (recipient: Recipient) =>
-  Boolean(recipient.representativeName && recipient.representativeName !== "미등록");
-
 function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Promise<void> }) {
   const [activeView, setActiveView] = useState<"recipients" | "employmentContracts">(
     "recipients"
@@ -485,7 +468,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [showEnabledOnly, setShowEnabledOnly] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState<RecipientStatus | "전체">("전체");
   const [selectedAssignedUserId, setSelectedAssignedUserId] = useState("all");
-  const [viewDensity, setViewDensity] = useState<"simple" | "detail">("simple");
+  const [recipientView, setRecipientView] = useState<RecipientView>("basic");
   const [isRecipientGridOpen, setIsRecipientGridOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -497,6 +480,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
   const [editingRecipientId, setEditingRecipientId] = useState<string | null>(null);
   const [formState, setFormState] = useState<RecipientFormState>(emptyRecipientForm);
+  const formErrorRef = useRef<HTMLDivElement>(null);
   const [formErrorMessage, setFormErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [recipientToDeactivate, setRecipientToDeactivate] = useState<Recipient | null>(null);
@@ -604,23 +588,23 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   }, [notification]);
 
   useEffect(() => {
+    if (formErrorMessage) { formErrorRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }); formErrorRef.current?.focus(); }
+  }, [formErrorMessage]);
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setSelectedRecipientId(null);
-        setIsCreatePanelOpen(false);
-        setEditingRecipientId(null);
-        setRecipientToDeactivate(null);
-        setRecipientToTerminate(null);
-        setRecipientToRestore(null);
-        setSelectedEmploymentContractId(null);
-        setIsEmploymentCreatePanelOpen(false);
-        setEmploymentContractToDeactivate(null);
-      }
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog[open]') || isRecipientGridOpen || isEmploymentGridOpen) return;
+      if (recipientToRestore) { setRecipientToRestore(null); return; }
+      if (recipientToTerminate) { setRecipientToTerminate(null); return; }
+      if (employmentContractToDeactivate) { setEmploymentContractToDeactivate(null); return; }
+      if (recipientToDeactivate) { setRecipientToDeactivate(null); return; }
+      if (isCreatePanelOpen) { closeCreatePanel(); return; }
+      if (isEmploymentCreatePanelOpen) { closeEmploymentCreatePanel(); return; }
+      if (selectedEmploymentContractId) { setSelectedEmploymentContractId(null); return; }
+      setSelectedRecipientId(null);
     };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [recipientToRestore,recipientToTerminate,employmentContractToDeactivate,recipientToDeactivate,isCreatePanelOpen,isEmploymentCreatePanelOpen,selectedEmploymentContractId,isRecipientGridOpen,isEmploymentGridOpen]);
 
   const filteredRecipients = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase();
@@ -648,6 +632,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           recipient.operationalName,
           recipient.longTermCareNumber,
           recipient.careGrade,
+          recipient.medicalHistory,
+          recipient.caregiverRequirements,
           recipient.address,
           recipient.phone,
           recipient.representativeName,
@@ -795,6 +781,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       representativePhone: recipient.representativePhone,
       serviceType: recipient.serviceType ?? "방문",
       caregiverRequirements: recipient.caregiverRequirements ?? "",
+      medicalHistory: recipient.medicalHistory ?? "",
       reductionType: recipient.reductionType ?? "일반",
       relatedPeople: recipient.relatedPeople ?? "",
       serviceStartDate: recipient.serviceStartDate,
@@ -871,6 +858,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       return;
     }
 
+    for (const key of ['birthDate','serviceStartDate','serviceEndDate'] as const) {
+      const message = dateInputError(formState[key], !saveAsDraft);
+      if (message) { setFormErrorMessage(`${requiredFormFields.find(f=>f.key===key)?.label}: ${message}`); return; }
+    }
     const recipientBeingEdited = recipients.find((recipient) => recipient.id === editingRecipientId);
     const recipientToSave: RecipientInput = {
       isDraft: saveAsDraft,
@@ -890,6 +881,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       representativePhone: formatPhoneNumberInput(formState.representativePhone.trim()),
       serviceType: formState.serviceType,
       caregiverRequirements: formState.caregiverRequirements.trim(),
+      medicalHistory: formState.medicalHistory.trim(),
       reductionType: formState.reductionType,
       relatedPeople: formState.relatedPeople.trim(),
       serviceStartDate: formState.serviceStartDate,
@@ -1534,12 +1526,12 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <div className="quick-add-grid">
               <label><span>이름</span><input value={formState.name} onChange={(event) => updateFormField("name", event.target.value)} required autoFocus /></label>
               <label className="quick-identifier-field"><span>업무식별명</span><input value={formState.operationalName} onChange={(event) => updateFormField("operationalName", event.target.value)} placeholder="정성춘/3/함평군/파킨슨" required /></label>
-              <label><span>생년월일</span><input type="date" {...dateInputLimits} value={formState.birthDate} onChange={(event) => updateFormField("birthDate", event.target.value)} required /></label>
+              <label><span>생년월일</span><DateInput {...dateInputLimits} value={formState.birthDate} onChange={(event) => updateFormField("birthDate", event.target.value)} required /></label>
               <label><span>인정번호</span><input value={formState.longTermCareNumber} onChange={(event) => updateFormField("longTermCareNumber", event.target.value)} required /></label>
               <label><span>등급</span><select value={formState.careGrade} onChange={(event) => updateFormField("careGrade", event.target.value)}>{["1등급","2등급","3등급","4등급","5등급","인지지원등급"].map((grade) => <option key={grade}>{grade}</option>)}</select></label>
               <label className="quick-address-field"><span>수급자 주소</span><input value={formState.address} onChange={(event) => updateFormField("address", event.target.value)} placeholder="예: 광주광역시 광산구 신창동" required /></label>
-              <label><span>장기요양이용계약 시작일</span><input type="date" {...dateInputLimits} value={formState.serviceStartDate} onChange={(event) => updateFormField("serviceStartDate", event.target.value)} required /></label>
-              <label><span>장기요양이용계약 만료일</span><input type="date" {...dateInputLimits} value={formState.serviceEndDate} onChange={(event) => updateFormField("serviceEndDate", event.target.value)} required /></label>
+              <label><span>장기요양이용계약 시작일</span><DateInput {...dateInputLimits} value={formState.serviceStartDate} onChange={(event) => updateFormField("serviceStartDate", event.target.value)} required /></label>
+              <label><span>장기요양이용계약 만료일</span><DateInput {...dateInputLimits} value={formState.serviceEndDate} onChange={(event) => updateFormField("serviceEndDate", event.target.value)} required /></label>
             </div>
             {formErrorMessage && <p className="quick-error">{formErrorMessage}</p>}
             <div className="quick-add-actions">
@@ -1563,9 +1555,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <select className="filter-select" aria-label="계약 상태 필터" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as RecipientStatus | "전체")}>
                 {(["전체", "정보입력중", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status === "정보입력중" ? "정보 입력 중" : status}</option>)}
               </select>
-              <div className="density-toggle" aria-label="보기 방식">
-                <button type="button" className={viewDensity === "simple" ? "is-active" : ""} onClick={() => setViewDensity("simple")}>간단</button>
-                <button type="button" className={viewDensity === "detail" ? "is-active" : ""} onClick={() => setViewDensity("detail")}>상세</button>
+              <div className="density-toggle" role="group" aria-label="수급자 보기 방식">
+                {([['basic','기본'],['medical','병력'],['validity','유효'],['address','주소']] as const).map(([value,label])=><button type="button" key={value} aria-pressed={recipientView===value} className={recipientView===value?'is-active':''} onClick={()=>setRecipientView(value)}>{label}</button>)}
               </div>
               <label className="valid-toggle">
                 <input
@@ -1581,7 +1572,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   type="search"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="이름, 인정번호, 연락처 검색"
+                  placeholder="이름, 인정번호, 병력, 주소, 연락처 검색"
                 />
               </label>
             </div>
@@ -1598,116 +1589,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <p>{searchQuery ? "검색 결과가 없습니다." : "표시할 수급자가 없습니다."}</p>
             </div>
           ) : (
-            <div className={`recipient-table ${viewDensity === "simple" ? "is-simple" : ""}`}>
-              <div className="table-head">
-                {viewDensity === "simple" ? (
-                  <>
-                    <span>수급자</span><span>상태</span><span>수급자 주소</span><span>주요 연락처</span><span>담당 사회복지사</span>
-                  </>
-                ) : (
-                  <>
-                    <span>수급자</span><span>등급</span><span>상태</span><span>대표 연락자</span><span>이용계약 만료일</span>
-                  </>
-                )}
-                <span>{viewDensity === "simple" ? "관리" : ""}</span>
-              </div>
-              <ul>
-                {filteredRecipients.map((recipient) => (
-                  <li key={recipient.id}>
-                    <div
-                      className={`recipient-row ${
-                        isRecipientEnabled(recipient) ? "" : "is-disabled"
-                      }`}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setSelectedRecipientId(recipient.id)}
-                      onKeyDown={(event) => {
-                        if (event.target !== event.currentTarget) return;
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setSelectedRecipientId(recipient.id);
-                        }
-                      }}
-                    >
-                      <span className="recipient-name">
-                        <strong>{recipient.name}</strong>
-                        <small>
-                          {viewDensity === "simple" ? getRecipientDisplayId(recipient) : recipient.longTermCareNumber}
-                          {!isRecipientEnabled(recipient) && (
-                            <em className="status-chip">비활성화</em>
-                          )}
-                        </small>
-                      </span>
-                      {viewDensity === "simple" ? (
-                        <>
-                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient) === "정보입력중" ? "정보 입력 중" : getRecipientStatus(recipient)}</em></span>
-                          <span className="recipient-address">{!recipient.address || recipient.address === "미등록" ? "주소 미등록" : recipient.address}</span>
-                          <span className="primary-contact">
-                            <strong>{hasPrimaryContact(recipient) ? `${recipient.representativeName}(${recipient.representativeRelation})` : "연락처 미등록"}</strong>
-                            <small>{hasPrimaryContact(recipient) ? recipient.representativePhone : "상세 정보에서 등록해 주세요"}</small>
-                          </span>
-                          <div className="inline-assignment" onClick={(event) => event.stopPropagation()}>
-                            <select
-                              aria-label={`${recipient.name} 담당 사회복지사`}
-                              aria-busy={assigningRecipientIds.includes(recipient.id)}
-                              value={recipient.assignedBackofficeUserId ?? ""}
-                              disabled={assigningRecipientIds.includes(recipient.id)}
-                              onChange={(event) => void handleAssignedBackofficeUserUpdate(recipient, event.target.value)}
-                            >
-                              <option value="">미배정</option>
-                              {backofficeUsers.map((user) => (
-                                <option key={user.id} value={user.id}>{user.name}</option>
-                              ))}
-                            </select>
-                            {assigningRecipientIds.includes(recipient.id) && <small role="status">저장 중…</small>}
-                            {backofficeUsers.length === 0 && <small>담당자 정보가 등록되지 않았습니다.</small>}
-                            {assignmentErrors[recipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[recipient.id]}</small>}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <span>{recipient.careGrade || "등급 미등록"}</span>
-                          <span><em className={`contract-status status-${getRecipientStatus(recipient)}`}>{getRecipientStatus(recipient) === "정보입력중" ? "정보 입력 중" : getRecipientStatus(recipient)}</em></span>
-                          <span>{recipient.representativeName}<small>{recipient.representativePhone}</small></span>
-                          <span className="expiry"><CalendarClock size={15} />{recipient.serviceEndDate || "기간 미등록"}</span>
-                        </>
-                      )}
-                      {viewDensity === "simple" ? (
-                        <div className="row-actions" aria-label={`${recipient.name} 관리`}>
-                          <button
-                            type="button"
-                            className="row-icon-button"
-                            aria-label={`${recipient.name} 수정`}
-                            title="수정"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openRecipientEditPanel(recipient);
-                            }}
-                          >
-                            <Pencil size={17} />
-                          </button>
-                          <button
-                            type="button"
-                            className="row-icon-button is-danger"
-                            aria-label={`${recipient.name} 삭제`}
-                            title="삭제"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setRecipientToDeactivate(recipient);
-                              setDeactivateErrorMessage(null);
-                            }}
-                          >
-                            <Trash2 size={17} />
-                          </button>
-                        </div>
-                      ) : (
-                        <ChevronRight size={18} />
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <RecipientList recipients={filteredRecipients} view={recipientView} users={backofficeUsers} status={getRecipientStatus}
+              open={r=>setSelectedRecipientId(r.id)} edit={openRecipientEditPanel}
+              remove={r=>{setRecipientToDeactivate(r);setDeactivateErrorMessage(null);}}
+              assign={(r,id)=>void handleAssignedBackofficeUserUpdate(r,id)} assigning={assigningRecipientIds} errors={assignmentErrors} />
           )}
         </section>
           </>
@@ -1871,7 +1756,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         }} />}
 
       {selectedRecipient && (
-        <div className="detail-backdrop" role="presentation">
+        <div className="detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(()=>setSelectedRecipientId(null))();}}>
           <article
             className={`detail-panel ${
               isRecipientEnabled(selectedRecipient) ? "" : "is-disabled-detail"
@@ -1990,6 +1875,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               {assignmentErrors[selectedRecipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[selectedRecipient.id]}</small>}
             </div>
 
+            <RecipientServicePeriod key={`period-${selectedRecipient.id}`} recipient={selectedRecipient} onSaved={saved=>{setRecipients(current=>current.map(r=>r.id===saved.id?saved:r));showNotification('계약 기간을 저장했습니다.');}} />
             <RecipientDocuments key={selectedRecipient.id} recipientId={selectedRecipient.id} recipientName={selectedRecipient.name} />
 
             <div className="detail-sections">
@@ -2012,7 +1898,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       )}
 
       {selectedEmploymentContract && (
-        <div className="detail-backdrop" role="presentation">
+        <div className="detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(()=>setSelectedEmploymentContractId(null))();}}>
           <article
             className={`detail-panel ${
               getEmploymentContractStatus(selectedEmploymentContract, employmentCurrentYear).valid ? "" : "is-disabled-detail"
@@ -2120,7 +2006,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       )}
 
       {isCreatePanelOpen && (
-        <div className="detail-backdrop" role="presentation">
+        <div className="detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(closeCreatePanel)();}}>
           <article className="detail-panel" aria-label={editingRecipientId ? "수급자 정보 수정" : "수급자 등록"}>
             <div className="detail-header">
               <button type="button" className="back-button" onClick={closeCreatePanel}>
@@ -2133,7 +2019,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               </button>
             </div>
 
-            <form className="recipient-form" onSubmit={handleCreateRecipient}>
+            <form className="recipient-form" noValidate onSubmit={handleCreateRecipient}>
               <div className="form-heading">
                 <span className="eyebrow">{editingRecipientId ? "Edit recipient" : "New recipient"}</span>
                 <h2>{editingRecipientId ? "수급자 정보 수정" : "수급자 등록"}</h2>
@@ -2143,12 +2029,6 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 <p className="condition-review">정보 입력 중인 수급자입니다. 입력한 내용 임시 저장으로 나누어 저장할 수 있으며, 필수 정보를 채운 뒤 상세 정보 등록 완료를 눌러 주세요.</p>
               )}
 
-              {formErrorMessage && (
-                <div className="form-error" role="alert">
-                  <AlertTriangle size={18} />
-                  {formErrorMessage}
-                </div>
-              )}
 
               <section className="form-section" aria-labelledby="basic-form-title">
                 <h3 id="basic-form-title">기본 정보</h3>
@@ -2172,13 +2052,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   </label>
                   <label>
                     <span>생년월일</span>
-                    <input
-                      type="date"
+                    <DateInput
                       {...dateInputLimits}
                       value={formState.birthDate}
                       onChange={(event) => updateFormField("birthDate", event.target.value)}
-                      required
-                    />
+                      required />
                   </label>
                   <label>
                     <span>장기요양인정번호</span>
@@ -2283,6 +2161,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                       <option>기초</option>
                     </select>
                   </label>
+                  <label className="wide-field"><span>병력 · 건강 메모</span><textarea value={formState.medicalHistory} onChange={event=>updateFormField("medicalHistory",event.target.value)} placeholder="확인된 병력과 돌봄 시 참고할 내용을 입력해 주세요." /></label>
                   <label className="wide-field">
                     <span>요양보호사 구인조건</span>
                     <textarea value={formState.caregiverRequirements} onChange={(event) => updateFormField("caregiverRequirements", event.target.value)} placeholder="예: 여성 요양보호사, 자차 운전 가능" />
@@ -2293,27 +2172,24 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   </label>
                   <label>
                     <span>장기요양이용계약 시작일</span>
-                    <input
-                      type="date"
+                    <DateInput
                       {...dateInputLimits}
                       value={formState.serviceStartDate}
                       onChange={(event) => updateFormField("serviceStartDate", event.target.value)}
-                      required
-                    />
+                      required />
                   </label>
                   <label>
                     <span>장기요양이용계약 만료일</span>
-                    <input
-                      type="date"
+                    <DateInput
                       {...dateInputLimits}
                       value={formState.serviceEndDate}
                       onChange={(event) => updateFormField("serviceEndDate", event.target.value)}
-                      required
-                    />
+                      required />
                   </label>
                 </div>
               </section>
 
+              {formErrorMessage && <div ref={formErrorRef} tabIndex={-1} className="form-error" role="alert"><AlertTriangle size={18} />{formErrorMessage}</div>}
               <div className="form-actions">
                 <button type="button" className="secondary-button" onClick={closeCreatePanel}>
                   취소
@@ -2333,7 +2209,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       )}
 
       {isEmploymentCreatePanelOpen && (
-        <div className="detail-backdrop" role="presentation">
+        <div className="detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(closeEmploymentCreatePanel)();}}>
           <article className="detail-panel" aria-label={isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}>
             <div className="detail-header">
               <button type="button" className="back-button" onClick={closeEmploymentCreatePanel}>
@@ -2457,11 +2333,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 <h3 id="employment-period-title">계약 기간</h3>
                 <div className="form-grid">
                   <label><span>계약 시작일</span>
-                    <input type="date" {...dateInputLimits} required value={employmentFormState.contractStartDate}
+                    <DateInput {...dateInputLimits} required value={employmentFormState.contractStartDate}
                       onChange={(event) => updateEmploymentFormField("contractStartDate", limitDateYear(event.target.value))} />
                   </label>
                   <label><span>계약 종료일</span>
-                    <input type="date" {...dateInputLimits} min={employmentFormState.contractStartDate || dateInputLimits.min}
+                    <DateInput {...dateInputLimits} min={employmentFormState.contractStartDate || dateInputLimits.min}
                       required value={employmentFormState.contractEndDate}
                       onChange={(event) => updateEmploymentFormField("contractEndDate", limitDateYear(event.target.value))} />
                   </label>
@@ -2501,7 +2377,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       )}
 
       {recipientToDeactivate && (
-        <div className="alert-backdrop" role="presentation">
+        <div className="alert-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(()=>setRecipientToDeactivate(null))();}}>
           <section
             className="alert-dialog"
             role="alertdialog"
@@ -2550,7 +2426,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       )}
 
       {employmentContractToDeactivate && (
-        <div className="alert-backdrop" role="presentation">
+        <div className="alert-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(()=>setEmploymentContractToDeactivate(null))();}}>
           <section
             className="alert-dialog"
             role="alertdialog"
@@ -2600,7 +2476,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       )}
 
       {recipientToTerminate && (
-        <div className="alert-backdrop" role="presentation">
+        <div className="alert-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(closeTerminateDialog)();}}>
           <section
             className="alert-dialog"
             role="alertdialog"
@@ -2620,16 +2496,14 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
             <label className="alert-field">
               <span>장기요양이용계약 만료일</span>
-              <input
-                type="date"
+              <DateInput
                 {...dateInputLimits}
                 value={terminationExpiredDate}
                 min={recipientToTerminate.serviceStartDate}
                 onChange={(event) => {
                   setTerminationExpiredDate(limitDateYear(event.target.value));
                   setTerminationErrorMessage(null);
-                }}
-              />
+                }} />
             </label>
 
             {terminationErrorMessage && (
@@ -2663,7 +2537,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       )}
 
       {recipientToRestore && restoreFormState && (
-        <div className="alert-backdrop" role="presentation">
+        <div className="alert-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(closeRestoreDialog)();}}>
           <section
             className="alert-dialog restore-dialog"
             role="alertdialog"
@@ -2713,23 +2587,19 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <div className="restore-date-grid">
                 <label className="alert-field">
                   <span>장기요양이용계약 시작일</span>
-                  <input
-                    type="date"
+                  <DateInput
                     {...dateInputLimits}
                     value={restoreFormState.serviceStartDate}
                     onChange={(event) =>
                       updateRestoreField("serviceStartDate", event.target.value)
-                    }
-                  />
+                    } />
                 </label>
                 <label className="alert-field">
                   <span>장기요양이용계약 만료일</span>
-                  <input
-                    type="date"
+                  <DateInput
                     {...dateInputLimits}
                     value={restoreFormState.serviceEndDate}
-                    onChange={(event) => updateRestoreField("serviceEndDate", event.target.value)}
-                  />
+                    onChange={(event) => updateRestoreField("serviceEndDate", event.target.value)} />
                 </label>
               </div>
             )}

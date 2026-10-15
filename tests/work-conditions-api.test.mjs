@@ -61,6 +61,22 @@ test("SQLite API persists recipient conditions and history, and rolls back faile
     assert.equal((await call(path, 'PUT', body)).status, 400);
     assert.equal((await call(path)).data.version, null);
   });
+  await t.test("recipient periods can be renewed separately, preserve history, and medical notes survive partial updates", async () => {
+    const created = await call('recipients/bulk-drafts','POST',{rows:[{id:'period-profile-test',name:'기간테스트'}]});
+    assert.equal(created.status,200);
+    let r=created.data.recipients[0];
+    const saved=await call(`recipients/${r.id}`,'PUT',{...r,medicalHistory:'확인된 건강 메모'});
+    assert.equal(saved.status,200);assert.equal(saved.data.medicalHistory,'확인된 건강 메모');r=saved.data;
+    const input={serviceStartDate:'2026-09-09',serviceEndDate:'2028-09-08',reason:'renewal',updatedAt:r.updatedAt};
+    const renewed=await call(`recipients/${r.id}/service-period`,'PUT',input);
+    assert.equal(renewed.status,200);assert.equal(renewed.data.isDraft,true);assert.equal(renewed.data.medicalHistory,'확인된 건강 메모');
+    const history=await call(`recipients/${r.id}/contract-events`);
+    assert.equal(history.data[0].type,'service_renewal');assert.equal(JSON.parse(history.data[0].memo).previousStartDate,'');
+    const stale=await call(`recipients/${r.id}/service-period`,'PUT',input);assert.equal(stale.status,409);
+    const invalid=await call(`recipients/${r.id}/service-period`,'PUT',{...input,updatedAt:renewed.data.updatedAt,serviceEndDate:'2025-01-01'});assert.equal(invalid.status,400);
+    assert.equal((await call(`recipients/${r.id}/contract-events`)).data.length,1);
+    const partial=await call(`recipients/${r.id}`,'PUT',{...renewed.data,medicalHistory:undefined,phone:'010-1234-5678'});assert.equal(partial.data.medicalHistory,'확인된 건강 메모');
+  });
   const legacy = (await call("employment-contracts")).data[0];
   assert.ok(legacy && recipients.length >= 2);
   const term = (id) => ({ id, wageType: "시급", wageAmount: 14000, nonTaxableMealAllowance: 0, nonTaxableVehicleAllowance: 0, otherNonTaxablePay: 0 });

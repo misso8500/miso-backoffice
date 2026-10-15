@@ -1,3 +1,5 @@
+import { prepareServicePeriod } from "./service-period.mjs";
+import { randomUUID } from "node:crypto";
 import { handleRecipientDocuments } from "./recipient-documents.mjs";
 import { DriveError } from "./drive.mjs";
 import { handleDriveRequest } from "./drive.mjs";
@@ -320,6 +322,7 @@ ensureRecipientColumn("service_type", "TEXT NOT NULL DEFAULT '방문'");
 ensureRecipientColumn("caregiver_requirements", "TEXT NOT NULL DEFAULT ''");
 ensureRecipientColumn("reduction_type", "TEXT NOT NULL DEFAULT '일반'");
 ensureRecipientColumn("related_people", "TEXT NOT NULL DEFAULT ''");
+ensureRecipientColumn("medical_history", "TEXT NOT NULL DEFAULT ''");
 ensureRecipientColumn("assigned_backoffice_user_id", "TEXT");
 
 const ensureEmploymentColumn = (name, definition) => {
@@ -358,6 +361,7 @@ const recipientFromRow = (row) => ({
   caregiverRequirements: row.caregiver_requirements ?? "",
   reductionType: row.reduction_type ?? "일반",
   relatedPeople: row.related_people ?? "",
+  medicalHistory: row.medical_history ?? "",
   serviceStartDate: row.service_start_date,
   serviceEndDate: row.service_end_date,
   contractRegisteredDate: row.contract_registered_date,
@@ -497,8 +501,8 @@ const insertRecipient = db.prepare(`
     representative_name, representative_relation, representative_phone,
     service_type, caregiver_requirements, reduction_type, related_people,
     service_start_date, service_end_date, contract_registered_date,
-    contract_expired_date, enabled, created_at, updated_at, is_draft
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    contract_expired_date, enabled, created_at, updated_at, is_draft, medical_history
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertEmploymentContract = db.prepare(`
@@ -642,7 +646,8 @@ if (db.prepare("SELECT COUNT(*) AS count FROM recipients").get().count === 0) {
       recipient.enabled ? 1 : 0,
       recipient.createdAt,
       recipient.updatedAt,
-      recipient.isDraft ? 1 : 0
+      recipient.isDraft ? 1 : 0,
+      recipient.medicalHistory ?? ""
     );
   }
 }
@@ -816,6 +821,7 @@ const normalizeRecipient = (body, existing = null) => {
     caregiverRequirements: assertString(body.caregiverRequirements ?? existing?.caregiverRequirements, "caregiverRequirements", { optional: true }) ?? "",
     reductionType: assertString(body.reductionType ?? existing?.reductionType ?? "일반", "reductionType"),
     relatedPeople: assertString(body.relatedPeople ?? existing?.relatedPeople, "relatedPeople", { optional: true }) ?? "",
+    medicalHistory: assertString(body.medicalHistory ?? existing?.medicalHistory, "medicalHistory", { optional: true }) ?? "",
     serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate", { optional: body.isDraft }) ?? "",
     serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate", { optional: body.isDraft }) ?? "",
     contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate", { optional: body.isDraft }) ?? "",
@@ -1017,7 +1023,7 @@ const applyRecipientUpdate = (recipient) => {
       phone = ?, address = ?, representative_name = ?, representative_relation = ?,
       representative_phone = ?, service_start_date = ?, service_end_date = ?,
       service_type = ?, caregiver_requirements = ?, reduction_type = ?, related_people = ?,
-      contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?, is_draft = ?
+      contract_registered_date = ?, contract_expired_date = ?, enabled = ?, updated_at = ?, is_draft = ?, medical_history = ?
     WHERE id = ?
   `).run(
     recipient.name,
@@ -1042,6 +1048,7 @@ const applyRecipientUpdate = (recipient) => {
     recipient.enabled ? 1 : 0,
     recipient.updatedAt,
     recipient.isDraft ? 1 : 0,
+    recipient.medicalHistory ?? "",
     recipient.id
   );
 };
@@ -1163,6 +1170,23 @@ const server = createServer(async (request, response) => {
       }
     })) return;
     const parts = parsePath(request.url ?? "/");
+    if (parts[0] === 'api' && parts[1] === 'recipients' && parts[2] && parts[3] === 'service-period' && !parts[4] && request.method === 'PUT') {
+      const body = await readBody(request);
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const existing = readRecipient(parts[2]);
+        if (!existing) throw Object.assign(new Error('수급자를 찾을 수 없습니다.'), {status:404});
+        const change = prepareServicePeriod(body, existing);
+        if (change.changed) {
+          const now = new Date().toISOString();
+          db.prepare('UPDATE recipients SET service_start_date=?,service_end_date=?,contract_registered_date=?,contract_expired_date=?,updated_at=? WHERE id=?').run(change.start,change.end,change.start,change.end,now,parts[2]);
+          db.prepare('INSERT INTO recipient_contract_events(id,recipient_id,type,service_start_date,service_end_date,memo,created_at) VALUES(?,?,?,?,?,?,?)').run(randomUUID(),parts[2],change.type,change.start,change.end,change.memo,now);
+        }
+        db.exec('COMMIT');
+      } catch(error) { db.exec('ROLLBACK'); throw error; }
+      sendJson(response,200,readRecipient(parts[2])); return;
+    }
+
 
     if (parts[0] === "api" && parts[1] === "backoffice-users") {
       const readState = () => ({
@@ -1211,7 +1235,7 @@ const server = createServer(async (request, response) => {
               recipient.representativeName, recipient.representativeRelation, recipient.representativePhone,
               recipient.serviceType, recipient.caregiverRequirements, recipient.reductionType, recipient.relatedPeople,
               recipient.serviceStartDate, recipient.serviceEndDate, recipient.contractRegisteredDate, recipient.contractExpiredDate,
-              recipient.enabled ? 1 : 0, recipient.createdAt, recipient.updatedAt, 1);
+              recipient.enabled ? 1 : 0, recipient.createdAt, recipient.updatedAt, 1, recipient.medicalHistory ?? "");
             saved.push(readRecipient(recipient.id));
           }
         }
@@ -1404,7 +1428,8 @@ const server = createServer(async (request, response) => {
         recipient.enabled ? 1 : 0,
         recipient.createdAt,
         recipient.updatedAt,
-        recipient.isDraft ? 1 : 0
+        recipient.isDraft ? 1 : 0,
+        recipient.medicalHistory ?? ""
       );
       sendJson(response, 201, { ...recipient, longTermCareNumber: visibleCareNumber(recipient.longTermCareNumber) });
       return;
@@ -1537,7 +1562,7 @@ const server = createServer(async (request, response) => {
       return;
     }
     const message = error instanceof Error ? error.message : "Unknown error";
-    const statusCode = error?.status === 409 || message.includes("UNIQUE constraint failed") ? 409 : 400;
+    const statusCode = error?.status === 404 ? 404 : error?.status === 409 || message.includes("UNIQUE constraint failed") ? 409 : 400;
     sendJson(response, statusCode, {
       error:
         statusCode === 409 && error?.status !== 409
