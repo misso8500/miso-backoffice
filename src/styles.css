@@ -2036,3 +2036,30 @@ p {
 .recipient-focus-table .recipient-row > span:not(.recipient-name) { display: block; }
 .recipient-focus-table .recipient-note-cell { white-space: pre-wrap; line-height: 1.6; overflow-wrap: anywhere; }
 .recipient-focus-table .recipient-row small { display: block; margin-top: 6px; }
+
+/* Basic list: compact staff display, with editing only when requested. */
+.recipient-focus-table.view-basic .table-head,
+.recipient-focus-table.view-basic .recipient-row {
+  grid-template-columns: minmax(170px, 1.6fr) minmax(130px, 1fr) minmax(70px, .6fr) minmax(100px, .8fr) minmax(170px, 1.1fr) 80px;
+  min-width: 860px;
+}
+.recipient-staff-assignment { display: grid; gap: 6px; min-width: 0; cursor: default; }
+.recipient-staff-button { display: inline-flex; align-items: center; justify-content: space-between; gap: 16px; justify-self: start; max-width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #4d4659; font: inherit; cursor: pointer; }
+.recipient-staff-button > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recipient-staff-change { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; font-size: 12px; color: #74658f; white-space: nowrap; }
+.recipient-staff-button:hover { border-color: #d7cfe3; background: #f5f2f9; }
+.recipient-staff-button:focus-visible, .recipient-staff-select select:focus-visible, .recipient-staff-cancel:focus-visible { outline: 2px solid #9585bd; outline-offset: 2px; }
+.recipient-staff-button:disabled { cursor: default; opacity: .65; }
+.recipient-staff-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.recipient-staff-select { position: relative; width: 160px; max-width: 100%; }
+.recipient-staff-select select { appearance: none; width: 100%; min-height: 42px; padding: 8px 36px 8px 10px; border: 1px solid #d7cfe3; border-radius: 6px; background: white; color: #4d4659; font: inherit; font-size: 14px; }
+.recipient-staff-select > svg { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #74658f; }
+.recipient-staff-cancel { min-height: 36px; padding: 6px; border: 0; background: transparent; color: #74658f; font: inherit; font-size: 13px; cursor: pointer; }
+.recipient-staff-assignment small { color: #706979; font-size: 12px; }
+.recipient-staff-assignment .assignment-error { color: #8a2d2d; }
+.recipient-focus-table.view-basic .recipient-row.is-contract-expired { background: #fff5ef; box-shadow: inset 3px 0 0 #d5a28c; }
+.recipient-focus-table.view-basic .recipient-row.is-contract-expired:hover { background: #fceee5; }
+.recipient-focus-table.view-basic .is-contract-expired .contract-status { background: #f4e4da; color: #895c48; }
+.recipient-focus-table.view-basic .contract-expired-note { color: #895c48; }
+.density-toggle { flex-shrink: 0; }
+.density-toggle button { white-space: nowrap; min-width: 48px; }

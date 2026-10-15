@@ -1,8 +1,9 @@
+import RecipientStaffAssignment from "./RecipientStaffAssignment";
 import { Pencil, Trash2 } from 'lucide-react';
 import type { Recipient, BackofficeUser } from './types';
 export type RecipientView = 'basic' | 'medical' | 'validity' | 'address';
 const headings: Record<RecipientView, string[]> = {
-  basic: ['수급자','등급 · 인정번호','주요 연락처','서비스','담당 사회복지사'],
+  basic: ['수급자','계약상태','등급','서비스','담당 사회복지사'],
   medical: ['수급자','병력 · 건강 메모','요양보호사 구인조건','주요 연락처','등급'],
   validity: ['수급자','계약 상태','이용계약 시작일','이용계약 만료일','활성 상태'],
   address: ['수급자','수급자 주소','수급자 연락처','대표 연락자','담당 사회복지사']
@@ -15,9 +16,9 @@ export default function RecipientList({ recipients, view, users, status, open, e
   const contact = (r: Recipient) => <span><strong>{r.representativeName || '대표 연락자 미등록'}{r.representativeRelation ? ` (${r.representativeRelation})` : ''}</strong><small>{r.representativePhone || '연락처 미등록'}</small></span>;
   const staff = (r: Recipient) => <div className="inline-assignment" onClick={e=>e.stopPropagation()}><select aria-label={`${r.name} 담당 사회복지사`} disabled={assigning.includes(r.id)} value={r.assignedBackofficeUserId || ''} onChange={e=>assign(r,e.target.value)}><option value="">미배정</option>{users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select>{assigning.includes(r.id)&&<small role="status">저장 중…</small>}{errors[r.id]&&<small role="alert">{errors[r.id]}</small>}</div>;
   return <div className={`recipient-table recipient-focus-table view-${view}`}><div className="table-head">{headings[view].map(h=><span key={h}>{h}</span>)}<span>관리</span></div><ul>{recipients.map(r=><li key={r.id}>
-    <div className={`recipient-row ${r.enabled === false?'is-disabled':''}`} role="button" tabIndex={0} onClick={()=>open(r)} onKeyDown={e=>{if(e.target===e.currentTarget&&(e.key==='Enter'||e.key===' ')){e.preventDefault();open(r);}}}>
-      <span className="recipient-name"><strong>{r.name}</strong><small>{r.operationalName || r.birthDate || '상세 정보 입력 중'}</small></span>
-      {view==='basic'&&<><span>{r.careGrade || '등급 미등록'}<small>{r.longTermCareNumber || '인정번호 미등록'}</small></span>{contact(r)}<span>{r.serviceType}<small>{r.reductionType}</small></span>{staff(r)}</>}
+    <div className={`recipient-row ${r.enabled === false?'is-disabled':view==='basic' && status(r)==='계약종료'?'is-contract-expired':''}`} role="button" tabIndex={0} onClick={()=>open(r)} onKeyDown={e=>{if(e.target===e.currentTarget&&(e.key==='Enter'||e.key===' ')){e.preventDefault();open(r);}}}>
+      <span className="recipient-name"><strong>{r.name}</strong><small title={r.operationalName || undefined}>{r.operationalName || r.birthDate || '상세 정보 입력 중'}</small></span>
+      {view==='basic'&&<><span><em className={`contract-status status-${status(r)}`}>{status(r)==='정보입력중'?'정보 입력 중':status(r)==='계약종료'&&r.enabled!==false?'계약 만료':status(r)}</em>{status(r)==='계약종료'&&r.enabled!==false&&<small className="contract-expired-note">{r.serviceEndDate} 만료</small>}</span><span>{r.careGrade || '등급 미등록'}</span><span>{r.serviceType}<small>{r.reductionType}</small></span><RecipientStaffAssignment recipient={r} users={users} saving={assigning.includes(r.id)} error={errors[r.id]} onAssign={id=>assign(r,id)} /></>}
       {view==='medical'&&<><span className="recipient-note-cell">{r.medicalHistory || '병력 미등록'}</span><span className="recipient-note-cell">{r.caregiverRequirements || '구인조건 미등록'}</span>{contact(r)}<span>{r.careGrade || '등급 미등록'}</span></>}
       {view==='validity'&&<><span><em className={`contract-status status-${status(r)}`}>{status(r)==='정보입력중'?'정보 입력 중':status(r)}</em></span><span>{r.serviceStartDate || '시작일 미등록'}</span><span>{r.serviceEndDate || '만료일 미등록'}</span><span>{r.enabled===false?'비활성화':r.isDraft?'정보 입력 중':'활성'}</span></>}
       {view==='address'&&<><span className="recipient-note-cell">{r.address || '주소 미등록'}</span><span>{r.phone || '연락처 미등록'}</span>{contact(r)}{staff(r)}</>}
