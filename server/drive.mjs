@@ -65,6 +65,19 @@ export function createDriveReader(env = process.env, dependencies = {}) {
     throw new DriveError(404, '연결한 폴더에서 조회할 수 없는 이미지입니다.');
   }
   return {
+    async assertRootAllowed(allowedRoots) {
+      const seen = new Set();
+      let currentId = folderId;
+      for (let depth = 0; depth < 12; depth++) {
+        if (!validId(currentId) || seen.has(currentId)) break;
+        seen.add(currentId);
+        const current = await metadata(currentId);
+        if (current.trashed || current.mimeType !== 'application/vnd.google-apps.folder') break;
+        if (allowedRoots.includes(currentId)) return;
+        currentId = current.parents?.[0];
+      }
+      throw new DriveError(403, '승인된 수급자 상위 폴더 안의 사람별 폴더를 선택해 주세요.');
+    },
     async tree() {
       const root = await metadata(folderId);
       if (root.trashed || root.mimeType !== 'application/vnd.google-apps.folder') throw new DriveError(404, '폴더를 사용할 수 없습니다.');

@@ -65,3 +65,32 @@ test('recursive Drive image access checks each ancestor and refuses moved/delete
     else{assert.equal((await drive.image(fileId)).bytes.length,1);assert.equal(mediaCalls,1);}
   }
 });
+
+test('parent approval allows descendant person folders and checks before listing or downloading',async()=>{
+  const root='approved_root_12345';let lists=0,downloads=0;
+  const drive=recipientReader(folderId,{DRIVE_RECIPIENT_ROOT_IDS:root},{token:async()=>'t',fetch:async url=>{
+    if(url.searchParams.get('alt')==='media'){downloads++;return new Response(new Uint8Array([1]));}
+    if(url.pathname.endsWith('/files')){lists++;return new Response(JSON.stringify({files:[]}));}
+    const id=url.pathname.split('/').at(-1);
+    const data=id===fileId?{mimeType:'image/png',parents:[folderId],size:'1'}:{mimeType:'application/vnd.google-apps.folder',parents:id===folderId?[root]:[],name:'folder'};
+    return new Response(JSON.stringify(data));
+  }});
+  await drive.tree();await drive.image(fileId);assert.equal(lists,1);assert.equal(downloads,1);
+});
+test('outside, deleted, shortcut and cyclic parent folders fail closed before reading files',async()=>{
+  for(const mode of ['outside','deleted','shortcut','cycle']){
+    const drive=recipientReader(folderId,{DRIVE_RECIPIENT_ROOT_IDS:'approved_root_12345'},{token:async()=>'t',fetch:async url=>{
+      assert.notEqual(url.searchParams.get('alt'),'media');assert.ok(!url.pathname.endsWith('/files'));
+      const data={mimeType:mode==='shortcut'?'application/vnd.google-apps.shortcut':'application/vnd.google-apps.folder',parents:mode==='cycle'?[folderId]:[],trashed:mode==='deleted'};
+      return new Response(JSON.stringify(data));
+    }});
+    await assert.rejects(drive.tree(),{status:403});await assert.rejects(drive.image(fileId),{status:403});
+  }
+});
+test('moving a connected folder outside the approved parent is detected on the next request',async()=>{
+  let parent='approved_root_12345';
+  const env={DRIVE_RECIPIENT_ROOT_IDS:parent};
+  const deps={token:async()=>'t',fetch:async url=>new Response(JSON.stringify(url.pathname.endsWith('/files')?{files:[]}:{mimeType:'application/vnd.google-apps.folder',parents:url.pathname.endsWith(folderId)?[parent]:[]}))};
+  await recipientReader(folderId,env,deps).tree();parent='other_root_12345';
+  await assert.rejects(recipientReader(folderId,env,deps).tree(),{status:403});
+});
