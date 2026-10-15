@@ -1,3 +1,7 @@
+import { handleRecipientPlans, guardProfilePlanFields } from "../recipient-plans.mjs";
+import { createPostgresPlanStore } from "../recipient-plan-stores.mjs";
+import { prepareServicePeriod } from "../service-period.mjs";
+import { randomUUID } from "node:crypto";
 import { handleRecipientDocuments } from "../recipient-documents.mjs";
 import { DriveError } from "../drive.mjs";
 import { handleDriveRequest } from "../drive.mjs";
@@ -155,6 +159,7 @@ const recipientFromRow = (row) => ({
   caregiverRequirements: row.caregiver_requirements ?? "",
   reductionType: row.reduction_type ?? "일반",
   relatedPeople: row.related_people ?? "",
+  medicalHistory: row.medical_history ?? "",
   serviceStartDate: row.service_start_date,
   serviceEndDate: row.service_end_date,
   contractRegisteredDate: row.contract_registered_date,
@@ -285,6 +290,14 @@ const employmentContractFromRow = async (row) => ({
   updatedAt: row.updated_at
 });
 
+const planStore = createPostgresPlanStore(pool, recipientFromRow, async (executor,id)=>{
+  const result=await executor.query('SELECT payload FROM recipient_documents WHERE recipient_id=$1',[id]);
+  return result.rows[0]?.payload?.periods??[];
+}, async executor=>{
+  const result=await executor.query("SELECT recipient_id, payload->'periods' AS periods FROM recipient_documents");
+  return result.rows.map(row=>({recipient_id:row.recipient_id,periods:(row.periods??[]).map(p=>({id:p.id,startDate:p.startDate,endDate:p.endDate}))}));
+});
+
 const readRecipient = async (recipientId) => {
   const { rows } = await pool.query(
     `
@@ -301,11 +314,12 @@ const readRecipient = async (recipientId) => {
     [recipientId]
   );
 
-  return rows[0] ? recipientFromRow(rows[0]) : null;
+  return rows[0] ? (await planStore.enrich([recipientFromRow(rows[0])]))[0] : null;
 };
 
 const normalizeRecipient = (body, existing = null) => {
   body = prepareRecipientBody(body, existing);
+  guardProfilePlanFields(body, existing);
   const now = new Date().toISOString();
   const recipient = {
     isDraft: body.isDraft,
@@ -325,6 +339,7 @@ const normalizeRecipient = (body, existing = null) => {
     caregiverRequirements: assertString(body.caregiverRequirements ?? existing?.caregiverRequirements, "caregiverRequirements", { optional: true }) ?? "",
     reductionType: assertString(body.reductionType ?? existing?.reductionType ?? "일반", "reductionType"),
     relatedPeople: assertString(body.relatedPeople ?? existing?.relatedPeople, "relatedPeople", { optional: true }) ?? "",
+    medicalHistory: assertString(body.medicalHistory ?? existing?.medicalHistory, "medicalHistory", { optional: true }) ?? "",
     serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate", { optional: body.isDraft }) ?? "",
     serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate", { optional: body.isDraft }) ?? "",
     contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate", { optional: body.isDraft }) ?? "",
@@ -494,8 +509,8 @@ const insertRecipient = async (recipient, executor = pool) =>
         representative_name, representative_relation, representative_phone,
         service_type, caregiver_requirements, reduction_type, related_people,
         service_start_date, service_end_date, contract_registered_date,
-        contract_expired_date, enabled, created_at, updated_at, is_draft
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+        contract_expired_date, enabled, created_at, updated_at, is_draft, medical_history
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
     `,
     [
       recipient.id,
@@ -521,7 +536,8 @@ const insertRecipient = async (recipient, executor = pool) =>
       recipient.enabled,
       recipient.createdAt,
       recipient.updatedAt,
-      recipient.isDraft ?? false
+      recipient.isDraft ?? false,
+      recipient.medicalHistory ?? ""
     ]
   );
 
@@ -533,7 +549,7 @@ const updateRecipient = async (recipient, executor = pool) =>
         phone = $7, address = $8, representative_name = $9, representative_relation = $10,
         representative_phone = $11, service_type = $12, caregiver_requirements = $13,
         reduction_type = $14, related_people = $15, service_start_date = $16, service_end_date = $17,
-        contract_registered_date = $18, contract_expired_date = $19, enabled = $20, updated_at = $21, is_draft = $23
+        contract_registered_date = $18, contract_expired_date = $19, enabled = $20, updated_at = $21, is_draft = $23, medical_history = $24
       WHERE id = $22
     `,
     [
@@ -559,7 +575,8 @@ const updateRecipient = async (recipient, executor = pool) =>
       recipient.enabled,
       recipient.updatedAt,
       recipient.id,
-      recipient.isDraft ?? false
+      recipient.isDraft ?? false,
+      recipient.medicalHistory ?? ""
     ]
   );
 
@@ -794,6 +811,7 @@ export const handlePostgresRequest = async (request, response) => {
   try {
     const authentication = await handleAuthRequest(request, response, sendJson);
     if (authentication.handled) return;
+    if (await handleRecipientPlans(request, response, sendJson, planStore, authentication.user)) return;
     if (await handleDriveRequest(request, response, sendJson)) return;
     if (await handleRecipientDocuments(request, response, sendJson, {
       exists: async id => (await pool.query('SELECT 1 FROM recipients WHERE id=$1', [id])).rowCount > 0,
@@ -806,6 +824,23 @@ export const handlePostgresRequest = async (request, response) => {
       }
     })) return;
     const parts = parsePath(request.url ?? "/");
+    if (parts[0] === 'api' && parts[1] === 'recipients' && parts[2] && parts[3] === 'service-period' && !parts[4] && request.method === 'PUT') {
+      const body = await readBody(request), client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const result = await client.query('SELECT * FROM recipients WHERE id=$1 FOR UPDATE', [parts[2]]);
+        if (!result.rows[0]) throw Object.assign(new Error('수급자를 찾을 수 없습니다.'), {status:404});
+        const existing = recipientFromRow(result.rows[0]), change = prepareServicePeriod(body, existing);
+        if (change.changed) {
+          const now = new Date().toISOString();
+          await client.query('UPDATE recipients SET service_start_date=$1,service_end_date=$2,contract_registered_date=$1,contract_expired_date=$2,updated_at=$3 WHERE id=$4', [change.start,change.end,now,parts[2]]);
+          await client.query('INSERT INTO recipient_contract_events(id,recipient_id,type,service_start_date,service_end_date,memo,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)', [randomUUID(),parts[2],change.type,change.start,change.end,change.memo,now]);
+        }
+        await client.query('COMMIT');
+      } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+      sendJson(response, 200, await readRecipient(parts[2])); return;
+    }
+
 
     if (parts[0] === "api" && parts[1] === "health" && request.method === "GET") {
       const { rows } = await pool.query(
@@ -867,7 +902,7 @@ export const handlePostgresRequest = async (request, response) => {
         await client.query("COMMIT");
       } catch (error) { await client.query("ROLLBACK"); throw error; }
       finally { client.release(); }
-      sendJson(response, 200, { recipients: saved });
+      sendJson(response, 200, { recipients: await planStore.enrich(saved) });
       return;
     }
 
@@ -973,7 +1008,7 @@ export const handlePostgresRequest = async (request, response) => {
         FROM recipients
         ORDER BY contract_expired_date ASC, name ASC
       `);
-      sendJson(response, 200, rows.map(recipientFromRow));
+      sendJson(response, 200, await planStore.enrich(rows.map(recipientFromRow)));
       return;
     }
 
@@ -1150,7 +1185,7 @@ export const handlePostgresRequest = async (request, response) => {
       return;
     }
     const message = error instanceof Error ? error.message : "Unknown error";
-    const statusCode = error?.status === 409 || message.includes("duplicate key") ? 409 : 400;
+    const statusCode = error?.status === 404 ? 404 : error?.status === 409 || message.includes("duplicate key") ? 409 : 400;
     sendJson(response, statusCode, {
       error:
         statusCode === 409 && error?.status !== 409

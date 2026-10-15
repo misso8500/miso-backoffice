@@ -36,10 +36,20 @@ export function normalizeDocuments(body) {
   });
   return { folderId: parseFolderId(body.folderId), periods, pages };
 }
-export function recipientReader(folderId, env = process.env) {
-  const allowed = (env.DRIVE_RECIPIENT_FOLDER_IDS ?? '').split(',').map(s => s.trim());
-  if (!allowed.includes(folderId)) throw new DriveError(403, '관리자가 승인하지 않은 폴더입니다. 폴더 공유 후 담당자에게 등록을 요청해 주세요.');
-  return createDriveReader({ ...env, DRIVE_TEST_FOLDER_ID: folderId, DRIVE_INCLUDE_SUBFOLDERS: 'true' });
+export function recipientReader(folderId, env = process.env, dependencies = {}) {
+  const allowed = (env.DRIVE_RECIPIENT_FOLDER_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  const roots = (env.DRIVE_RECIPIENT_ROOT_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!allowed.includes(folderId) && !roots.length) throw new DriveError(403, '수급자 서류의 상위 폴더가 아직 승인되지 않았습니다. 관리자에게 폴더 등록을 요청해 주세요.');
+  if (roots.some(id => !/^[A-Za-z0-9_-]{10,200}$/.test(id))) throw new DriveError(503, '서버의 수급자 상위 폴더 설정을 확인해 주세요.');
+  const reader = createDriveReader({ ...env, DRIVE_TEST_FOLDER_ID: folderId, DRIVE_INCLUDE_SUBFOLDERS: 'true' }, dependencies);
+  if (allowed.includes(folderId)) return reader;
+  // Validate again on every API request, including saved images: moved folders lose access.
+  let check;
+  const approve = () => check ??= reader.assertRootAllowed(roots);
+  return {
+    async tree() { await approve(); return reader.tree(); },
+    async image(id) { await approve(); return reader.image(id); }
+  };
 }
 // Caller must authenticate before entering. Repository adapters provide atomic version checks.
 export async function handleRecipientDocuments(request, response, sendJson, store, dependencies = {}) {

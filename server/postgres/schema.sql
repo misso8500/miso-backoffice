@@ -180,3 +180,21 @@ CREATE TABLE IF NOT EXISTS recipient_documents (
 );
 ALTER TABLE recipient_documents ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE recipient_documents FROM anon, authenticated;
+
+ALTER TABLE recipients ADD COLUMN IF NOT EXISTS medical_history TEXT NOT NULL DEFAULT '';
+
+-- Immutable care-plan revisions, attributed only to a verified application user.
+CREATE TABLE IF NOT EXISTS recipient_plans (
+  id TEXT PRIMARY KEY, recipient_id TEXT NOT NULL REFERENCES recipients(id), revision INTEGER NOT NULL,
+  payload JSONB NOT NULL, effective_date TEXT, change_reason TEXT NOT NULL, change_kind TEXT NOT NULL,
+  source_revision INTEGER, author_id TEXT, author_name TEXT NOT NULL, created_at TEXT NOT NULL,
+  UNIQUE(recipient_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_recipient_plans_date ON recipient_plans(recipient_id, effective_date DESC, revision DESC);
+ALTER TABLE recipient_plans ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE recipient_plans FROM anon, authenticated;
+
+-- Half-year execution schedules; existing memo records remain unclassified.
+ALTER TABLE recipient_plans ADD COLUMN IF NOT EXISTS plan_id TEXT;
+ALTER TABLE recipient_plans ADD COLUMN IF NOT EXISTS schedule JSONB;
+CREATE INDEX IF NOT EXISTS idx_recipient_plan_logical ON recipient_plans(recipient_id, plan_id, revision DESC);

@@ -1,3 +1,4 @@
+import DateInput from "./DateInput";
 import { Plus, Trash2 } from "lucide-react";
 import type { EmploymentWorkCondition, Recipient } from "./types";
 
@@ -79,15 +80,15 @@ export default function EmploymentConditionsEditor(props: Props) {
                 {Object.entries(matchingStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select></label>
               {["paused", "ended"].includes(condition.matchingStatus) && <label><span>일시정지·종료 적용일</span>
-                <input type="date" min={condition.effectiveStartDate || props.startDate} max={condition.effectiveEndDate || props.endDate}
+                <DateInput min={condition.effectiveStartDate || props.startDate} max={condition.effectiveEndDate || props.endDate}
                   required value={condition.statusDate} onChange={(event) => update({ statusDate: event.target.value })} /></label>}
               <label><span>서비스 제공 형태</span><input required value={condition.serviceType}
                 placeholder="방문요양, 방문목욕 등" onChange={(event) => update({ serviceType: event.target.value })} /></label>
               <label><span>가족요양 구분</span><select value={String(condition.familyCare)} onChange={(event) => update({ familyCare: event.target.value === "true" })}>
                 <option value="false">일반 요양</option><option value="true">가족요양</option></select></label>
-              <label><span>조건 적용 시작일</span><input type="date" min={props.startDate} max={props.endDate} required
+              <label><span>조건 적용 시작일</span><DateInput min={props.startDate} max={props.endDate} required
                 value={condition.effectiveStartDate || props.startDate} onChange={(event) => update({ effectiveStartDate: event.target.value })} /></label>
-              <label><span>조건 적용 종료일</span><input type="date" min={condition.effectiveStartDate || props.startDate} max={props.endDate} required
+              <label><span>조건 적용 종료일</span><DateInput min={condition.effectiveStartDate || props.startDate} max={props.endDate} required
                 value={condition.effectiveEndDate || props.endDate} onChange={(event) => update({ effectiveEndDate: event.target.value })} /></label>
               <label><span>임금 형태</span><select value={term.wageType}
                 onChange={(event) => props.onTermChange(term.id, "wageType", event.target.value)}><option>시급</option><option>월급</option></select></label>

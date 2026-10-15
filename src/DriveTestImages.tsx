@@ -1,3 +1,4 @@
+import { isDialogBackdropClick } from "./lib/modal";
 import DocumentImageContent from "./DocumentImageContent";
 import { useEffect, useRef, useState } from 'react';
 import { getAuthHeaders } from './auth';
@@ -44,7 +45,7 @@ export default function DriveTestImages() {
     <p className="contract-attachment-note">연결 확인용 폴더입니다. 아래 이미지는 이 사람의 실제 서류로 등록되지 않습니다.</p>
     {message && <p role="status">{message}</p>}
     <ul className="document-thumbnail-grid">{images.map((file, index) => <li key={file.id}><button type="button" className="document-thumbnail" onClick={() => setSelected(index)}><img src={file.url} alt={`테스트 이미지 ${index + 1}`} /><span>{index + 1}장 · 크게 보기</span></button><small>{file.name}</small></li>)}</ul>
-    <dialog className="document-image-viewer" ref={dialog} aria-label="Drive 테스트 이미지 크게 보기" onCancel={() => setSelected(null)} onClose={() => setSelected(null)} onKeyDown={(event) => {
+    <dialog onClick={event=>{if(isDialogBackdropClick(event))(() => setSelected(null))();}} className="document-image-viewer" ref={dialog} aria-label="Drive 테스트 이미지 크게 보기" onCancel={() => setSelected(null)} onClose={() => setSelected(null)} onKeyDown={(event) => {
       event.stopPropagation();
       if (selected !== null && event.key === 'ArrowLeft' && selected > 0) setSelected(selected - 1);
       if (selected !== null && event.key === 'ArrowRight' && selected < images.length - 1) setSelected(selected + 1);

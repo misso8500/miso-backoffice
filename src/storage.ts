@@ -1,9 +1,12 @@
+import {validatePlanResponse} from '../shared/validate-plan-response.mjs';
 import { getAuthHeaders, authFailureEvent } from "./auth";
 import type {
   EmploymentContract,
   EmploymentContractInput,
   BackofficeState,
   Recipient,
+  RecipientPlanState,
+  RecipientPlanInput,
   RecipientInput,
   RestoreRecipientInput,
   TerminateContractInput
@@ -168,3 +171,12 @@ export const updateEmploymentContract = (contract: EmploymentContractInput) =>
     method: "PUT",
     body: JSON.stringify({ ...contract, enabled: contract.enabled ?? true })
   }).then(normalizeEmploymentContract);
+
+export const updateRecipientServicePeriod = (id: string, input: { serviceStartDate: string; serviceEndDate: string; reason: 'renewal' | 'correction'; updatedAt: string }) =>
+  requestJson<Recipient>(`/api/recipients/${id}/service-period`, { method: 'PUT', body: JSON.stringify(input) });
+
+export type RecipientPeriodEvent = { id: string; type: string; serviceStartDate: string; serviceEndDate: string; memo?: string; createdAt: string; contractExpiredDate?: string };
+export const loadRecipientPeriodEvents = (id: string) => requestJson<RecipientPeriodEvent[]>(`/api/recipients/${id}/contract-events`);
+
+export const loadRecipientPlan = (id: string) => requestJson<RecipientPlanState>(`/api/recipients/${id}/plan`).then(validatePlanResponse);
+export const saveRecipientPlan = (id: string, input: RecipientPlanInput) => requestJson<RecipientPlanState>(`/api/recipients/${id}/plan`, { method: 'PUT', body: JSON.stringify(input) }).then(validatePlanResponse);

@@ -61,6 +61,47 @@ test("SQLite API persists recipient conditions and history, and rolls back faile
     assert.equal((await call(path, 'PUT', body)).status, 400);
     assert.equal((await call(path)).data.version, null);
   });
+  await t.test("recipient periods can be renewed separately, preserve history, and medical notes survive partial updates", async () => {
+    const created = await call('recipients/bulk-drafts','POST',{rows:[{id:'period-profile-test',name:'기간테스트'}]});
+    assert.equal(created.status,200);
+    let r=created.data.recipients[0];
+    const saved=await call(`recipients/${r.id}`,'PUT',{...r,medicalHistory:'확인된 건강 메모'});
+    assert.equal(saved.status,200);assert.equal(saved.data.medicalHistory,'확인된 건강 메모');r=saved.data;
+    const input={serviceStartDate:'2026-09-09',serviceEndDate:'2028-09-08',reason:'renewal',updatedAt:r.updatedAt};
+    const renewed=await call(`recipients/${r.id}/service-period`,'PUT',input);
+    assert.equal(renewed.status,200);assert.equal(renewed.data.isDraft,true);assert.equal(renewed.data.medicalHistory,'확인된 건강 메모');
+    const history=await call(`recipients/${r.id}/contract-events`);
+    assert.equal(history.data[0].type,'service_renewal');assert.equal(JSON.parse(history.data[0].memo).previousStartDate,'');
+    const stale=await call(`recipients/${r.id}/service-period`,'PUT',input);assert.equal(stale.status,409);
+    const invalid=await call(`recipients/${r.id}/service-period`,'PUT',{...input,updatedAt:renewed.data.updatedAt,serviceEndDate:'2025-01-01'});assert.equal(invalid.status,400);
+    assert.equal((await call(`recipients/${r.id}/contract-events`)).data.length,1);
+    const partial=await call(`recipients/${r.id}`,'PUT',{...renewed.data,medicalHistory:undefined,phone:'010-1234-5678'});assert.equal(partial.data.medicalHistory,'확인된 건강 메모');
+  });
+  await t.test("care plans use verified authors, persist history and enrich list responses", async () => {
+    const id='period-profile-test';
+    const path=`recipients/${id}/plan`;
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/${path}`)).status,401);
+    assert.equal((await call('recipients/missing/plan')).status,404);
+    const original=(await call(path)).data;assert.equal(original.version,0);
+    const notes={medicalHistory:'계획 건강 메모',caregiverRequirements:'오전 가능',familyNotes:'가족 돌봄',hospitalNotes:'관련 병원',servicePlanNotes:'방문 계획'};
+    const input={version:0,notes,effectiveDate:'2026-09-09',schedule:{category:'initial',status:'completed',endDate:'2026-12-31',writtenDate:'2026-01-01',notifiedDate:'2026-01-01',recognitionPeriod:{id:'',startDate:'2026-09-09',endDate:'2028-09-08',careGrade:'4등급'}},changeKind:'change',changeReason:'최초 계획',authorName:'위조 작성자'};
+    const result=await call(path,'PUT',input);assert.equal(result.status,200,JSON.stringify(result.data));
+    assert.equal(result.data.current.authorName,'테스트');assert.equal(result.data.history.length,2);assert.equal(result.data.history[1].notes.medicalHistory,'확인된 건강 메모');
+    const listed=(await call('recipients')).data.find(r=>r.id===id);assert.equal(listed.familyNotes,notes.familyNotes);assert.equal(listed.planSummary.version,2);
+    const detail=(await call(`recipients/${id}`)).data;assert.equal(detail.hospitalNotes,notes.hospitalNotes);
+    assert.equal((await call(path,'PUT',input)).status,409);
+    assert.equal((await call(`recipients/${id}`,'PUT',{...detail,medicalHistory:'이력 없는 변경'})).status,400);
+    const profile=await call(`recipients/${id}`,'PUT',{...detail,phone:'010-4444-5555'});assert.equal(profile.status,200);assert.equal(profile.data.medicalHistory,notes.medicalHistory);
+  });
+  await t.test("validity list includes recognition dates without document file or folder payloads", async () => {
+    const db=new DatabaseSync(databasePath);
+    const period={id:'recognition-test',startDate:'2026-09-09',endDate:'2028-09-08'};
+    try {db.prepare('INSERT INTO recipient_documents(recipient_id,folder_id,payload,version) VALUES(?,?,?,?)').run('period-profile-test','test-only-folder',JSON.stringify({periods:[period],pages:[{fileId:'private-image'}]}),'test-version');} finally {db.close();}
+    const list=await call('recipients');assert.equal(list.status,200);
+    const recipient=list.data.find(r=>r.id==='period-profile-test');assert.deepEqual(recipient.recognitionPeriods,[period]);
+    assert.equal(recipient.pages,undefined);assert.equal(recipient.folderId,undefined);assert.equal(JSON.stringify(recipient).includes('private-image'),false);
+    const detail=await call('recipients/period-profile-test');assert.deepEqual(detail.data.recognitionPeriods,[period]);
+  });
   const legacy = (await call("employment-contracts")).data[0];
   assert.ok(legacy && recipients.length >= 2);
   const term = (id) => ({ id, wageType: "시급", wageAmount: 14000, nonTaxableMealAllowance: 0, nonTaxableVehicleAllowance: 0, otherNonTaxablePay: 0 });

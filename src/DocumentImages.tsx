@@ -1,3 +1,4 @@
+import { isDialogBackdropClick } from "./lib/modal";
 import DocumentImageContent from "./DocumentImageContent";
 import { useEffect, useId, useRef, useState, type ChangeEvent } from "react";
 import { ImagePlus } from "lucide-react";
@@ -47,7 +48,7 @@ export default function DocumentImages({ title, expectedPages }: { title: string
         setPages((current) => current.filter((item) => item.id !== page.id));
       }}>선택 취소</button>
     </li>)}</ul>}
-    <dialog ref={dialogRef} className="document-image-viewer" aria-label={`${title} 크게 보기`} onCancel={() => setSelectedId(null)} onClose={() => setSelectedId(null)} onKeyDown={(event) => {
+    <dialog onClick={event=>{if(isDialogBackdropClick(event))(() => setSelectedId(null))();}} ref={dialogRef} className="document-image-viewer" aria-label={`${title} 크게 보기`} onCancel={() => setSelectedId(null)} onClose={() => setSelectedId(null)} onKeyDown={(event) => {
       event.stopPropagation();
       if (event.key === "ArrowLeft" && index > 0) setSelectedId(pages[index - 1].id);
       if (event.key === "ArrowRight" && index < pages.length - 1) setSelectedId(pages[index + 1].id);

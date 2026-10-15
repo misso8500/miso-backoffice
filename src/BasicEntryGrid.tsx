@@ -82,7 +82,7 @@ export default function BasicEntryGrid({ existing = [], existingContracts = [], 
     finally { setSaving(false); }
   };
 
-  return <div className="detail-backdrop recipient-grid-backdrop">
+  return <div className="detail-backdrop recipient-grid-backdrop" onClick={event=>{if(event.target===event.currentTarget)close();}}>
     <section className="recipient-grid-panel" role="dialog" aria-modal="true" aria-labelledby="recipient-grid-title"
       onKeyDown={(event) => {
         if (event.key === "Escape") { event.stopPropagation(); close(); }

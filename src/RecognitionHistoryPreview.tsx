@@ -1,3 +1,4 @@
+import DateInput from "./DateInput";
 import DriveTestImages from "./DriveTestImages";
 import { useState } from "react";
 import "./RecognitionHistoryPreview.css";
@@ -30,7 +31,7 @@ export default function RecognitionHistoryPreview({ recipient }: { recipient: Re
       setAdding(false); setStart(""); setEnd(""); setError("");
     }}>
       <label className="recognition-reason">인정 등급<select value={grade} onChange={(event) => setGrade(event.target.value)}>{["1등급", "2등급", "3등급", "4등급", "5등급", "인지지원등급"].map((value) => <option key={value}>{value}</option>)}</select></label>
-      <div className="recognition-preview-dates"><label>인정 시작일<input type="date" required min="1000-01-01" max="9999-12-31" value={start} onChange={(event) => { setStart(event.target.value); setError(""); }} /></label><label>인정 종료일<input type="date" required min={start || "1000-01-01"} max="9999-12-31" value={end} onChange={(event) => { setEnd(event.target.value); setError(""); }} /></label></div>
+      <div className="recognition-preview-dates"><label>인정 시작일<DateInput required min="1000-01-01" max="9999-12-31" value={start} onChange={(event) => { setStart(event.target.value); setError(""); }} /></label><label>인정 종료일<DateInput required min={start || "1000-01-01"} max="9999-12-31" value={end} onChange={(event) => { setEnd(event.target.value); setError(""); }} /></label></div>
       {error && <p role="alert">{error}</p>}
       <button type="submit">서류 묶음 미리보기</button>
     </form>}
