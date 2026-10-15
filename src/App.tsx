@@ -4,7 +4,7 @@ import EmploymentConditionsEditor, { createEmptyWorkCondition, type EmploymentCo
 import type { AuthUser } from "./auth";
 import EmploymentContractAttachments from "./EmploymentContractAttachments";
 import { getMatchingSummary, getEmploymentContractStatus, getEmploymentCurrentYear, getWorkerKey, groupEmploymentContracts, compareEmploymentContracts, formatEmploymentPeriod, isValidEmploymentPeriod } from "./lib/employment-contracts";
-import RecognitionHistoryPreview from "./RecognitionHistoryPreview";
+import RecipientDocuments from "./RecipientDocuments";
 import {
   useCallback,
   useEffect,
@@ -1990,7 +1990,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               {assignmentErrors[selectedRecipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[selectedRecipient.id]}</small>}
             </div>
 
-            <RecognitionHistoryPreview key={selectedRecipient.id} recipient={selectedRecipient} />
+            <RecipientDocuments key={selectedRecipient.id} recipientId={selectedRecipient.id} recipientName={selectedRecipient.name} />
 
             <div className="detail-sections">
               {detailSections.map((section) => (

@@ -1,3 +1,5 @@
+import { handleRecipientDocuments } from "./recipient-documents.mjs";
+import { DriveError } from "./drive.mjs";
 import { handleDriveRequest } from "./drive.mjs";
 import { prepareEmploymentBody, prepareEmploymentDraftRows, sameEmploymentDraft } from "./employment-drafts.mjs";
 import { prepareRecipientBody, prepareDraftRows, sameDraft, visibleCareNumber } from "./recipient-drafts.mjs";
@@ -1136,6 +1138,10 @@ const replaceEmploymentContractChildren = (contract) => {
   }
 };
 
+db.exec(`CREATE TABLE IF NOT EXISTS recipient_documents (
+  recipient_id TEXT PRIMARY KEY REFERENCES recipients(id), folder_id TEXT NOT NULL UNIQUE,
+  payload TEXT NOT NULL, version TEXT NOT NULL
+)`);
 const server = createServer(async (request, response) => {
   if (request.method === "OPTIONS") {
     sendJson(response, 204, {});
@@ -1146,6 +1152,16 @@ const server = createServer(async (request, response) => {
     const authentication = await handleAuthRequest(request, response, sendJson);
     if (authentication.handled) return;
     if (await handleDriveRequest(request, response, sendJson)) return;
+    if (await handleRecipientDocuments(request, response, sendJson, {
+      exists: id => Boolean(db.prepare('SELECT 1 FROM recipients WHERE id=?').get(id)),
+      get: id => { const row = db.prepare('SELECT payload FROM recipient_documents WHERE recipient_id=?').get(id); return row ? JSON.parse(row.payload) : null; },
+      save: (id, payload, version) => {
+        const result = version === null
+          ? db.prepare('INSERT INTO recipient_documents(recipient_id,folder_id,payload,version) VALUES(?,?,?,?) ON CONFLICT(recipient_id) DO NOTHING').run(id,payload.folderId,JSON.stringify(payload),payload.version)
+          : db.prepare('UPDATE recipient_documents SET folder_id=?,payload=?,version=? WHERE recipient_id=? AND version=?').run(payload.folderId,JSON.stringify(payload),payload.version,id,version);
+        if (!result.changes) throw new DriveError(409, '다른 사용자가 변경했습니다. 다시 불러와 주세요.');
+      }
+    })) return;
     const parts = parsePath(request.url ?? "/");
 
     if (parts[0] === "api" && parts[1] === "backoffice-users") {

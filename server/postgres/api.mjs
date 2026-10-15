@@ -1,3 +1,5 @@
+import { handleRecipientDocuments } from "../recipient-documents.mjs";
+import { DriveError } from "../drive.mjs";
 import { handleDriveRequest } from "../drive.mjs";
 import { prepareEmploymentBody, prepareEmploymentDraftRows, sameEmploymentDraft } from "../employment-drafts.mjs";
 import { prepareRecipientBody, prepareDraftRows, sameDraft, visibleCareNumber } from "../recipient-drafts.mjs";
@@ -793,6 +795,16 @@ export const handlePostgresRequest = async (request, response) => {
     const authentication = await handleAuthRequest(request, response, sendJson);
     if (authentication.handled) return;
     if (await handleDriveRequest(request, response, sendJson)) return;
+    if (await handleRecipientDocuments(request, response, sendJson, {
+      exists: async id => (await pool.query('SELECT 1 FROM recipients WHERE id=$1', [id])).rowCount > 0,
+      get: async id => (await pool.query('SELECT payload FROM recipient_documents WHERE recipient_id=$1', [id])).rows[0]?.payload ?? null,
+      save: async (id, payload, version) => {
+        const result = version === null
+          ? await pool.query('INSERT INTO recipient_documents(recipient_id,folder_id,payload,version) VALUES($1,$2,$3,$4) ON CONFLICT(recipient_id) DO NOTHING', [id,payload.folderId,JSON.stringify(payload),payload.version])
+          : await pool.query('UPDATE recipient_documents SET folder_id=$2,payload=$3,version=$4 WHERE recipient_id=$1 AND version=$5', [id,payload.folderId,JSON.stringify(payload),payload.version,version]);
+        if (!result.rowCount) throw new DriveError(409, '다른 사용자가 변경했습니다. 다시 불러와 주세요.');
+      }
+    })) return;
     const parts = parsePath(request.url ?? "/");
 
     if (parts[0] === "api" && parts[1] === "health" && request.method === "GET") {

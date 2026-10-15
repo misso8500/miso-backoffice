@@ -2002,3 +2002,25 @@ p {
 }
 .document-image-viewer button { min-height: 44px; }
 .document-images button:focus-visible { outline: 3px solid #9585bd; outline-offset: 3px; }
+
+.recipient-document-editor > label { display: grid; gap: 8px; margin: 16px 0; }
+.recipient-document-editor input:not([type="checkbox"]), .recipient-document-editor select { padding: 10px; width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid #d7d0e5; border-radius: 6px; font: inherit; }
+.recipient-document-editor > button { margin-top: 12px; }
+.document-candidate { padding: 16px; margin: 16px 0; background: white; border: 1px solid #d7d0e5; border-radius: 8px; }
+.document-candidate > label { display: flex; align-items: center; gap: 10px; overflow-wrap: anywhere; }
+.document-candidate input[type="checkbox"] { width: 22px; height: 22px; flex-shrink: 0; }
+.document-candidate .document-thumbnail { width: 170px; margin: 12px 0; }
+.document-candidate-fields { display: flex; flex-wrap: wrap; gap: 12px; }
+.document-candidate-fields label { display: grid; gap: 6px; flex: 1; min-width: 150px; }
+
+.recognition-document-bundle { padding: 14px; margin: 12px 0 0; }
+.recognition-document-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.recognition-document-grid li { align-content: start; }
+.recognition-document-grid .document-thumbnail { width: 100%; box-sizing: border-box; }
+.recognition-document-grid .document-thumbnail img { height: 150px; }
+.document-page-label { min-height: 42px; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.document-bundle-count { color: #655080; font-size: 14px; font-weight: 700; }
+.document-missing-note { margin-bottom: 0; color: #775518; font-size: 13px; }
+@media (max-width: 600px) {
+  .recognition-document-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

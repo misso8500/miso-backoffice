@@ -49,6 +49,18 @@ test("SQLite API persists recipient conditions and history, and rolls back faile
     return { status: response.status, data: await response.json() };
   };
   const recipients = (await call("recipients")).data;
+  await t.test("recipient document routes require login and validate recipient, folder and periods", async () => {
+    const path = `recipients/${recipients[0].id}/documents`;
+    const unauthenticated = await fetch(`http://127.0.0.1:${port}/api/${path}`);
+    assert.equal(unauthenticated.status, 401);
+    assert.equal((await call('recipients/missing/documents')).status, 404);
+    assert.equal((await call(path)).data.version, null);
+    const body = { folderId: 'unapproved_folder_12345', periods: [], pages: [], version: null };
+    assert.equal((await call(path, 'PUT', body)).status, 403);
+    body.periods = [{ id: 'test', startDate: '2026-02-30', endDate: '2028-01-01' }];
+    assert.equal((await call(path, 'PUT', body)).status, 400);
+    assert.equal((await call(path)).data.version, null);
+  });
   const legacy = (await call("employment-contracts")).data[0];
   assert.ok(legacy && recipients.length >= 2);
   const term = (id) => ({ id, wageType: "시급", wageAmount: 14000, nonTaxableMealAllowance: 0, nonTaxableVehicleAllowance: 0, otherNonTaxablePay: 0 });

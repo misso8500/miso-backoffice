@@ -30,7 +30,46 @@ export function createDriveReader(env = process.env, dependencies = {}) {
   async function metadata(id) {
     return (await call(`files/${id}`, { fields: 'id,name,mimeType,parents,trashed,size,driveId' })).json();
   }
+  async function assertWithinRoot(file) {
+    const seen = new Set();
+    let current = file;
+    for (let depth = 0; depth < 12; depth++) {
+      if (current.trashed) break;
+      if (current.parents?.includes(folderId)) {
+        const root = await metadata(folderId);
+        if (!root.trashed && root.mimeType === 'application/vnd.google-apps.folder') return;
+        break;
+      }
+      const parent = current.parents?.[0];
+      if (!validId(parent) || seen.has(parent)) break;
+      seen.add(parent); current = await metadata(parent);
+    }
+    throw new DriveError(404, '연결한 폴더에서 조회할 수 없는 이미지입니다.');
+  }
   return {
+    async tree() {
+      const root = await metadata(folderId);
+      if (root.trashed || root.mimeType !== 'application/vnd.google-apps.folder') throw new DriveError(404, '폴더를 사용할 수 없습니다.');
+      const queue = [{ id: folderId, path: '', depth: 0 }], seen = new Set(), files = [];
+      let pages = 0;
+      while (queue.length) {
+        const folder = queue.shift();
+        if (seen.has(folder.id)) continue;
+        seen.add(folder.id);
+        let pageToken = '';
+        do {
+          if (++pages > 100 || seen.size > 50 || folder.depth > 8) throw new DriveError(422, '폴더가 너무 큽니다. 사람별 폴더를 연결해 주세요.');
+          const data = await (await call('files', { q: `'${folder.id}' in parents and trashed = false`, fields: 'nextPageToken,files(id,name,mimeType,size)', pageSize: '100', includeItemsFromAllDrives: 'true', orderBy: 'name', ...(pageToken ? { pageToken } : {}) })).json();
+          for (const file of data.files ?? []) {
+            if (file.mimeType === 'application/vnd.google-apps.folder') queue.push({ id: file.id, path: `${folder.path}${file.name}/`, depth: folder.depth + 1 });
+            else if (imageTypes.has(file.mimeType)) files.push({ ...file, path: folder.path });
+          }
+          if (files.length > 300) throw new DriveError(422, '사람별 폴더에 이미지는 300장까지 지원합니다.');
+          pageToken = data.nextPageToken;
+        } while (pageToken);
+      }
+      return { folderName: root.name, files };
+    },
     async list() {
       const folder = await metadata(folderId);
       if (folder.trashed || folder.mimeType !== 'application/vnd.google-apps.folder') throw new DriveError(404, '설정한 폴더를 사용할 수 없습니다.');
@@ -50,7 +89,9 @@ export function createDriveReader(env = process.env, dependencies = {}) {
       if (!validId(id)) throw new DriveError(400, '잘못된 파일 식별자입니다.');
       const file = await metadata(id);
       // Never serve arbitrary IDs, shortcuts or files outside the configured test folder.
-      if (file.trashed || !file.parents?.includes(folderId) || !imageTypes.has(file.mimeType)) throw new DriveError(404, '테스트 폴더에서 조회할 수 없는 이미지입니다.');
+      if (file.trashed || !imageTypes.has(file.mimeType)) throw new DriveError(404, '조회할 수 없는 이미지입니다.');
+      if (env.DRIVE_INCLUDE_SUBFOLDERS === 'true') await assertWithinRoot(file);
+      else if (!file.parents?.includes(folderId)) throw new DriveError(404, '테스트 폴더에서 조회할 수 없는 이미지입니다.');
       const maximum = 20 * 1024 * 1024;
       if (Number(file.size) > maximum) throw new DriveError(413, '20MB 이하의 이미지만 미리볼 수 있습니다.');
       const response = await call(`files/${id}`, { alt: 'media' });

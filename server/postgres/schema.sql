@@ -170,3 +170,13 @@ ALTER TABLE recipients ADD COLUMN IF NOT EXISTS is_draft BOOLEAN NOT NULL DEFAUL
 
 -- Name-only employment entries are distinct from completed contracts.
 ALTER TABLE employment_contracts ADD COLUMN IF NOT EXISTS is_draft BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Store Drive references only, never image binaries or service account credentials.
+CREATE TABLE IF NOT EXISTS recipient_documents (
+  recipient_id TEXT PRIMARY KEY REFERENCES recipients(id),
+  folder_id TEXT NOT NULL UNIQUE,
+  payload JSONB NOT NULL,
+  version TEXT NOT NULL
+);
+ALTER TABLE recipient_documents ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE recipient_documents FROM anon, authenticated;
