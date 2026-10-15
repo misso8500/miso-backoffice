@@ -1,9 +1,12 @@
+import {validatePlanResponse} from '../shared/validate-plan-response.mjs';
 import { getAuthHeaders, authFailureEvent } from "./auth";
 import type {
   EmploymentContract,
   EmploymentContractInput,
   BackofficeState,
   Recipient,
+  RecipientPlanState,
+  RecipientPlanInput,
   RecipientInput,
   RestoreRecipientInput,
   TerminateContractInput
@@ -174,3 +177,6 @@ export const updateRecipientServicePeriod = (id: string, input: { serviceStartDa
 
 export type RecipientPeriodEvent = { id: string; type: string; serviceStartDate: string; serviceEndDate: string; memo?: string; createdAt: string };
 export const loadRecipientPeriodEvents = (id: string) => requestJson<RecipientPeriodEvent[]>(`/api/recipients/${id}/contract-events`);
+
+export const loadRecipientPlan = (id: string) => requestJson<RecipientPlanState>(`/api/recipients/${id}/plan`).then(validatePlanResponse);
+export const saveRecipientPlan = (id: string, input: RecipientPlanInput) => requestJson<RecipientPlanState>(`/api/recipients/${id}/plan`, { method: 'PUT', body: JSON.stringify(input) }).then(validatePlanResponse);

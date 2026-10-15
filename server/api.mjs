@@ -1,3 +1,5 @@
+import { handleRecipientPlans, guardProfilePlanFields } from "./recipient-plans.mjs";
+import { createSqlitePlanStore } from "./recipient-plan-stores.mjs";
 import { prepareServicePeriod } from "./service-period.mjs";
 import { randomUUID } from "node:crypto";
 import { handleRecipientDocuments } from "./recipient-documents.mjs";
@@ -591,9 +593,14 @@ const selectRecipientById = db.prepare(`
   WHERE id = ?
 `);
 
+const planStore = createSqlitePlanStore(db, recipientFromRow, (executor,id)=>{
+  const row=executor.prepare('SELECT payload FROM recipient_documents WHERE recipient_id=?').get(id);
+  return row?JSON.parse(row.payload).periods??[]:[];
+});
+
 const readRecipient = (recipientId) => {
   const row = selectRecipientById.get(recipientId);
-  return row ? recipientFromRow(row) : null;
+  return row ? planStore.enrich([recipientFromRow(row)])[0] : null;
 };
 
 const insertEvent = ({
@@ -802,6 +809,7 @@ const deriveBirthDateFromResidentNumber = (residentRegistrationNumber) => {
 
 const normalizeRecipient = (body, existing = null) => {
   body = prepareRecipientBody(body, existing);
+  guardProfilePlanFields(body, existing);
   const now = new Date().toISOString();
   const recipient = {
     isDraft: body.isDraft,
@@ -1158,6 +1166,7 @@ const server = createServer(async (request, response) => {
   try {
     const authentication = await handleAuthRequest(request, response, sendJson);
     if (authentication.handled) return;
+    if (await handleRecipientPlans(request, response, sendJson, planStore, authentication.user)) return;
     if (await handleDriveRequest(request, response, sendJson)) return;
     if (await handleRecipientDocuments(request, response, sendJson, {
       exists: id => Boolean(db.prepare('SELECT 1 FROM recipients WHERE id=?').get(id)),
@@ -1360,7 +1369,7 @@ const server = createServer(async (request, response) => {
           ORDER BY contract_expired_date ASC, name ASC
         `)
         .all();
-      sendJson(response, 200, rows.map(recipientFromRow));
+      sendJson(response, 200, planStore.enrich(rows.map(recipientFromRow)));
       return;
     }
 

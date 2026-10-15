@@ -1,3 +1,5 @@
+import { handleRecipientPlans, guardProfilePlanFields } from "../recipient-plans.mjs";
+import { createPostgresPlanStore } from "../recipient-plan-stores.mjs";
 import { prepareServicePeriod } from "../service-period.mjs";
 import { randomUUID } from "node:crypto";
 import { handleRecipientDocuments } from "../recipient-documents.mjs";
@@ -288,6 +290,11 @@ const employmentContractFromRow = async (row) => ({
   updatedAt: row.updated_at
 });
 
+const planStore = createPostgresPlanStore(pool, recipientFromRow, async (executor,id)=>{
+  const result=await executor.query('SELECT payload FROM recipient_documents WHERE recipient_id=$1',[id]);
+  return result.rows[0]?.payload?.periods??[];
+});
+
 const readRecipient = async (recipientId) => {
   const { rows } = await pool.query(
     `
@@ -304,11 +311,12 @@ const readRecipient = async (recipientId) => {
     [recipientId]
   );
 
-  return rows[0] ? recipientFromRow(rows[0]) : null;
+  return rows[0] ? (await planStore.enrich([recipientFromRow(rows[0])]))[0] : null;
 };
 
 const normalizeRecipient = (body, existing = null) => {
   body = prepareRecipientBody(body, existing);
+  guardProfilePlanFields(body, existing);
   const now = new Date().toISOString();
   const recipient = {
     isDraft: body.isDraft,
@@ -800,6 +808,7 @@ export const handlePostgresRequest = async (request, response) => {
   try {
     const authentication = await handleAuthRequest(request, response, sendJson);
     if (authentication.handled) return;
+    if (await handleRecipientPlans(request, response, sendJson, planStore, authentication.user)) return;
     if (await handleDriveRequest(request, response, sendJson)) return;
     if (await handleRecipientDocuments(request, response, sendJson, {
       exists: async id => (await pool.query('SELECT 1 FROM recipients WHERE id=$1', [id])).rowCount > 0,
@@ -890,7 +899,7 @@ export const handlePostgresRequest = async (request, response) => {
         await client.query("COMMIT");
       } catch (error) { await client.query("ROLLBACK"); throw error; }
       finally { client.release(); }
-      sendJson(response, 200, { recipients: saved });
+      sendJson(response, 200, { recipients: await planStore.enrich(saved) });
       return;
     }
 
@@ -996,7 +1005,7 @@ export const handlePostgresRequest = async (request, response) => {
         FROM recipients
         ORDER BY contract_expired_date ASC, name ASC
       `);
-      sendJson(response, 200, rows.map(recipientFromRow));
+      sendJson(response, 200, await planStore.enrich(rows.map(recipientFromRow)));
       return;
     }
 

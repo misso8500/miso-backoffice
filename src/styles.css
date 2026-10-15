@@ -2063,3 +2063,39 @@ p {
 .recipient-focus-table.view-basic .contract-expired-note { color: #895c48; }
 .density-toggle { flex-shrink: 0; }
 .density-toggle button { white-space: nowrap; min-width: 48px; }
+
+.recipient-focus-table.view-plan .table-head,
+.recipient-focus-table.view-plan .recipient-row { grid-template-columns: minmax(150px, 1.1fr) repeat(5, minmax(135px, 1fr)) 80px; min-width: 1040px; }
+.recipient-plan-cell { color: #4d4659; font-size: 14px; line-height: 1.65; }
+.recipient-plan-cell.is-empty { color: #8b8494; }
+.recipient-focus-table .recipient-plan-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.recipient-focus-table .plan-row-date { color: #74658f; font-size: 12px; line-height: 1.6; white-space: normal; }
+.recipient-plan-panel { margin: 24px 0; padding: 20px; border: 1px solid #d7d0e5; border-radius: 10px; background: #faf9fc; scroll-margin-top: 20px; }
+.recipient-plan-panel h3 { margin: 0; }
+.recipient-plan-panel .section-title-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.recipient-plan-panel .section-title-row p { color: #706979; font-size: 14px; }
+.recipient-plan-notes { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 16px 0; }
+.recipient-plan-notes > div { padding: 16px; border: 1px solid #e2ddea; border-radius: 8px; background: white; min-width: 0; }
+.recipient-plan-notes > div:last-child { grid-column: 1 / -1; }
+.recipient-plan-notes dt { font-weight: 700; color: #655080; }
+.recipient-plan-notes dd { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; }
+.plan-current-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 14px; color: #655080; }
+.plan-edit-metadata,.plan-edit-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin: 16px 0; }
+.recipient-plan-panel label { display: grid; gap: 8px; font-size: 14px; }
+.recipient-plan-panel textarea,.recipient-plan-panel select,.recipient-plan-panel input { width: 100%; box-sizing: border-box; min-width: 0; padding: 10px; border: 1px solid #d7d0e5; border-radius: 6px; background: white; color: #383442; font: inherit; }
+.recipient-plan-panel textarea { min-height: 110px; resize: vertical; line-height: 1.7; }
+.plan-edit-fields > label:last-child { grid-column: 1 / -1; }
+.plan-reason-field { margin-top: 16px; }
+.plan-history details { margin-top: 12px; padding: 16px; background: white; border: 1px solid #e2ddea; border-radius: 8px; }
+.plan-history summary { cursor: pointer; line-height: 1.8; }
+.plan-history summary span { margin-left: 12px; color: #706979; font-size: 13px; }
+.plan-scheduled-note { padding: 12px; border-radius: 6px; background: #eee8f7; color: #655080; line-height: 1.7; }
+@media(max-width:600px) { .recipient-plan-notes,.plan-edit-metadata,.plan-edit-fields { grid-template-columns: minmax(0,1fr); } }
+
+.plan-deadline-card { display:grid;gap:8px;padding:16px 20px;margin:16px 0;background:#f4f0fa;border:1px solid #d9d0e8;border-left:4px solid #9381bc;border-radius:8px;color:#514763; }
+.plan-deadline-card small { color:#696273;line-height:1.6; }
+.plan-period-context { padding:12px 0;line-height:1.7; }
+.plan-execution-list { display:grid;gap:12px;margin:16px 0; }
+.plan-execution-list article { display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;background:#faf9fc;border:1px solid #e2ddec;border-radius:8px; }
+.plan-execution-list p { margin:6px 0;color:#686272;line-height:1.6; }
+@media(max-width:640px) { .plan-execution-list article {align-items:stretch;flex-direction:column;} }

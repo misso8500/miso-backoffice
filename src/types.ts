@@ -15,6 +15,11 @@ export type Recipient = {
   serviceType: "방문" | "가족";
   caregiverRequirements: string;
   medicalHistory?: string;
+  familyNotes?: string;
+  hospitalNotes?: string;
+  servicePlanNotes?: string;
+  planSummary?: RecipientPlanSummary;
+  recognitionPeriods?: RecognitionPeriod[];
   reductionType: "일반" | "감경" | "기초";
   relatedPeople: string;
   serviceStartDate: string;
@@ -49,8 +54,9 @@ export type BackofficeState = {
 
 export type RecipientInput = Omit<
   Recipient,
-  "createdAt" | "updatedAt" | "enabled" | "recontractCount"
+  "createdAt" | "updatedAt" | "enabled" | "recontractCount" | "caregiverRequirements"
 > &
+  { caregiverRequirements?: string } &
   Partial<Pick<Recipient, "createdAt" | "updatedAt" | "enabled" | "recontractCount">>;
 
 export type ContractRestoreType = "paused_return" | "recontracted";
@@ -167,3 +173,30 @@ export type EmploymentContractInput = Omit<
   "createdAt" | "updatedAt" | "enabled"
 > &
   Partial<Pick<EmploymentContract, "createdAt" | "updatedAt" | "enabled">>;
+
+export type RecipientPlanNotes = {
+  medicalHistory: string; caregiverRequirements: string; familyNotes: string; hospitalNotes: string; servicePlanNotes: string;
+};
+export type RecipientPlanVersion = {
+  id: string; version: number; notes: RecipientPlanNotes; effectiveDate: string | null; changeReason: string;
+  changeKind: 'change' | 'correction' | 'progress' | 'legacy'; sourceVersion: number | null; authorName: string; createdAt: string; planId: string | null; schedule: RecipientPlanSchedule | null;
+};
+export type RecipientPlanState = {
+  context: { institutionPeriod: { startDate: string; endDate: string }; careGrade: string; recognitionPeriods: RecognitionPeriod[] };
+  plans: PlanExecution[]; executionCurrent: PlanExecution | null; regularRequirement: RegularPlanRequirement | null;
+  version: number; current: RecipientPlanVersion | null; latest: RecipientPlanVersion | null;
+  nextEffectiveDate: string | null; history: RecipientPlanVersion[]; legacyNotes: RecipientPlanNotes;
+};
+export type RecipientPlanInput = { version: number; notes: RecipientPlanNotes; effectiveDate: string; changeKind: 'change' | 'correction' | 'progress'; changeReason: string; sourceVersion?: number; schedule?: RecipientPlanScheduleInput };
+
+export type RecognitionPeriod = { id: string; startDate: string; endDate: string; careGrade?: string };
+export type RecipientPlanScheduleInput = {
+  category: 'initial' | 'regular' | 'recognition_renewal' | 'grade_change' | 'needs_change';
+  status: 'draft' | 'completed'; endDate: string; writtenDate: string | null; notifiedDate: string | null;
+  recognitionPeriod: RecognitionPeriod | null;
+};
+export type RecipientPlanSchedule = RecipientPlanScheduleInput & { deadline: string | null; institutionPeriod: { startDate: string; endDate: string } };
+export type PlanExecution = Omit<RecipientPlanVersion,'schedule'> & { schedule: RecipientPlanSchedule; executionEndDate: string; executionStatus: string; deadlineStatus: string; active: boolean };
+export type RegularPlanRequirement = { startDate: string; endDate: string; deadline: string; status: 'draft' | 'completed' | 'missing'; deadlinePassed: boolean; planId: string | null };
+export type PlanSummaryRecord = Pick<RecipientPlanVersion,'id'|'version'|'planId'|'effectiveDate'|'authorName'|'schedule'> & { executionEndDate: string | null; executionStatus: string; deadlineStatus?: string };
+export type RecipientPlanSummary = { version: number; current: PlanSummaryRecord | null; nextEffectiveDate: string | null; executionCurrent: PlanSummaryRecord | null; regularRequirement: RegularPlanRequirement | null; plans: PlanSummaryRecord[] };

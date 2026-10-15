@@ -77,6 +77,22 @@ test("SQLite API persists recipient conditions and history, and rolls back faile
     assert.equal((await call(`recipients/${r.id}/contract-events`)).data.length,1);
     const partial=await call(`recipients/${r.id}`,'PUT',{...renewed.data,medicalHistory:undefined,phone:'010-1234-5678'});assert.equal(partial.data.medicalHistory,'확인된 건강 메모');
   });
+  await t.test("care plans use verified authors, persist history and enrich list responses", async () => {
+    const id='period-profile-test';
+    const path=`recipients/${id}/plan`;
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/${path}`)).status,401);
+    assert.equal((await call('recipients/missing/plan')).status,404);
+    const original=(await call(path)).data;assert.equal(original.version,0);
+    const notes={medicalHistory:'계획 건강 메모',caregiverRequirements:'오전 가능',familyNotes:'가족 돌봄',hospitalNotes:'관련 병원',servicePlanNotes:'방문 계획'};
+    const input={version:0,notes,effectiveDate:'2026-09-09',schedule:{category:'initial',status:'completed',endDate:'2026-12-31',writtenDate:'2026-01-01',notifiedDate:'2026-01-01',recognitionPeriod:{id:'',startDate:'2026-09-09',endDate:'2028-09-08',careGrade:'4등급'}},changeKind:'change',changeReason:'최초 계획',authorName:'위조 작성자'};
+    const result=await call(path,'PUT',input);assert.equal(result.status,200,JSON.stringify(result.data));
+    assert.equal(result.data.current.authorName,'테스트');assert.equal(result.data.history.length,2);assert.equal(result.data.history[1].notes.medicalHistory,'확인된 건강 메모');
+    const listed=(await call('recipients')).data.find(r=>r.id===id);assert.equal(listed.familyNotes,notes.familyNotes);assert.equal(listed.planSummary.version,2);
+    const detail=(await call(`recipients/${id}`)).data;assert.equal(detail.hospitalNotes,notes.hospitalNotes);
+    assert.equal((await call(path,'PUT',input)).status,409);
+    assert.equal((await call(`recipients/${id}`,'PUT',{...detail,medicalHistory:'이력 없는 변경'})).status,400);
+    const profile=await call(`recipients/${id}`,'PUT',{...detail,phone:'010-4444-5555'});assert.equal(profile.status,200);assert.equal(profile.data.medicalHistory,notes.medicalHistory);
+  });
   const legacy = (await call("employment-contracts")).data[0];
   assert.ok(legacy && recipients.length >= 2);
   const term = (id) => ({ id, wageType: "시급", wageAmount: 14000, nonTaxableMealAllowance: 0, nonTaxableVehicleAllowance: 0, otherNonTaxablePay: 0 });

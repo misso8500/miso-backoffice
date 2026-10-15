@@ -1,3 +1,5 @@
+import {summarizePlan} from './lib/recipient-plan-summary';
+import RecipientPlanPanel from "./RecipientPlanPanel";
 import RecipientList, { type RecipientView } from "./RecipientList";
 import RecipientServicePeriod from "./RecipientServicePeriod";
 import { dateInputError } from "./lib/date-input";
@@ -70,8 +72,6 @@ type RecipientFormState = {
   representativeRelation: string;
   representativePhone: string;
   serviceType: "방문" | "가족";
-  caregiverRequirements: string;
-  medicalHistory: string;
   reductionType: "일반" | "감경" | "기초";
   relatedPeople: string;
   serviceStartDate: string;
@@ -92,8 +92,6 @@ const emptyRecipientForm: RecipientFormState = {
   representativeRelation: "",
   representativePhone: "",
   serviceType: "방문",
-  caregiverRequirements: "",
-  medicalHistory: "",
   reductionType: "일반",
   relatedPeople: "",
   serviceStartDate: "",
@@ -468,6 +466,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [showEnabledOnly, setShowEnabledOnly] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState<RecipientStatus | "전체">("전체");
   const [selectedAssignedUserId, setSelectedAssignedUserId] = useState("all");
+  const [planEditingRequested, setPlanEditingRequested] = useState(false);
   const [recipientView, setRecipientView] = useState<RecipientView>("basic");
   const [isRecipientGridOpen, setIsRecipientGridOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
@@ -633,6 +632,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           recipient.longTermCareNumber,
           recipient.careGrade,
           recipient.medicalHistory,
+          recipient.familyNotes,
+          recipient.hospitalNotes,
+          recipient.servicePlanNotes,
           recipient.caregiverRequirements,
           recipient.address,
           recipient.phone,
@@ -780,8 +782,6 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       representativeRelation: recipient.representativeRelation,
       representativePhone: recipient.representativePhone,
       serviceType: recipient.serviceType ?? "방문",
-      caregiverRequirements: recipient.caregiverRequirements ?? "",
-      medicalHistory: recipient.medicalHistory ?? "",
       reductionType: recipient.reductionType ?? "일반",
       relatedPeople: recipient.relatedPeople ?? "",
       serviceStartDate: recipient.serviceStartDate,
@@ -880,8 +880,6 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       representativeRelation: formState.representativeRelation.trim(),
       representativePhone: formatPhoneNumberInput(formState.representativePhone.trim()),
       serviceType: formState.serviceType,
-      caregiverRequirements: formState.caregiverRequirements.trim(),
-      medicalHistory: formState.medicalHistory.trim(),
       reductionType: formState.reductionType,
       relatedPeople: formState.relatedPeople.trim(),
       serviceStartDate: formState.serviceStartDate,
@@ -948,7 +946,6 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         representativeRelation: "미등록",
         representativePhone: "미등록",
         serviceType: formState.serviceType,
-        caregiverRequirements: formState.caregiverRequirements.trim(),
         reductionType: formState.reductionType,
         relatedPeople: formState.relatedPeople.trim(),
         serviceStartDate: formState.serviceStartDate,
@@ -1545,7 +1542,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           <div className="list-toolbar">
             <div>
               <h2 id="recipient-list-title">수급자 목록</h2>
-              <span>장기요양이용계약 만료일 오름차순</span>
+              <span>{recipientView==='plan'?'메모는 앞부분만 표시합니다. 행을 누르면 전체 계획과 변경 이력을 확인합니다.':'장기요양이용계약 만료일 오름차순'}</span>
             </div>
             <div className="toolbar-controls">
               <select className="filter-select" aria-label="담당 사회복지사 필터" value={selectedAssignedUserId} onChange={(event) => setSelectedAssignedUserId(event.target.value)}>
@@ -1556,7 +1553,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 {(["전체", "정보입력중", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status === "정보입력중" ? "정보 입력 중" : status}</option>)}
               </select>
               <div className="density-toggle" role="group" aria-label="수급자 보기 방식">
-                {([['basic','기본'],['medical','병력'],['validity','유효'],['address','주소']] as const).map(([value,label])=><button type="button" key={value} aria-pressed={recipientView===value} className={recipientView===value?'is-active':''} onClick={()=>setRecipientView(value)}>{label}</button>)}
+                {([['basic','기본'],['plan','계획'],['validity','유효'],['address','주소']] as const).map(([value,label])=><button type="button" key={value} aria-pressed={recipientView===value} className={recipientView===value?'is-active':''} onClick={()=>setRecipientView(value)}>{label}</button>)}
               </div>
               <label className="valid-toggle">
                 <input
@@ -1572,7 +1569,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   type="search"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="이름, 인정번호, 병력, 주소, 연락처 검색"
+                  placeholder="이름, 인정번호, 계획 메모, 주소, 연락처 검색"
                 />
               </label>
             </div>
@@ -1590,7 +1587,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             </div>
           ) : (
             <RecipientList recipients={filteredRecipients} view={recipientView} users={backofficeUsers} status={getRecipientStatus}
-              open={r=>setSelectedRecipientId(r.id)} edit={openRecipientEditPanel}
+              open={r=>{setPlanEditingRequested(false);setSelectedRecipientId(r.id);}} edit={r=>{if(recipientView==='plan'){setPlanEditingRequested(true);setSelectedRecipientId(r.id);}else openRecipientEditPanel(r);}}
               remove={r=>{setRecipientToDeactivate(r);setDeactivateErrorMessage(null);}}
               assign={(r,id)=>void handleAssignedBackofficeUserUpdate(r,id)} assigning={assigningRecipientIds} errors={assignmentErrors} />
           )}
@@ -1875,6 +1872,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               {assignmentErrors[selectedRecipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[selectedRecipient.id]}</small>}
             </div>
 
+            <RecipientPlanPanel key={`plan-${selectedRecipient.id}`} recipientId={selectedRecipient.id} focusOnMount={recipientView==='plan'} initiallyEditing={planEditingRequested} onSaved={state=>{
+              setRecipients(current=>current.map(r=>r.id===selectedRecipient.id?{...r,...(state.current?.notes??state.legacyNotes),planSummary:summarizePlan(state)}:r));
+              showNotification('수급자 계획을 저장했습니다.');
+            }} />
             <RecipientServicePeriod key={`period-${selectedRecipient.id}`} recipient={selectedRecipient} onSaved={saved=>{setRecipients(current=>current.map(r=>r.id===saved.id?saved:r));showNotification('계약 기간을 저장했습니다.');}} />
             <RecipientDocuments key={selectedRecipient.id} recipientId={selectedRecipient.id} recipientName={selectedRecipient.name} />
 
@@ -2161,11 +2162,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                       <option>기초</option>
                     </select>
                   </label>
-                  <label className="wide-field"><span>병력 · 건강 메모</span><textarea value={formState.medicalHistory} onChange={event=>updateFormField("medicalHistory",event.target.value)} placeholder="확인된 병력과 돌봄 시 참고할 내용을 입력해 주세요." /></label>
-                  <label className="wide-field">
-                    <span>요양보호사 구인조건</span>
-                    <textarea value={formState.caregiverRequirements} onChange={(event) => updateFormField("caregiverRequirements", event.target.value)} placeholder="예: 여성 요양보호사, 자차 운전 가능" />
-                  </label>
+                  <p className="wide-field condition-review">병력·건강 메모와 구인조건은 수급자 상세의 ‘계획 작성·변경’에서 수정합니다. 적용일과 사유를 함께 남겨 이전 내용을 보관합니다.</p>
                   <label className="wide-field">
                     <span>수급자 관련 지인</span>
                     <textarea value={formState.relatedPeople} onChange={(event) => updateFormField("relatedPeople", event.target.value)} placeholder="예: 홍길동(이웃) 010-0000-0000" />
