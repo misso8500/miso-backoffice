@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "api": "node server/api-router.mjs",
+    "api": "node --watch --watch-path=server --watch-path=shared server/api-router.mjs",
     "api:sqlite": "node server/api.mjs",
     "api:postgres": "node server/postgres/api.mjs",
     "db:postgres:init": "node server/postgres/init.mjs",

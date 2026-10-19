@@ -105,6 +105,16 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     assert.equal((await call(`work/executions/${execution.id}`, 'PUT', { version: 1, content: '오래된 수정', period: 'morning' })).status, 409);
     const manual = await call('work/executions', 'POST', { requestId: randomUUID(), date: day, assigneeId: a.assignees[2].id, period: 'unknown', content: '돌발 연락 대응', category: 'service', related: [{ type: 'recipient', id: rId }] }); assert.equal(manual.status, 201);
     assert.equal(manual.data.taskId, null); assert.equal(manual.data.planId, null);
+    const range = `work/calendar?from=${day}&to=2000-10-25`;
+    assert.equal((await call(range, 'GET', undefined, '')).status,401);
+    assert.equal((await call(range, 'GET', undefined, 'outsider')).status,403);
+    const calendar = await call(range); assert.equal(calendar.status,200);
+    assert.equal(calendar.data.plans.length,1); assert.equal(calendar.data.executions.length,2);
+    assert.equal((await call(`${range}&assignee=${a.assignees[2].id}`)).data.executions[0].id,manual.data.id);
+    assert.equal((await call(`${range}&assignee=unassigned`)).data.executions.length,0);
+    assert.equal((await call('work/calendar?from=2000-01-01&to=2001-01-01')).status,400);
+    assert.equal((await call('work/calendar?from=2000-02-30&to=2000-03-01')).status,400);
+    assert.equal((await call(`${range}&assignee=not-staff`)).status,400);
     assert.equal((await call(`work/plans/${plan.data.id}/cancel`, 'POST', { version: plan.data.version }, 'c')).status, 200);
     assert.equal((await call(`work/day?date=${day}`)).data.executions.find(e => e.id === execution.id).status, 'recorded');
     const done = await call(`work/tasks/${task.id}/complete`, 'POST', { version: task.version }); assert.equal(done.status, 200); assert.equal(done.data.status, 'done');
@@ -120,5 +130,8 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     assert.equal(persisted.executions.find(e => e.id === execution.id).status, 'voided');
     assert.equal(persisted.executions.find(e => e.id === manual.data.id).content, '돌발 연락 대응');
     assert(persisted.plans.every(p => p.status === 'cancelled'));
+    const restoredCalendar = (await call(range)).data;
+    assert.equal(restoredCalendar.plans.length,0); assert.equal(restoredCalendar.executions.length,1);
+    assert.equal(restoredCalendar.executions[0].id,manual.data.id);
   });
 });

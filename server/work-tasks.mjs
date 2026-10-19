@@ -52,7 +52,10 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const current = await store.members(user, emails);
     const planRoute = /^\/api\/work\/plans\/([^/]+)\/(cancel|execute)$/.exec(path);
     const executionRoute = /^\/api\/work\/executions\/([^/]+)(\/cancel)?$/.exec(path);
-    if (path === '/api/work/day' && request.method === 'GET') {
+    if (path === '/api/work/calendar' && request.method === 'GET') {
+      const query = new URL(request.url, 'http://localhost').searchParams;
+      sendJson(response, 200, await store.calendar(query.get('from'), query.get('to'), query.get('assignee') ?? 'all', current));
+    } else if (path === '/api/work/day' && request.method === 'GET') {
       const query = new URL(request.url, 'http://localhost').searchParams;
       sendJson(response, 200, await store.day(query.get('date'), query.get('assignee') ?? 'all', current));
     } else if (path === '/api/work/plans' && request.method === 'POST') sendJson(response, 201, await store.createPlan(await readWorkBody(request), current));

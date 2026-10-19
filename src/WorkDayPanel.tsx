@@ -7,11 +7,11 @@ import {
 } from './lib/work-tasks';
 
 export type WorkDayHandle = { plan: (task: WorkTask) => void; execution: (task?: WorkTask) => void; refresh: () => void };
-type Props = { context: WorkContext; date: string; assignee: string; onActivity: (day: WorkDay | null) => void; onBusy: (busy: boolean) => void };
+type Props = { context: WorkContext; date: string; assignee: string; onActivity: (day: WorkDay | null) => void; onBusy: (busy: boolean) => void; onReady: (ready: boolean) => void };
 type Editor = { kind: 'plan' | 'manual' | 'edit'; task?: WorkTask; execution?: WorkExecution; date: string; assigneeId: string; period: WorkPeriod; content: string; category: WorkCategory; related: { id: string; type: 'recipient' | 'worker' }[]; requestId: string };
 const errorText = (error: unknown) => error instanceof Error ? error.message : '기록을 저장하지 못했습니다.';
 
-const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ context, date, assignee, onActivity, onBusy }, ref) {
+const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ context, date, assignee, onActivity, onBusy, onReady }, ref) {
   const [day, setDay] = useState<WorkDay | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -41,12 +41,13 @@ const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ co
   }, [editor]);
   useEffect(() => { if (formError) errorRef.current?.focus(); }, [formError]);
   function openEditor(kind: 'plan' | 'manual', task?: WorkTask) {
-    if (loading || busy || !day) { setError('기록을 먼저 불러온 뒤 다시 시도해 주세요.'); return; }
+    if (loading || busy || !scopedDay) { setError(previous => previous || '일간 기록을 불러온 뒤 다시 시도해 주세요.'); return; }
     const owner = context.assignees.some(p => p.id === task?.assigneeId) ? task!.assigneeId! : scope === 'all' ? '' : scope;
     setFormError(''); setEditor({ kind, task, date, assigneeId: owner, period: 'unknown', content: task?.title ?? '', category: task?.category ?? 'unclassified', related: [], requestId: crypto.randomUUID() });
   }
   useImperativeHandle(ref, () => ({ plan: task => openEditor('plan', task), execution: task => openEditor('manual', task), refresh: () => setAttempt(v => v+1) }));
   const scopedDay = day?.date === date && day.assignee === scope ? day : null;
+  useEffect(() => { onReady(Boolean(scopedDay) && !loading); return () => onReady(false); }, [scopedDay, loading, onReady]);
   const plans = scopedDay?.plans.filter(p => p.status === 'planned') ?? [], executions = scopedDay?.executions.filter(e => e.status === 'recorded') ?? [];
   const cancelledPlans = scopedDay?.plans.filter(p => p.status === 'cancelled') ?? [], voidedExecutions = scopedDay?.executions.filter(e => e.status === 'voided') ?? [];
   function retainPlan(row: WorkPlan) { generation.current++; setLoading(false); setDay(old => old ? { ...old, plans: [...old.plans.filter(p => p.id !== row.id), row] } : old); }
@@ -94,7 +95,7 @@ const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ co
     {assignee === 'unassigned' && <p className="work-help">담당자 미정 업무 보기입니다. 오른쪽 계획·수행은 전체 담당자를 표시합니다.</p>}
     {error && <p className="work-day-error" role="alert">{error} <button type="button" disabled={busy || loading} onClick={() => setAttempt(v => v+1)}>최신 기록 불러오기</button></p>}
     {notice && <p className="work-day-notice" role="status">{notice}</p>}
-    {loading ? <p role="status" className="work-day-empty">일간 기록을 불러오는 중입니다.</p> : <>
+    {loading ? <p role="status" className="work-day-empty">일간 기록을 불러오는 중입니다.</p> : !scopedDay ? <p className="work-day-empty">일간 기록을 확인할 수 없어 계획·수행 입력을 잠시 사용할 수 없습니다. 위 오류 원인을 해결한 뒤 최신 기록을 불러와 주세요.</p> : <>
       <div className="work-day-legend"><span>보라 · 계획</span><span>초록 · 실제 수행</span></div>
       <div className="work-day-column-head"><span/><strong>계획 {plans.length}건</strong><strong>실제 수행 {executions.length}건</strong></div>
       {(['morning', 'afternoon', 'unknown'] as const).map(period => <div className="work-day-row" key={period}><span className="work-day-period">{workPeriods[period]}</span><div className="work-day-cell">{plans.filter(p => p.period === period).map(plan => {

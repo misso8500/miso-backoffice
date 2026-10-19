@@ -56,6 +56,26 @@ export function createWorkJournalStore(transaction, resolveRelated) {
     return (await q(`SELECT * FROM ${table} WHERE id=$1${q.forUpdate ?? ''}`, [id])).rows[0];
   }
   return {
+    calendar(from, to, assignee, current) {
+      workDate(from); workDate(to);
+      if (from > to || (Date.parse(to) - Date.parse(from)) / 86400000 > 61) throw workError(400, '조회 기간은 순서대로 최대 62일까지 지정해 주세요.');
+      if (!['all', 'unassigned'].includes(assignee)) staffId(assignee, current);
+      return transaction(async q => {
+        const values = [from, to];
+        const scope = assignee === 'all' ? '' : assignee === 'unassigned' ? ' AND 1=0' : ' AND assignee_id=$3';
+        if (!['all', 'unassigned'].includes(assignee)) values.push(assignee);
+        const owner = assignee === 'all' ? '' : assignee === 'unassigned' ? ' AND COALESCE(t.roster_assignee_id,t.assignee_id) IS NULL' : ' AND COALESCE(t.roster_assignee_id,t.assignee_id)=$3';
+        const taskSummary = row => ({ id: row.id, title: row.title, category: row.category, dueDate: row.due_date, assigneeId: row.roster_assignee_id ?? row.assignee_id, related: JSON.parse(row.related) });
+        return {
+          from, to, assignee,
+          plans: (await q(`SELECT * FROM work_plans WHERE work_date BETWEEN $1 AND $2 AND status='planned'${scope} ORDER BY work_date,created_at,id`, values)).rows.map(planFromRow),
+          executions: (await q(`SELECT * FROM work_executions WHERE work_date BETWEEN $1 AND $2 AND status='recorded'${scope} ORDER BY work_date,created_at,id`, values)).rows.map(executionFromRow),
+          deadlines: (await q(`SELECT t.* FROM work_tasks t WHERE t.status='open' AND t.completed_at IS NULL AND t.due_date BETWEEN $1 AND $2${owner} ORDER BY t.due_date,t.created_at,t.id`, values)).rows.map(taskSummary),
+          // A plan outside this period still means the task has been scheduled.
+          unplanned: (await q(`SELECT t.* FROM work_tasks t WHERE t.status='open' AND t.completed_at IS NULL AND NOT EXISTS (SELECT 1 FROM work_plans p WHERE p.task_id=t.id AND p.status='planned')${owner.replace('$3', '$1')} ORDER BY t.created_at,t.id`, values.slice(2))).rows.map(taskSummary)
+        };
+      });
+    },
     day(date, assignee, current) {
       workDate(date);
       if (assignee !== 'all') staffId(assignee, current);

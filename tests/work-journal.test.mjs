@@ -32,6 +32,42 @@ async function setup(t, mode) {
 }
 
 for (const mode of ['sqlite','postgres-adapter']) {
+  test(`${mode}: calendar respects record dates, historical performers and global scheduling`, async t => {
+    const { store, current, other, actor, colleague, createTask, plan } = await setup(t, mode);
+    const task = await createTask('원래 담당 업무');
+    const p = await store.createPlan(plan(task, { date: '2000-12-31' }), current);
+    const execution = await store.recordPlan(p.id, { requestId: randomUUID(), period: 'morning', executionVersion: 0 }, other);
+    const changed = await store.update(task.id, normalizeWorkTask({ title: '배정 변경 후', description: '', category: 'staff', assigneeId: colleague, dueDate: '2001-01-01', related: [] }),task.version,current);
+    const outside = await createTask('다른 기간에 계획 있음');
+    await store.createPlan(plan(outside, { date: '2002-01-01' }),current);
+    const unassigned = await store.create(normalizeWorkTask({ title: '담당자 미정 업무', category: 'operations', related: [], dueDate: '2001-01-02' }),current);
+    const noPlan = await createTask('미배치 업무');
+    const undonePlan = await store.createPlan(plan(noPlan, { date: '2000-12-30' }),current);
+    await store.cancelPlan(undonePlan.id,undonePlan.version,current);
+    const all = await store.calendar('2000-12-25','2001-01-07','all',current);
+    assert.equal(all.plans.length,1); assert.equal(all.executions.length,1);
+    assert.equal(all.plans[0].snapshot.title,'원래 담당 업무');
+    assert.equal(all.executions[0].assigneeId,actor); assert.equal(all.executions[0].createdBy,other.me.id);
+    assert.deepEqual(new Set(all.unplanned.map(t => t.id)),new Set([unassigned.id,noPlan.id]));
+    assert.deepEqual(new Set(all.deadlines.map(t => t.id)),new Set([task.id,unassigned.id]));
+    const byActor = await store.calendar(all.from,all.to,actor,current);
+    assert.equal(byActor.executions.length,1); assert.equal(byActor.deadlines.length,0);
+    const byColleague = await store.calendar(all.from,all.to,colleague,current);
+    assert.equal(byColleague.plans.length,0); assert.equal(byColleague.deadlines[0].id,task.id);
+    const unknown = await store.calendar(all.from,all.to,'unassigned',current);
+    assert.equal(unknown.plans.length,0); assert.equal(unknown.executions.length,0); assert.equal(unknown.unplanned[0].id,unassigned.id);
+    const done = await store.complete(task.id,changed.version,current);
+    assert(!(await store.calendar(all.from,all.to,'all',current)).deadlines.some(t => t.id === task.id));
+    await store.cancel(task.id,done.version,current);
+    const afterCancel = await store.calendar(all.from,all.to,'all',current);
+    assert.equal(afterCancel.plans.length,0); assert.equal(afterCancel.executions.length,1);
+    await store.cancelExecution(execution.id,execution.version,current);
+    assert.equal((await store.calendar(all.from,all.to,'all',current)).executions.length,0);
+    assert.equal((await store.calendar('2000-12-31','2000-12-31','all',current)).deadlines.length,0);
+    for (const args of [['2001-01-02','2001-01-01','all'],['2001-01-01','2001-04-01','all'],['2001-02-29','2001-03-01','all'],['2001-01-01','2001-01-02',current.me.id]]) {
+      await assert.rejects(async () => store.calendar(...args,current),{ status: 400 });
+    }
+  });
   test(`${mode}: plans, per-person daily isolation, snapshots and execution lifecycle`, async t => {
     const { db, store, current, other, actor, colleague, createTask, plan, locks } = await setup(t, mode);
     const task = await createTask(), body = plan(task), p = await store.createPlan(body, current);
