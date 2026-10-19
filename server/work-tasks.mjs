@@ -34,7 +34,11 @@ export async function readWorkBody(request) {
     if (size > 40000) throw workError(413, '입력 내용이 너무 큽니다.');
     chunks.push(Buffer.from(chunk));
   }
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  try {
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw workError(400, '입력 형식을 확인해 주세요.');
+    return body;
+  }
   catch { throw workError(400, '입력 형식을 확인해 주세요.'); }
 }
 
@@ -46,13 +50,26 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
-    if (path === '/api/work/context' && request.method === 'GET') sendJson(response, 200, { ...current, categories: workCategories, references: await store.references() });
+    const planRoute = /^\/api\/work\/plans\/([^/]+)\/(cancel|execute)$/.exec(path);
+    const executionRoute = /^\/api\/work\/executions\/([^/]+)(\/cancel)?$/.exec(path);
+    if (path === '/api/work/day' && request.method === 'GET') {
+      const query = new URL(request.url, 'http://localhost').searchParams;
+      sendJson(response, 200, await store.day(query.get('date'), query.get('assignee') ?? 'all', current));
+    } else if (path === '/api/work/plans' && request.method === 'POST') sendJson(response, 201, await store.createPlan(await readWorkBody(request), current));
+    else if (planRoute && request.method === 'POST') {
+      const body = await readWorkBody(request), id = decodeURIComponent(planRoute[1]);
+      sendJson(response, 200, planRoute[2] === 'cancel' ? await store.cancelPlan(id, body.version, current) : await store.recordPlan(id, body, current));
+    } else if (path === '/api/work/executions' && request.method === 'POST') sendJson(response, 201, await store.recordManual(await readWorkBody(request), current));
+    else if (executionRoute && (request.method === 'PUT' && !executionRoute[2] || request.method === 'POST' && executionRoute[2])) {
+      const body = await readWorkBody(request), id = decodeURIComponent(executionRoute[1]);
+      sendJson(response, 200, executionRoute[2] ? await store.cancelExecution(id, body.version, current) : await store.updateExecution(id, body, current));
+    } else if (path === '/api/work/context' && request.method === 'GET') sendJson(response, 200, { ...current, categories: workCategories, references: await store.references() });
     else if (path === '/api/work/tasks' && request.method === 'GET') {
       const query = new URL(request.url, 'http://localhost').searchParams;
       sendJson(response, 200, await store.list(current, query.get('assignee') ?? 'all', query.get('status') ?? 'open'));
     } else if (path === '/api/work/tasks' && request.method === 'POST') sendJson(response, 201, await store.create(normalizeWorkTask(await readWorkBody(request)), current));
     else {
-      const match = /^\/api\/work\/tasks\/([^/]+)(\/cancel|\/history)?$/.exec(path);
+      const match = /^\/api\/work\/tasks\/([^/]+)(\/cancel|\/history|\/complete|\/reopen)?$/.exec(path);
       if (!match) throw workError(404, '업무 API를 찾을 수 없습니다.');
       const id = decodeURIComponent(match[1]);
       if (request.method === 'GET' && match[2] === '/history') sendJson(response, 200, await store.history(id));
@@ -62,6 +79,9 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       } else if (request.method === 'POST' && match[2] === '/cancel') {
         const body = await readWorkBody(request);
         sendJson(response, 200, await store.cancel(id, body.version, current));
+      } else if (request.method === 'POST' && ['/complete', '/reopen'].includes(match[2])) {
+        const body = await readWorkBody(request);
+        sendJson(response, 200, await store.complete(id, body.version, current, match[2] === '/reopen'));
       } else throw workError(405, '지원하지 않는 요청입니다.');
     }
   } catch (error) {

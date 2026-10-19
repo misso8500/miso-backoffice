@@ -11,7 +11,7 @@ export type WorkAssignee = { id: string; name: string };
 export type WorkContext = { me: WorkMember; members: WorkMember[]; assignees: WorkAssignee[]; references: WorkReference[]; categories: WorkCategory[] };
 export type WorkTask = {
   id: string; requesterId: string; assigneeId: string | null; title: string; description: string;
-  category: WorkCategory; dueDate: string | null; related: WorkReference[]; status: 'open' | 'cancelled';
+  category: WorkCategory; dueDate: string | null; related: WorkReference[]; status: 'open' | 'done' | 'cancelled'; completedAt: string | null;
   version: number; createdAt: string; updatedAt: string; updatedBy: string; canEdit: boolean;
 };
 export type WorkTaskInput = { title: string; description: string; assigneeId: string; category: WorkCategory; dueDate: string; related: Pick<WorkReference, 'id' | 'type'>[]; requestId?: string };
@@ -32,3 +32,19 @@ export const updateWorkTask = (id: string, input: WorkTaskInput, version: number
 export const cancelWorkTask = (task: WorkTask) => requestJson<WorkTask>(`/api/work/tasks/${encodeURIComponent(task.id)}/cancel`, { method: 'POST', body: JSON.stringify({ version: task.version }) });
 export type WorkTaskEvent = { version: number; kind: 'created' | 'updated' | 'cancelled'; actorName: string; createdAt: string; task: WorkTask };
 export const loadWorkTaskHistory = (id: string) => requestJson<WorkTaskEvent[]>(`/api/work/tasks/${encodeURIComponent(id)}/history`);
+export type WorkPeriod = 'morning' | 'afternoon' | 'unknown';
+export type WorkSnapshot = { title: string; category: WorkCategory; related: WorkReference[] };
+export type WorkPlan = { id: string; taskId: string; assigneeId: string; date: string; period: WorkPeriod; snapshot: WorkSnapshot; status: 'planned' | 'cancelled'; version: number; createdBy: string; updatedBy: string; createdAt: string; updatedAt: string };
+export type WorkExecution = Omit<WorkPlan, 'taskId' | 'status'> & { taskId: string | null; planId: string | null; content: string; status: 'recorded' | 'voided' };
+export type WorkDay = { date: string; assignee: string; plans: WorkPlan[]; executions: WorkExecution[] };
+export const workPeriods: Record<WorkPeriod, string> = { morning: '오전', afternoon: '오후', unknown: '미정·미확인' };
+export const workToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+export const shiftWorkDay = (date: string, offset: number) => { const result = new Date(date+'T12:00:00Z'); result.setUTCDate(result.getUTCDate()+offset); return result.toISOString().slice(0, 10); };
+export const loadWorkDay = (date: string, assignee = 'all') => workRequest<WorkDay>(`/api/work/day?${new URLSearchParams({ date, assignee })}`);
+export const createWorkPlan = (input: { taskId: string; assigneeId: string; date: string; period: WorkPeriod; requestId: string }) => workRequest<WorkPlan>('/api/work/plans', { method: 'POST', body: JSON.stringify(input) });
+export const cancelWorkPlan = (plan: WorkPlan) => workRequest<WorkPlan>(`/api/work/plans/${plan.id}/cancel`, { method: 'POST', body: JSON.stringify({ version: plan.version }) });
+export const executeWorkPlan = (plan: WorkPlan, period: WorkPeriod, executionVersion: number, requestId: string) => workRequest<WorkExecution>(`/api/work/plans/${plan.id}/execute`, { method: 'POST', body: JSON.stringify({ period, executionVersion, requestId }) });
+export const createWorkExecution = (input: { taskId?: string; assigneeId: string; date: string; period: WorkPeriod; content: string; category: WorkCategory; related: Pick<WorkReference, 'id' | 'type'>[]; requestId: string }) => workRequest<WorkExecution>('/api/work/executions', { method: 'POST', body: JSON.stringify(input) });
+export const updateWorkExecution = (execution: WorkExecution, input: { content: string; period: WorkPeriod }) => workRequest<WorkExecution>(`/api/work/executions/${execution.id}`, { method: 'PUT', body: JSON.stringify({ ...input, version: execution.version }) });
+export const cancelWorkExecution = (execution: WorkExecution) => workRequest<WorkExecution>(`/api/work/executions/${execution.id}/cancel`, { method: 'POST', body: JSON.stringify({ version: execution.version }) });
+export const completeWorkTask = (task: WorkTask, reopen = false) => workRequest<WorkTask>(`/api/work/tasks/${task.id}/${reopen ? 'reopen' : 'complete'}`, { method: 'POST', body: JSON.stringify({ version: task.version }) });

@@ -84,4 +84,41 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     assert.deepEqual(events.map(e => e.kind), ['created', 'updated', 'cancelled']);
     assert.equal(events[0].actor_id, a.me.id); assert.equal(JSON.parse(events[0].payload).title, body.title);
   } finally { db.close(); }
+
+  await t.test('daily journal routes persist plans/executions, deduplicate quick actions and keep completion separate', async () => {
+    assert.equal((await call('work/day?date=2000-10-19', 'GET', undefined, '')).status, 401);
+    assert.equal((await call('work/day?date=2026-02-30')).status, 400);
+    const task = (await call('work/tasks', 'POST', { ...body, requestId: randomUUID(), title: '일간 업무' })).data;
+    const assigneeId = a.assignees[1].id, day = '2000-10-19';
+    const planBody = { requestId: randomUUID(), taskId: task.id, date: day, assigneeId, period: 'morning', snapshot: { title: '위조 제목' }, createdBy: 'fake-actor' };
+    const plan = await call('work/plans', 'POST', planBody, 'b'); assert.equal(plan.status, 201, JSON.stringify(plan.data));
+    assert.equal(plan.data.snapshot.title, task.title); assert.equal(plan.data.createdBy, b.me.id);
+    assert.equal((await call('work/plans', 'POST', planBody, 'b')).data.id, plan.data.id);
+    assert.equal((await call('work/plans', 'POST', { ...planBody, requestId: randomUUID() })).status, 409);
+    const executed = await Promise.all(['b','c'].map(token => call(`work/plans/${plan.data.id}/execute`, 'POST', { requestId: randomUUID(), period: 'morning', executionVersion: 0 }, token)));
+    assert(executed.every(r => r.status === 200)); assert.equal(executed[0].data.id, executed[1].data.id);
+    let execution = executed[0].data;
+    assert.equal((await call(`work/day?date=${day}&assignee=${assigneeId}`)).data.executions.filter(e => e.status === 'recorded').length, 1);
+    assert.equal((await call(`work/day?date=${day}&assignee=${a.assignees[0].id}`)).data.executions.length, 0);
+    assert.equal((await call('work/tasks?status=open')).data.find(t => t.id === task.id).status, 'open');
+    const edit = await call(`work/executions/${execution.id}`, 'PUT', { version: execution.version, content: '실제 수행 결과', period: 'afternoon' }, 'c'); assert.equal(edit.status, 200); execution = edit.data;
+    assert.equal((await call(`work/executions/${execution.id}`, 'PUT', { version: 1, content: '오래된 수정', period: 'morning' })).status, 409);
+    const manual = await call('work/executions', 'POST', { requestId: randomUUID(), date: day, assigneeId: a.assignees[2].id, period: 'unknown', content: '돌발 연락 대응', category: 'service', related: [{ type: 'recipient', id: rId }] }); assert.equal(manual.status, 201);
+    assert.equal(manual.data.taskId, null); assert.equal(manual.data.planId, null);
+    assert.equal((await call(`work/plans/${plan.data.id}/cancel`, 'POST', { version: plan.data.version }, 'c')).status, 200);
+    assert.equal((await call(`work/day?date=${day}`)).data.executions.find(e => e.id === execution.id).status, 'recorded');
+    const done = await call(`work/tasks/${task.id}/complete`, 'POST', { version: task.version }); assert.equal(done.status, 200); assert.equal(done.data.status, 'done');
+    assert((await call('work/tasks?status=done')).data.some(t => t.id === task.id));
+    assert.equal((await call('work/plans', 'POST', { ...planBody, requestId: randomUUID() })).status, 409);
+    const reopened = await call(`work/tasks/${task.id}/reopen`, 'POST', { version: done.data.version }); assert.equal(reopened.status, 200);
+    const active = await call('work/plans', 'POST', { ...planBody, requestId: randomUUID(), period: 'afternoon' }); assert.equal(active.status, 201);
+    assert.equal((await call(`work/tasks/${task.id}/cancel`, 'POST', { version: reopened.data.version })).status, 200);
+    assert.equal((await call(`work/day?date=${day}`)).data.plans.find(p => p.id === active.data.id).status, 'cancelled');
+    assert.equal((await call(`work/executions/${execution.id}/cancel`, 'POST', { version: execution.version }, 'b')).status, 200);
+    await stop(); await start();
+    const persisted = (await call(`work/day?date=${day}`)).data;
+    assert.equal(persisted.executions.find(e => e.id === execution.id).status, 'voided');
+    assert.equal(persisted.executions.find(e => e.id === manual.data.id).content, '돌발 연락 대응');
+    assert(persisted.plans.every(p => p.status === 'cancelled'));
+  });
 });

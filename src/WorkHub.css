@@ -70,3 +70,83 @@
   .work-filters > select { flex: 1; min-width: 120px; }
   .work-reference { max-width: 100%; }
 }
+
+.work-hub { padding-top: 70px; }
+.work-day-navigation { position: fixed; top: 0; left: 244px; right: 0; z-index: 9; background: #c9b4e4; border-bottom: 1px solid #ad91cc; box-shadow: 0 4px 18px #5d397c1b; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px 28px; }
+.sidebar-preview .work-day-navigation { left: 220px; }
+.work-day-navigation > div, .work-date-step { display: flex; align-items: center; gap: 8px; }
+.work-date-step strong { min-width: 190px; text-align: center; color: #49345f; font-size: 16px; }
+.work-date-step strong small { display: block; font-size: 11px; font-weight: 500; margin-top: 4px; color: #6f5789; }
+.work-day-navigation button { border: 1px solid #b69bce; border-radius: 8px; background: #f8f3ff; color: #644c80; padding: 9px 12px; cursor: pointer; }
+.work-day-navigation input { background: #fff9ff; }
+.work-day-columns { display: grid; grid-template-columns: minmax(340px, 0.9fr) minmax(470px, 1.2fr); align-items: start; gap: 20px; }
+.work-task-section { min-width: 0; }
+.work-day-columns .work-filters { width: 100%; }
+.work-day-columns .work-filters .search-box { width: 100%; }
+.work-day-columns .work-task-list { grid-template-columns: minmax(0,1fr); }
+.work-task-card footer > div { flex-wrap: wrap; }
+.work-task-title { color: inherit; padding: 0 3px; background: none; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.work-task-title.has-plan { background: linear-gradient(transparent 42%,#e0d1f5 42%,#e0d1f5 92%,transparent 92%); }
+.work-task-title.has-execution { background: linear-gradient(transparent 42%,#bee4d0 42%,#bee4d0 92%,transparent 92%); }
+.work-task-activity { display: block; color: #8d799e; font-size: 11px; margin-top: 7px; }
+.work-day-panel { background: #fff; border: 1px solid #e4dced; border-radius: 14px; min-width: 0; overflow: hidden; }
+.work-day-heading { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 18px; border-bottom: 1px solid #ece5f3; }
+.work-day-heading h2 { margin: 0; font-size: 18px; }
+.work-day-heading p { margin: 6px 0 0; font-size: 12px; color: #8e7d9e; }
+.work-day-panel > .work-help { margin: 10px 16px; }
+.work-day-legend { padding: 14px 18px; display: flex; gap: 18px; font-size: 12px; color: #927f9e; }
+.work-day-column-head, .work-day-row { display: grid; grid-template-columns: 48px minmax(0,1fr) minmax(0,1fr); }
+.work-day-column-head { font-size: 12px; color: #7b638f; padding-bottom: 10px; }
+.work-day-column-head strong { padding-left: 12px; }
+.work-day-row { min-height: 120px; border-top: 1px solid #eee7f4; }
+.work-day-period { font-size: 11px; color: #8e7d9e; padding: 16px 7px; line-height: 1.6; }
+.work-day-cell { padding: 10px; border-left: 1px solid #f0eaf6; min-width: 0; }
+.work-plan, .work-execution { border-radius: 8px; padding: 11px; margin-bottom: 9px; font-size: 13px; overflow-wrap: anywhere; }
+.work-plan { background: #f3eef9; border-left: 3px solid #b19bcc; }
+.work-execution { background: #edf6f0; border-left: 3px solid #89b89a; }
+.work-plan strong { font-weight: 650; line-height: 1.7; }
+.work-execution p { margin: 0; white-space: pre-wrap; line-height: 1.7; }
+.work-plan small, .work-execution small { display: block; color: #85798d; font-size: 11px; margin-top: 7px; line-height: 1.6; }
+.work-day-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.work-day-actions button { border: 1px solid #dcd3e6; border-radius: 7px; background: #fff; padding: 6px 9px; color: #735f85; cursor: pointer; font-size: 12px; }
+.work-day-actions .primary-button { background: #6f5a9f; color: #fff; }
+.work-day-actions .is-recorded { border-color: #88b199; background: #dcefe3; color: #3c7051; font-weight: 700; }
+.work-day-actions .work-cancel { color: #9b6975; }
+.work-day-actions button:disabled { opacity: .5; cursor: default; }
+.work-day-placeholder, .work-day-empty { color: #a294ac; font-size: 12px; line-height: 1.8; }
+.work-day-empty { padding: 18px; }
+.work-day-bottom { padding: 14px 18px; border-top: 1px solid #eee7f4; }
+.work-day-bottom p { color: #8d7f98; font-size: 11px; margin: 10px 0 0; line-height: 1.7; }
+.work-day-error, .work-day-notice { margin: 12px 16px; padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.7; }
+.work-day-error { color: #9b4c58; background: #fff1f3; }
+.work-day-notice { color: #567563; background: #eff7f2; }
+.work-day-error button { background: white; border: 1px solid #e3c9cf; border-radius: 6px; color: inherit; padding: 5px 8px; cursor: pointer; }
+.work-day-cancelled { margin: 0 18px 18px; font-size: 12px; color: #93849e; }
+.work-day-cancelled summary { cursor: pointer; }
+.work-day-cancelled p { padding: 9px; background: #f8f6fa; border-radius: 7px; line-height: 1.7; overflow-wrap: anywhere; }
+.work-entry-dialog { width: min(520px,calc(100vw - 28px)); max-height: 90dvh; overflow: auto; border: 1px solid #d8c9e7; border-radius: 16px; padding: 22px; color: #4c3e58; box-shadow: 0 22px 65px #39254833; }
+.work-entry-dialog::backdrop { background: #36274066; }
+.work-entry-dialog h2 { font-size: 19px; margin: 0; }
+.work-entry-dialog fieldset { border: 0; margin: 0; padding: 0; }
+.work-entry-dialog label { display: grid; gap: 7px; margin-top: 14px; font-size: 13px; color: #81708e; }
+.work-entry-dialog textarea { min-height: 100px; resize: vertical; width: 100%; }
+.work-entry-dialog select[multiple] { min-height: 110px; }
+.work-entry-dialog .work-day-error { margin: 12px 0; }
+.work-entry-dialog .work-day-actions { justify-content: flex-end; }
+@media(max-width:1200px) {
+  .work-day-columns { grid-template-columns: minmax(0,1fr); }
+}
+@media(max-width:820px) {
+  .work-hub { padding-top: 115px; }
+  .work-day-navigation { padding: 10px 18px; }
+}
+@media(max-width:620px) {
+  .work-hub { padding-top: 0; }
+  .work-day-navigation, .sidebar-preview .work-day-navigation { position: sticky; top: 0; left: auto; margin: -24px -14px 22px; padding: 12px; }
+  .work-day-navigation > div { width: 100%; justify-content: space-between; }
+  .work-day-row, .work-day-column-head { grid-template-columns: 35px minmax(0,1fr) minmax(0,1fr); }
+  .work-day-cell { padding: 6px; }
+  .work-plan, .work-execution { padding: 8px; }
+  .work-day-actions { gap: 4px; }
+  .work-day-actions button { padding: 7px; }
+}

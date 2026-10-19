@@ -30,11 +30,11 @@ for (const mode of ['sqlite', 'postgres-adapter']) test(`${mode}: members, cross
   let releases = 0;
   const bridge = { async connect() { return { async query(sql, params = []) {
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) { db.exec(sql); return { rows: [], rowCount: 0 }; }
-    const values = [], converted = sql.replace(/\$(\d+)/g, (_, n) => { values.push(params[Number(n) - 1]); return '?'; });
+    const values = [], converted = sql.replace(/ FOR UPDATE$/, '').replace(/\$(\d+)/g, (_, n) => { values.push(params[Number(n) - 1]); return '?'; });
     const rows = db.prepare(converted).all(...values); return { rows, rowCount: rows.length };
   }, release() { releases++; } }; } };
   const make = () => mode === 'sqlite' ? createSqliteWorkStore(db, () => true) : createPostgresWorkStore(bridge, () => true);
-  if (mode === 'postgres-adapter') db.exec(readFileSync(new URL('../server/work-task-schema.sql', import.meta.url), 'utf8'));
+  if (mode === 'postgres-adapter') db.exec(readFileSync(new URL('../server/work-task-schema.sql', import.meta.url), 'utf8') + readFileSync(new URL('../server/work-journal-schema.sql', import.meta.url), 'utf8'));
   const store = make(), a = await store.members(userA, emails), b = await store.members(userB, emails);
   assert.equal(a.members.length, 3); assert.deepEqual(a.assignees.map(m => m.name), ['신수연', '박준규', '황영상']); assert.deepEqual(b.assignees, a.assignees); assert.equal(b.members.find(m => m.email === userA.email).name, '센터장');
   assert.equal((await store.members(userA, emails)).me.id, a.me.id);

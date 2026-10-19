@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS work_tasks (
   due_date TEXT,
   related TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('open','cancelled')),
+  completed_at TEXT,
   version INTEGER NOT NULL CHECK (version > 0),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,

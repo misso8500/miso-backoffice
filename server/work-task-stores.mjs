@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { newWorkId, workError } from './work-tasks.mjs';
 import { fixedWorkAssignees } from '../shared/work-assignees.mjs';
+import { createWorkJournalStore, lockTask, cancelTaskPlans } from './work-journal.mjs';
 
 const member = row => ({ id: row.id, name: row.name, email: row.email, linked: Boolean(row.auth_id) });
 const task = row => ({ id: row.id, requesterId: row.requester_id, assigneeId: row.roster_assignee_id ?? row.assignee_id,
   title: row.title, description: row.description, category: row.category, dueDate: row.due_date,
-  related: JSON.parse(row.related), status: row.status, version: Number(row.version),
+  related: JSON.parse(row.related), status: row.status === 'open' && row.completed_at ? 'done' : row.status, completedAt: row.completed_at ?? null, version: Number(row.version),
   createdAt: row.created_at, updatedAt: row.updated_at, updatedBy: row.updated_by });
 
 function createWorkStore(transaction, canEdit) {
@@ -41,6 +42,7 @@ function createWorkStore(transaction, canEdit) {
       [newWorkId(), row.id, row.version, actor, kind, JSON.stringify(task(row)), row.updated_at]);
   };
   return {
+    ...createWorkJournalStore(transaction, related),
     members(user, emails) {
       return transaction(async q => {
         const now = new Date().toISOString();
@@ -62,12 +64,14 @@ function createWorkStore(transaction, canEdit) {
     },
     async list(current, assignee, status) {
       if (assignee !== 'all' && assignee !== 'unassigned' && ![...current.members, ...current.assignees].some(m => m.id === assignee)) throw workError(400, '담당자 필터를 확인해 주세요.');
-      if (!['open', 'cancelled', 'all'].includes(status)) throw workError(400, '업무 상태를 확인해 주세요.');
+      if (!['open', 'done', 'cancelled', 'all'].includes(status)) throw workError(400, '업무 상태를 확인해 주세요.');
       return transaction(async q => {
         const conditions = [], values = [];
         if (assignee === 'unassigned') conditions.push('COALESCE(roster_assignee_id,assignee_id) IS NULL');
         else if (assignee !== 'all') { values.push(assignee); conditions.push(`COALESCE(roster_assignee_id,assignee_id)=$${values.length}`); }
-        if (status !== 'all') { values.push(status); conditions.push(`status=$${values.length}`); }
+        if (status !== 'all') { values.push(status === 'done' ? 'open' : status); conditions.push(`status=$${values.length}`); }
+        if (status === 'open') conditions.push('completed_at IS NULL');
+        if (status === 'done') conditions.push('completed_at IS NOT NULL');
         const rows = (await q(`SELECT * FROM work_tasks${conditions.length ? ' WHERE ' + conditions.join(' AND ') : ''} ORDER BY created_at DESC,id DESC`, values)).rows;
         return rows.map(row => ({ ...task(row), canEdit: row.status !== 'cancelled' && canEdit(task(row), current.me.id) }));
       });
@@ -92,7 +96,7 @@ function createWorkStore(transaction, canEdit) {
     },
     async update(id, input, version, current) {
       return transaction(async q => {
-        const previous = (await q('SELECT * FROM work_tasks WHERE id=$1', [id])).rows[0];
+        const previous = await lockTask(q, id);
         authorizeVersion(previous, version, current);
         validateAssignee(input, current, task(previous).assigneeId);
         const isRoster = current.assignees.some(m => m.id === input.assigneeId);
@@ -106,12 +110,25 @@ function createWorkStore(transaction, canEdit) {
     },
     cancel(id, version, current) {
       return transaction(async q => {
-        const previous = (await q('SELECT * FROM work_tasks WHERE id=$1', [id])).rows[0];
+        const previous = await lockTask(q, id);
         authorizeVersion(previous, version, current);
         const row = (await q(`UPDATE work_tasks SET status='cancelled',version=version+1,updated_at=$1,updated_by=$2 WHERE id=$3 AND version=$4 AND status='open' RETURNING *`, [new Date().toISOString(), current.me.id, id, version])).rows[0];
         if (!row) throw workError(409, '다른 사용자가 업무를 변경했습니다. 최신 목록을 불러와 주세요.');
+        await cancelTaskPlans(q, id, current.me.id);
         await event(q, row, 'cancelled', current.me.id);
         return { ...task(row), canEdit: false };
+      });
+    },
+    complete(id, version, current, reopen = false) {
+      return transaction(async q => {
+        const previous = await lockTask(q, id);
+        authorizeVersion(previous, version, current);
+        if (Boolean(previous.completed_at) === !reopen) throw workError(409, '업무 완료 상태가 이미 변경되었습니다. 다시 확인해 주세요.');
+        const now = new Date().toISOString();
+        const row = (await q("UPDATE work_tasks SET completed_at=$1,version=version+1,updated_by=$2,updated_at=$3 WHERE id=$4 AND version=$5 AND status='open' RETURNING *", [reopen ? null : now, current.me.id, now, id, version])).rows[0];
+        if (!row) throw workError(409, '다른 사용자가 업무를 변경했습니다.');
+        await event(q, row, 'updated', current.me.id);
+        return { ...task(row), canEdit: canEdit(task(row), current.me.id) };
       });
     }
   };
@@ -120,6 +137,8 @@ function createWorkStore(transaction, canEdit) {
 export function createSqliteWorkStore(db, canEdit) {
   db.exec(readFileSync(new URL('./work-task-schema.sql', import.meta.url), 'utf8'));
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'roster_assignee_id')) db.exec('ALTER TABLE work_tasks ADD COLUMN roster_assignee_id TEXT REFERENCES work_assignees(id)');
+  if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'completed_at')) db.exec('ALTER TABLE work_tasks ADD COLUMN completed_at TEXT');
+  db.exec(readFileSync(new URL('./work-journal-schema.sql', import.meta.url), 'utf8'));
   let pending = Promise.resolve();
   const transaction = fn => {
     const result = pending.then(async () => {
@@ -145,7 +164,9 @@ export function createPostgresWorkStore(pool, canEdit) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const value = await fn((sql, values) => client.query(sql, values));
+      const query = (sql, values) => client.query(sql, values);
+      query.forUpdate = ' FOR UPDATE';
+      const value = await fn(query);
       await client.query('COMMIT'); return value;
     } catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
