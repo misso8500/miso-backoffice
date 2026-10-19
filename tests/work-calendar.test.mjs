@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { workCalendarRange, moveWorkCalendar, workAssigneeInitial, weeklyWorkRecords } from '../shared/work-calendar.mjs';
+import { workCalendarRange, moveWorkCalendar, workAssigneeInitial, calendarWorkRecords } from '../shared/work-calendar.mjs';
 
 test('calendar ranges start on Monday across year and leap month boundaries', () => {
   assert.deepEqual(workCalendarRange('2026-01-01','week'), { from: '2025-12-29', to: '2026-01-04', dates: ['2025-12-29','2025-12-30','2025-12-31','2026-01-01','2026-01-02','2026-01-03','2026-01-04'] });
@@ -42,7 +42,7 @@ test('weekly cards show actual work before plans before deadlines across differe
     executions: [{ id: 'e1', taskId: 'done', assigneeId: 'a', status: 'recorded', date: '2026-10-21' }],
     deadlines: [{ id: 'done', dueDate: '2026-10-23' }, { id: 'planned', dueDate: '2026-10-24' }, { id: 'due', dueDate: '2026-10-25' }]
   };
-  const before = structuredClone(data), result = weeklyWorkRecords(data);
+  const before = structuredClone(data), result = calendarWorkRecords(data);
   assert.deepEqual(result.plans.map(p => p.id),['p2']);
   assert.deepEqual(result.executions.map(e => e.id),['e1']);
   assert.deepEqual(result.deadlines.map(t => t.id),['due']);
@@ -60,7 +60,7 @@ test('weekly priority keeps each colleague and standalone actual record visible'
     { taskId: null, assigneeId: 'a', status: 'recorded' },
     { taskId: null, assigneeId: 'a', status: 'recorded' }
   ];
-  const result = weeklyWorkRecords({ plans, executions, deadlines: [{ id: 'shared' }] });
+  const result = calendarWorkRecords({ plans, executions, deadlines: [{ id: 'shared' }] });
   assert.deepEqual(result.plans,[plans[1]]); assert.equal(result.executions.length,3); assert.equal(result.deadlines.length,0);
 });
 
@@ -69,9 +69,28 @@ test('cancelled actual work falls back to the plan, and cancelled plans to the d
     plans: [{ taskId: 'task', assigneeId: 'a', status: 'planned' }],
     executions: [{ taskId: 'task', assigneeId: 'a', status: 'voided' }], deadlines: [{ id: 'task' }]
   };
-  const planned = weeklyWorkRecords(data);
+  const planned = calendarWorkRecords(data);
   assert.equal(planned.executions.length,0); assert.equal(planned.plans.length,1); assert.equal(planned.deadlines.length,0);
   data.plans[0].status = 'cancelled';
-  const due = weeklyWorkRecords(data);
+  const due = calendarWorkRecords(data);
   assert.equal(due.plans.length,0); assert.equal(due.deadlines.length,1);
+});
+
+test('monthly cards collapse kinds within each month without adjacent months hiding records', () => {
+  const data = {
+    plans: [
+      { id: 'oct-plan', taskId: 'task', assigneeId: 'a', status: 'planned', date: '2026-10-20' },
+      { id: 'nov-plan', taskId: 'task', assigneeId: 'a', status: 'planned', date: '2026-11-02' }
+    ],
+    executions: [{ taskId: 'task', assigneeId: 'a', status: 'recorded', date: '2026-10-25' }],
+    deadlines: [{ id: 'task', dueDate: '2026-10-30' }, { id: 'other', dueDate: '2026-10-31' }]
+  };
+  const result = calendarWorkRecords(data,true);
+  assert.deepEqual(result.plans.map(p => p.id),['nov-plan']);
+  assert.equal(result.executions.length,1);
+  assert.deepEqual(result.deadlines.map(t => t.id),['other']);
+  const nextMonthOnly = calendarWorkRecords({ ...data, plans: [data.plans[0]], executions: [{ ...data.executions[0], date: '2026-11-01' }] },true);
+  assert.equal(nextMonthOnly.plans[0].id,'oct-plan');
+  const dueOnly = calendarWorkRecords({ ...data, plans: [], executions: [{ ...data.executions[0], date: '2026-11-01' }] },true);
+  assert(dueOnly.deadlines.some(t => t.id === 'task'));
 });

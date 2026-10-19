@@ -39,12 +39,16 @@ export function workAssigneeInitial(name) {
   return code >= 0xac00 && code <= 0xd7a3 ? 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ'[Math.floor((code-0xac00)/588)] : [...name][0];
 }
 
-// Collapse record kinds across the displayed week, rather than per date.
+// Collapse record kinds across the period, rather than per date.
 // Actual work by one colleague must not hide another colleague's plan.
-export function weeklyWorkRecords(data) {
+export function calendarWorkRecords(data, byMonth = false) {
+  // Adjacent calendar months must not suppress the selected month's records.
+  const bucket = date => byMonth ? date?.slice(0, 7) ?? '' : '';
+  const personKey = row => JSON.stringify([row.taskId, row.assigneeId, bucket(row.date)]);
+  const taskKey = (id, date) => JSON.stringify([id, bucket(date)]);
   const executions = data.executions.filter(e => e.status === 'recorded');
-  const performed = new Set(executions.filter(e => e.taskId).map(e => JSON.stringify([e.taskId, e.assigneeId])));
-  const plans = data.plans.filter(p => p.status === 'planned' && !performed.has(JSON.stringify([p.taskId, p.assigneeId])));
-  const scheduled = new Set([...plans, ...executions].map(row => row.taskId).filter(Boolean));
-  return { plans, executions, deadlines: data.deadlines.filter(task => !scheduled.has(task.id)) };
+  const performed = new Set(executions.filter(e => e.taskId).map(personKey));
+  const plans = data.plans.filter(p => p.status === 'planned' && !performed.has(personKey(p)));
+  const scheduled = new Set([...plans, ...executions].filter(row => row.taskId).map(row => taskKey(row.taskId, row.date)));
+  return { plans, executions, deadlines: data.deadlines.filter(task => !scheduled.has(taskKey(task.id, task.dueDate))) };
 }
