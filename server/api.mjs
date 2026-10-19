@@ -1,3 +1,5 @@
+import { handleWorkTasks } from "./work-tasks.mjs";
+import { createSqliteWorkStore } from "./work-task-stores.mjs";
 import { handleRecipientPlans, guardProfilePlanFields } from "./recipient-plans.mjs";
 import { createSqlitePlanStore } from "./recipient-plan-stores.mjs";
 import { prepareServicePeriod } from "./service-period.mjs";
@@ -1157,6 +1159,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS recipient_documents (
   recipient_id TEXT PRIMARY KEY REFERENCES recipients(id), folder_id TEXT NOT NULL UNIQUE,
   payload TEXT NOT NULL, version TEXT NOT NULL
 )`);
+const workStore = createSqliteWorkStore(db, () => true);
+
 const server = createServer(async (request, response) => {
   if (request.method === "OPTIONS") {
     sendJson(response, 204, {});
@@ -1166,6 +1170,7 @@ const server = createServer(async (request, response) => {
   try {
     const authentication = await handleAuthRequest(request, response, sendJson);
     if (authentication.handled) return;
+    if (await handleWorkTasks(request, response, sendJson, workStore, authentication.user)) return;
     if (await handleRecipientPlans(request, response, sendJson, planStore, authentication.user)) return;
     if (await handleDriveRequest(request, response, sendJson)) return;
     if (await handleRecipientDocuments(request, response, sendJson, {

@@ -198,3 +198,55 @@ REVOKE ALL ON TABLE recipient_plans FROM anon, authenticated;
 ALTER TABLE recipient_plans ADD COLUMN IF NOT EXISTS plan_id TEXT;
 ALTER TABLE recipient_plans ADD COLUMN IF NOT EXISTS schedule JSONB;
 CREATE INDEX IF NOT EXISTS idx_recipient_plan_logical ON recipient_plans(recipient_id, plan_id, revision DESC);
+
+-- Shared work hub (WH-001); accessible only through the authenticated server.
+CREATE TABLE IF NOT EXISTS work_members (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  auth_id TEXT UNIQUE,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS work_assignees (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS work_tasks (
+  id TEXT PRIMARY KEY,
+  requester_id TEXT NOT NULL REFERENCES work_members(id),
+  assignee_id TEXT REFERENCES work_members(id),
+  roster_assignee_id TEXT REFERENCES work_assignees(id),
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL,
+  due_date TEXT,
+  related TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('open','cancelled')),
+  version INTEGER NOT NULL CHECK (version > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL REFERENCES work_members(id)
+);
+CREATE INDEX IF NOT EXISTS idx_work_tasks_assignee ON work_tasks(assignee_id, status, created_at);
+CREATE TABLE IF NOT EXISTS work_task_events (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES work_tasks(id),
+  version INTEGER NOT NULL,
+  actor_id TEXT NOT NULL REFERENCES work_members(id),
+  kind TEXT NOT NULL CHECK (kind IN ('created','updated','cancelled')),
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(task_id, version)
+);
+
+-- Preserve legacy account assignments; new assignments reference the fixed staff roster.
+ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS roster_assignee_id TEXT REFERENCES work_assignees(id);
+ALTER TABLE work_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE work_assignees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE work_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE work_task_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_members FROM anon, authenticated;
+REVOKE ALL ON TABLE work_assignees FROM anon, authenticated;
+REVOKE ALL ON TABLE work_tasks FROM anon, authenticated;
+REVOKE ALL ON TABLE work_task_events FROM anon, authenticated;

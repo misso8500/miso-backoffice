@@ -1,6 +1,7 @@
 import {summarizePlan} from './lib/recipient-plan-summary';
 import './dev-sidebar.css';
 import './dev-workspace.css';
+import WorkHub from './WorkHub';
 import RecipientPlanPanel from "./RecipientPlanPanel";
 import RecipientList, { type RecipientView } from "./RecipientList";
 import RecipientServicePeriod from "./RecipientServicePeriod";
@@ -454,7 +455,7 @@ const limitDateYear = (value: string) => {
 const dateInputLimits = { min: "1000-01-01", max: "9999-12-31" } as const;
 
 function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Promise<void> }) {
-  const [activeView, setActiveView] = useState<"recipients" | "employmentContracts">(
+  const [activeView, setActiveView] = useState<"recipients" | "employmentContracts" | "work">(
     "recipients"
   );
   const [recipients, setRecipients] = useState<Recipient[]>([]);
@@ -1474,6 +1475,18 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <Briefcase size={16} />
               근로계약
             </button>
+            <button type="button" className={activeView === "work" ? "is-active" : ""}
+              aria-current={activeView === "work" ? "page" : undefined}
+              onClick={() => {
+                setActiveView("work");
+                setSelectedRecipientId(null);
+                setSelectedEmploymentContractId(null);
+                setIsCreatePanelOpen(false);
+                setIsEmploymentCreatePanelOpen(false);
+                setIsQuickAddOpen(false);
+              }}>
+              <ClipboardCheck size={16} />공동 업무
+            </button>
           </nav>
           <div className="runtime-badge">
             <Database size={16} />
@@ -1484,7 +1497,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       </header>
 
       <main className="main-content">
-        {activeView === "recipients" ? (
+        {activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
           <>
         <section className="page-heading">
           <div>

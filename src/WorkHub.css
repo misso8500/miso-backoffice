@@ -1,0 +1,72 @@
+.work-hub { min-width: 0; }
+.work-capture { max-width: 900px; padding: 18px; margin-bottom: 26px; background: #fff; border: 1px solid #ddd0eb; border-radius: 14px; box-shadow: 0 7px 24px #6f5a9f10; }
+.work-capture h2 { margin: 0; font-size: 18px; }
+.work-capture .section-title-row { flex-wrap: wrap; margin-bottom: 14px; }
+.work-capture small { color: #7e7289; font-size: 12px; }
+.work-capture fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.work-capture-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.work-capture-line > input { flex: 1 1 300px; min-width: 0; }
+.work-hub :is(input:not([type="checkbox"]), select, textarea) { border: 1px solid #ded5e8; border-radius: 9px; padding: 10px; min-height: 42px; background: #fff; color: #45394e; font: inherit; font-size: 14px; max-width: 100%; }
+.work-hub :is(input, select, textarea, button):focus-visible { outline: 3px solid #b7a0d566; outline-offset: 2px; }
+.work-hub :is(.primary-button,.secondary-button,.danger-button) { border-radius: 9px; font-size: 13px; font-weight: 650; }
+.work-hub .work-capture-line > input { min-width: 150px; }
+.work-meta { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.work-meta label { display: grid; gap: 6px; color: #796a87; font-size: 12px; }
+.work-capture details { margin: 10px 0; font-size: 13px; }
+.work-capture summary { cursor: pointer; color: #796a87; }
+.work-capture textarea { display: block; width: 100%; min-height: 90px; resize: vertical; margin-top: 10px; }
+.work-relations { border-top: 1px solid #eee8f4; padding-top: 12px; margin-top: 12px; }
+.work-reference-search { display: flex; flex-wrap: wrap; gap: 6px; }
+.work-reference-search input { flex: 0 1 230px; min-width: 120px; }
+.work-reference-results, .work-selected, .work-linked { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.work-reference { display: grid; gap: 3px; border-radius: 8px; border: 1px solid #e6deef; background: #fff; padding: 8px 10px; color: #6b5b7c; cursor: pointer; text-align: left; font-size: 13px; max-width: 240px; overflow-wrap: anywhere; }
+.work-reference.is-selected, .work-selected button { background: #f0e9f8; border-color: #c8b6de; color: #68507f; }
+.work-selected button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #d9c9e9; border-radius: 7px; padding: 6px 9px; cursor: pointer; }
+.work-help { display: block; line-height: 1.7; margin-top: 12px; }
+.work-notice { border: 1px solid #d8e8dd; background: #eff7f1; color: #3e6b4d; padding: 12px 16px; border-radius: 10px; font-size: 13px; line-height: 1.7; }
+.work-quick-create { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: #faf7fe; border: 1px solid #e4d9f0; border-radius: 10px; padding: 12px; margin-top: 12px; }
+.work-quick-create strong { flex-basis: 100%; font-size: 13px; }
+.work-quick-create input { width: 180px; }
+.work-quick-create p { flex-basis: 100%; font-size: 12px; color: #796a87; margin: 0; line-height: 1.7; }
+.work-quick-create [role="alert"] { color: #9c3939; }
+.work-list-heading { display: flex; gap: 16px; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.work-list-heading h2 { margin: 0; font-size: 19px; }
+.work-list-heading h2 small { font-size: 13px; color: #8b76a7; }
+.work-list-heading p { color: #807587; font-size: 12px; margin: 6px 0 0; }
+.work-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.work-filters .search-box { width: 240px; border-radius: 9px; }
+.work-filters .search-box input { background: transparent; border: 0; outline: 0; width: 100%; min-width: 0; padding: 0; }
+.work-filters .search-box:focus-within { border-color: #a48bbf; }
+.work-task-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 14px; }
+.work-task-card { border: 1px solid #e4dced; border-radius: 13px; background: #fff; padding: 18px; min-width: 0; box-shadow: 0 3px 15px #49345f05; }
+.work-task-card.is-cancelled { background: #f5f3f7; }
+.work-task-top { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.work-task-top > span { font-size: 11px; border-radius: 6px; padding: 4px 7px; }
+.work-category { background: #f0e9f8; color: #72588e; }
+.work-task-status { background: #f0f0f3; color: #77707f; }
+.work-due { background: #fff4dd; color: #8a6a34; }
+.work-task-card h3 { margin: 0; font-size: 17px; line-height: 1.6; overflow-wrap: anywhere; }
+.work-task-card > p { font-size: 13px; color: #7b6d86; line-height: 1.7; margin: 10px 0; }
+.work-task-card .work-description { white-space: pre-wrap; overflow-wrap: anywhere; color: #514659; }
+.work-linked > span { font-size: 12px; color: #71617e; border: 1px solid #e7e0ef; border-radius: 7px; padding: 5px 8px; max-width: 100%; overflow-wrap: anywhere; }
+.work-linked small { display: block; font-size: 11px; color: #97899e; margin-top: 3px; }
+.work-task-card footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 14px; margin-top: 14px; border-top: 1px solid #f1ebf6; }
+.work-task-card footer small { font-size: 11px; color: #93849e; line-height: 1.7; }
+.work-task-card footer > div { display: flex; gap: 6px; }
+.work-task-card footer button { min-height: 34px; padding: 5px 10px; font-size: 12px; }
+.work-hub .form-error { margin-top: 12px; line-height: 1.7; }
+.work-hub .error-banner { flex-wrap: wrap; line-height: 1.7; border-radius: 10px; }
+.work-history { margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee7f5; font-size: 12px; }
+.work-history summary { color: #826c98; cursor: pointer; }
+.work-history > div { background: #faf7fe; border-radius: 8px; padding: 10px; margin-top: 10px; }
+.work-history small { display: block; color: #93849e; margin-top: 5px; }
+.work-history p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; margin: 8px 0 0; }
+@media(max-width:620px) {
+  .work-capture { padding: 14px; }
+  .work-capture-line > input { flex-basis: 100%; }
+  .work-reference-search input { flex: 1 1 140px; }
+  .work-filters { width: 100%; }
+  .work-filters .search-box { width: 100%; }
+  .work-filters > select { flex: 1; min-width: 120px; }
+  .work-reference { max-width: 100%; }
+}
