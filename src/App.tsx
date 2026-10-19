@@ -1,4 +1,7 @@
 import {summarizePlan} from './lib/recipient-plan-summary';
+import './dev-sidebar.css';
+import './dev-workspace.css';
+import WorkHub from './WorkHub';
 import RecipientPlanPanel from "./RecipientPlanPanel";
 import RecipientList, { type RecipientView } from "./RecipientList";
 import RecipientServicePeriod from "./RecipientServicePeriod";
@@ -452,7 +455,7 @@ const limitDateYear = (value: string) => {
 const dateInputLimits = { min: "1000-01-01", max: "9999-12-31" } as const;
 
 function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Promise<void> }) {
-  const [activeView, setActiveView] = useState<"recipients" | "employmentContracts">(
+  const [activeView, setActiveView] = useState<"recipients" | "employmentContracts" | "work">(
     "recipients"
   );
   const [recipients, setRecipients] = useState<Recipient[]>([]);
@@ -1412,7 +1415,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${import.meta.env.DEV ? " sidebar-preview" : ""}`}>
       {notification && (
         <div key={notification.id} className="top-notification" role="status" aria-live="polite">
           <ClipboardCheck size={19} aria-hidden="true" />
@@ -1421,13 +1424,22 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       )}
       <header className="app-header">
         <div className="brand">
-          <span className="brand-mark">
-            <Users size={22} />
-          </span>
-          <div>
-            <strong>Miso Backoffice</strong>
-            <span>운영 정보 관리 MVP</span>
-          </div>
+          {import.meta.env.DEV ? (
+            <div className="sidebar-identity">
+              <strong>miso</strong>
+              <span>센터 운영 백오피스</span>
+            </div>
+          ) : (
+            <>
+              <span className="brand-mark">
+                <Users size={22} />
+              </span>
+              <div>
+                <strong>Miso Backoffice</strong>
+                <span>운영 정보 관리 MVP</span>
+              </div>
+            </>
+          )}
         </div>
         <div className="header-actions">
           <div className="google-account">
@@ -1435,10 +1447,12 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <span><strong>{authUser.name}</strong><small>{authUser.email}</small></span>
             <button type="button" className="secondary-button" onClick={() => void onSignOut()}>로그아웃</button>
           </div>
+          {import.meta.env.DEV && <span className="sidebar-section-label">센터 운영</span>}
           <nav className="view-tabs" aria-label="관리 메뉴">
             <button
               type="button"
               className={activeView === "recipients" ? "is-active" : ""}
+              aria-current={activeView === "recipients" ? "page" : undefined}
               onClick={() => {
                 setActiveView("recipients");
                 setSelectedEmploymentContractId(null);
@@ -1451,6 +1465,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <button
               type="button"
               className={activeView === "employmentContracts" ? "is-active" : ""}
+              aria-current={activeView === "employmentContracts" ? "page" : undefined}
               onClick={() => {
                 setActiveView("employmentContracts");
                 setSelectedRecipientId(null);
@@ -1460,16 +1475,29 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <Briefcase size={16} />
               근로계약
             </button>
+            <button type="button" className={activeView === "work" ? "is-active" : ""}
+              aria-current={activeView === "work" ? "page" : undefined}
+              onClick={() => {
+                setActiveView("work");
+                setSelectedRecipientId(null);
+                setSelectedEmploymentContractId(null);
+                setIsCreatePanelOpen(false);
+                setIsEmploymentCreatePanelOpen(false);
+                setIsQuickAddOpen(false);
+              }}>
+              <ClipboardCheck size={16} />공동 업무
+            </button>
           </nav>
           <div className="runtime-badge">
             <Database size={16} />
             Supabase Postgres
           </div>
+          {import.meta.env.DEV && <small className="sidebar-preview-label">로컬 디자인 미리보기</small>}
         </div>
       </header>
 
       <main className="main-content">
-        {activeView === "recipients" ? (
+        {activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
           <>
         <section className="page-heading">
           <div>

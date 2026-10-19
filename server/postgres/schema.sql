@@ -198,3 +198,107 @@ REVOKE ALL ON TABLE recipient_plans FROM anon, authenticated;
 ALTER TABLE recipient_plans ADD COLUMN IF NOT EXISTS plan_id TEXT;
 ALTER TABLE recipient_plans ADD COLUMN IF NOT EXISTS schedule JSONB;
 CREATE INDEX IF NOT EXISTS idx_recipient_plan_logical ON recipient_plans(recipient_id, plan_id, revision DESC);
+
+-- Shared work hub (WH-001); accessible only through the authenticated server.
+CREATE TABLE IF NOT EXISTS work_members (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  auth_id TEXT UNIQUE,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS work_assignees (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS work_tasks (
+  id TEXT PRIMARY KEY,
+  requester_id TEXT NOT NULL REFERENCES work_members(id),
+  assignee_id TEXT REFERENCES work_members(id),
+  roster_assignee_id TEXT REFERENCES work_assignees(id),
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL,
+  due_date TEXT,
+  related TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('open','cancelled')),
+  completed_at TEXT,
+  version INTEGER NOT NULL CHECK (version > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL REFERENCES work_members(id)
+);
+CREATE INDEX IF NOT EXISTS idx_work_tasks_assignee ON work_tasks(assignee_id, status, created_at);
+CREATE TABLE IF NOT EXISTS work_task_events (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES work_tasks(id),
+  version INTEGER NOT NULL,
+  actor_id TEXT NOT NULL REFERENCES work_members(id),
+  kind TEXT NOT NULL CHECK (kind IN ('created','updated','cancelled')),
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(task_id, version)
+);
+
+ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS roster_assignee_id TEXT REFERENCES work_assignees(id);
+ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS completed_at TEXT;
+CREATE TABLE IF NOT EXISTS work_plans (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES work_tasks(id),
+  assignee_id TEXT NOT NULL REFERENCES work_assignees(id),
+  work_date TEXT NOT NULL,
+  period TEXT NOT NULL CHECK(period IN ('morning','afternoon','unknown')),
+  snapshot TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('planned','cancelled')),
+  version INTEGER NOT NULL,
+  created_by TEXT NOT NULL REFERENCES work_members(id),
+  updated_by TEXT NOT NULL REFERENCES work_members(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_plan_active ON work_plans(task_id,assignee_id,work_date) WHERE status='planned';
+CREATE INDEX IF NOT EXISTS idx_work_plan_day ON work_plans(work_date,assignee_id);
+CREATE TABLE IF NOT EXISTS work_executions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT REFERENCES work_tasks(id),
+  plan_id TEXT REFERENCES work_plans(id),
+  assignee_id TEXT NOT NULL REFERENCES work_assignees(id),
+  work_date TEXT NOT NULL,
+  period TEXT NOT NULL CHECK(period IN ('morning','afternoon','unknown')),
+  content TEXT NOT NULL,
+  snapshot TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('recorded','voided')),
+  version INTEGER NOT NULL,
+  created_by TEXT NOT NULL REFERENCES work_members(id),
+  updated_by TEXT NOT NULL REFERENCES work_members(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_execution_plan_active ON work_executions(plan_id,assignee_id) WHERE plan_id IS NOT NULL AND status='recorded';
+CREATE INDEX IF NOT EXISTS idx_work_execution_day ON work_executions(work_date,assignee_id);
+CREATE TABLE IF NOT EXISTS work_journal_events (
+  id TEXT PRIMARY KEY,
+  entity_type TEXT NOT NULL CHECK(entity_type IN ('plan','execution')),
+  entity_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  actor_id TEXT NOT NULL REFERENCES work_members(id),
+  action TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(entity_type,entity_id,version)
+);
+ALTER TABLE work_members ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_members FROM anon, authenticated;
+ALTER TABLE work_assignees ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_assignees FROM anon, authenticated;
+ALTER TABLE work_tasks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_tasks FROM anon, authenticated;
+ALTER TABLE work_task_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_task_events FROM anon, authenticated;
+ALTER TABLE work_plans ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_plans FROM anon, authenticated;
+ALTER TABLE work_executions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_executions FROM anon, authenticated;
+ALTER TABLE work_journal_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_journal_events FROM anon, authenticated;

@@ -2,6 +2,7 @@
 node_modules/
 out/
 dist/
+handoff/
 
 .env*
 !.env.example

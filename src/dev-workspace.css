@@ -1,0 +1,401 @@
+/* Matches the local sidebar preview; business state and production styles stay separate. */
+.sidebar-preview {
+  --border: #e5dfed;
+  --surface: #fff;
+  --surface-blue: #f6f3fa;
+  --surface-blue-strong: #ece5f5;
+  --surface-yellow: #f6f3fa;
+  --accent: #9c87bb;
+  --accent-strong: #6f5a9f;
+  --accent-soft: #f0eaf8;
+  --muted: #78717f;
+  --shadow: 0 16px 48px #49345f14;
+  --workspace-radius: 14px;
+  --workspace-control-radius: 9px;
+  background: #f7f6f9;
+  color: #39333f;
+}
+
+.sidebar-preview .main-content {
+  padding-top: 34px;
+}
+
+.sidebar-preview .page-heading {
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom-color: #e9e3f0;
+}
+
+.sidebar-preview .page-heading h1 {
+  font-size: clamp(28px, 3vw, 36px);
+  letter-spacing: -1px;
+  line-height: 1.25;
+}
+
+.sidebar-preview .page-heading p {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.sidebar-preview .eyebrow {
+  color: #8b76a7;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.sidebar-preview :is(.heading-actions, .toolbar-controls, .detail-actions, .form-actions) {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sidebar-preview :is(.primary-button, .secondary-button, .warning-button, .restore-button, .danger-button, .back-button, .icon-button) {
+  border-radius: var(--workspace-control-radius);
+  font-weight: 650;
+  font-size: 13px;
+}
+
+.sidebar-preview .primary-button {
+  box-shadow: 0 3px 9px #6f5a9f18;
+}
+
+.sidebar-preview .secondary-button {
+  border-color: #e1d9eb;
+  background: #fff;
+  color: #5f5171;
+}
+
+.sidebar-preview .secondary-button:hover:not(:disabled) {
+  border-color: #c7b5df;
+  background: #f5f0fb;
+}
+
+.sidebar-preview :is(.warning-button, .restore-button) {
+  border-color: #dcd1ea;
+  background: #f3eef9;
+  color: #685381;
+}
+
+.sidebar-preview :is(button, a, summary):focus-visible {
+  outline: 3px solid #a78fc866;
+  outline-offset: 3px;
+}
+
+.sidebar-preview :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, textarea) {
+  border-radius: var(--workspace-control-radius);
+  border-color: #e1d9e9;
+  background-color: #fff;
+  font-size: 14px;
+}
+
+.sidebar-preview :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, textarea):focus {
+  border-color: #a48bbf;
+  outline: 2px solid #ded1ef;
+  outline-offset: 1px;
+}
+
+.sidebar-preview :is(input, textarea)::placeholder {
+  color: #99919f;
+}
+
+.sidebar-preview :is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: #8064a7;
+}
+
+.sidebar-preview .summary-card {
+  min-width: 144px;
+  border: 1px solid #e1d7ed;
+  border-radius: var(--workspace-radius);
+  background: #f2edf8;
+  padding: 14px 20px;
+}
+
+.sidebar-preview .summary-card strong {
+  color: #655080;
+}
+
+.sidebar-preview .quick-add-card {
+  gap: 14px;
+  border: 1px solid #dfd3ec;
+  border-radius: var(--workspace-radius);
+  background: #fff;
+  box-shadow: 0 6px 22px #6f5a9f0e;
+}
+
+.sidebar-preview :is(.quick-add-heading h2, .list-toolbar h2) {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.sidebar-preview :is(.search-box, .valid-toggle, .density-toggle, .segmented-control) {
+  border-radius: var(--workspace-control-radius);
+  border-color: #e2daec;
+}
+
+.sidebar-preview .search-box {
+  box-shadow: 0 2px 6px #49345f04;
+}
+
+.sidebar-preview .search-box input,
+.sidebar-preview .search-box input:focus {
+  background: transparent;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+
+.sidebar-preview .search-box:focus-within {
+  border-color: #a48bbf;
+  box-shadow: 0 0 0 3px #eee5f7;
+}
+
+.sidebar-preview :is(.density-toggle, .segmented-control) {
+  background: #eeeaf3;
+  padding: 4px;
+}
+
+.sidebar-preview :is(.density-toggle button, .segmented-control button) {
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.sidebar-preview :is(.density-toggle button, .segmented-control button).is-active {
+  background: #fff;
+  color: #6f5a9f;
+  box-shadow: 0 2px 5px #49345f0a;
+}
+
+.sidebar-preview .recipient-table {
+  border-radius: var(--workspace-radius);
+  border-color: #e5dfed;
+  box-shadow: 0 5px 22px #49345f08;
+}
+
+.sidebar-preview .table-head {
+  background: #f2eef7;
+  border-bottom-color: #e7dff0;
+  color: #786887;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.sidebar-preview .recipient-table li + li {
+  border-top-color: #f0ebf5;
+}
+
+.sidebar-preview .recipient-row:hover:not(.is-disabled) {
+  background: #f8f5fc;
+}
+
+.sidebar-preview .recipient-name > strong {
+  color: #44374f;
+  font-weight: 700;
+}
+
+.sidebar-preview .row-icon-button {
+  border-radius: 9px;
+  border-color: #e4dced;
+  color: #8a789e;
+  background: #fcfbfe;
+}
+
+.sidebar-preview .row-icon-button:hover {
+  background: #eee6f8;
+}
+
+.sidebar-preview .row-icon-button.is-danger:hover {
+  background: #fff0f0;
+  color: #a33b3b;
+  border-color: #d8a6a6;
+}
+
+.sidebar-preview :is(.contract-status, .employment-validity em, .status-chip, .recognition-preview-badge) {
+  border-radius: 7px;
+  font-weight: 650;
+}
+
+.sidebar-preview .employment-table .employment-worker-group + .employment-worker-group {
+  border-top-color: #f5f2f9;
+  box-shadow: 0 -1px 0 #e8e0f0;
+}
+
+.sidebar-preview :is(.employment-list-history, .employment-history) {
+  background: #f8f5fc;
+}
+
+.sidebar-preview :is(.employment-history-item, .resident-number-toggle, .recipient-staff-button, .validity-toggle) {
+  border-radius: 9px;
+}
+
+.sidebar-preview :is(.detail-backdrop, .alert-backdrop) {
+  background: #34264052;
+}
+
+.sidebar-preview .detail-panel {
+  border: 1px solid #e2d9ed;
+  border-radius: 18px;
+  background: #f9f7fc;
+  box-shadow: 0 20px 70px #35244526;
+}
+
+.sidebar-preview .detail-header {
+  border-radius: 18px 18px 0 0;
+  background: #fff;
+  padding: 16px 22px;
+}
+
+.sidebar-preview :is(.recipient-hero, .employment-hero) {
+  background: #f0eaf8;
+  border-bottom-color: #e0d4ee;
+}
+
+.sidebar-preview .recipient-hero h2 {
+  font-size: 30px;
+  letter-spacing: -0.7px;
+  color: #4c385f;
+}
+
+.sidebar-preview .recipient-hero > div {
+  border: 1px solid #dbceea;
+  border-radius: 12px;
+  background: #faf7ff;
+}
+
+.sidebar-preview .detail-sections dl,
+.sidebar-preview .form-grid {
+  border-radius: 12px;
+  border-color: #e6dfef;
+  box-shadow: none;
+}
+
+.sidebar-preview .detail-sections dl > div {
+  border-color: #f0ebf5;
+}
+
+.sidebar-preview .detail-sections dl > div:first-child {
+  border-top-left-radius: 12px;
+}
+
+.sidebar-preview .detail-sections dl > div:last-child {
+  border-bottom-right-radius: 12px;
+}
+
+.sidebar-preview :is(.form-section h3, .detail-sections h3, .section-title-row h3) {
+  color: #5c486f;
+  font-weight: 700;
+}
+
+.sidebar-preview :is(.form-grid label > span, .quick-add-grid label) {
+  font-weight: 650;
+}
+
+.sidebar-preview :is(.computed-field-row > div, .contract-term-row, .employment-condition-card, .condition-common-payment, .condition-review) {
+  border-radius: 12px;
+}
+
+.sidebar-preview .computed-field-row > div {
+  border: 1px solid #e4d8ef;
+  background: #f6f2fb;
+}
+
+.sidebar-preview .employment-condition-card {
+  background: #fff;
+  border-color: #dfd4eb;
+}
+
+.sidebar-preview :is(.assigned-user-editor, .operational-name-editor, .service-period-editor, .recipient-plan-panel, .recognition-preview, .contract-attachments, .document-images) {
+  border-radius: var(--workspace-radius);
+  border-color: #e2d8ec;
+  background: #fff;
+  box-shadow: 0 3px 14px #49345f05;
+}
+
+.sidebar-preview :is(.recipient-plan-notes > div, .plan-execution-list article, .plan-history details, .recognition-preview-history, .recognition-preview-comparison > div, .validity-period-card, .contract-image-card, .document-candidate, .document-thumbnail) {
+  border-radius: 10px;
+  border-color: #e4dbed;
+}
+
+.sidebar-preview :is(.plan-deadline-card, .validity-history, .document-page-notice, .document-missing-note) {
+  border-radius: 10px;
+}
+
+.sidebar-preview .recipient-picker > div {
+  border-radius: 10px;
+  background: #fcfbfe;
+  border-color: #e3daec;
+}
+
+.sidebar-preview .recipient-picker label:has(input:checked) {
+  background: #f0e9f9;
+}
+
+.sidebar-preview :is(.alert-dialog, .recipient-grid-panel, .document-image-viewer) {
+  border: 1px solid #e1d7ec;
+  border-radius: 16px;
+  box-shadow: 0 20px 64px #35244526;
+}
+
+.sidebar-preview :is(.recipient-grid-scroll, .contract-attachment-empty) {
+  border-radius: 10px;
+}
+
+/* Keep dense entry tables continuous instead of rounding each spreadsheet cell. */
+.sidebar-preview .recipient-input-table input {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.sidebar-preview .recipient-input-table input:focus {
+  outline: 2px solid #9585bd;
+  outline-offset: -2px;
+  background: #faf8fe;
+}
+
+.sidebar-preview :is(.error-banner, .form-error, .empty-state) {
+  border-radius: 12px;
+}
+
+.sidebar-preview .empty-state {
+  box-shadow: 0 4px 20px #49345f08;
+}
+
+@media (max-width: 820px) {
+  .sidebar-preview .page-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .sidebar-preview .toolbar-controls {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 620px) {
+  .sidebar-preview .main-content {
+    padding-top: 24px;
+  }
+
+  .sidebar-preview :is(.quick-add-card, .recipient-form, .detail-sections) {
+    padding: 18px;
+  }
+
+  .sidebar-preview .page-heading {
+    align-items: stretch;
+  }
+
+  .sidebar-preview .detail-panel,
+  .sidebar-preview .detail-header {
+    border-radius: 0;
+  }
+
+  .sidebar-preview .detail-panel {
+    border: 0;
+  }
+
+  .sidebar-preview .recipient-hero {
+    padding: 24px 18px;
+  }
+}

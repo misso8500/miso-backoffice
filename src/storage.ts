@@ -15,7 +15,7 @@ import type {
 export const API_UNAVAILABLE_MESSAGE =
   "API 서버에 연결할 수 없습니다. 터미널에서 `npm run api`를 실행한 뒤 다시 시도하세요.";
 
-const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> => {
+export const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   let response: Response;
   const authHeaders = await getAuthHeaders();
 
