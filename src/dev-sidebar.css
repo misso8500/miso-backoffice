@@ -1,0 +1,181 @@
+/* Local preview only: App applies this scope in Vite development mode. */
+.sidebar-preview.app-shell {
+  padding-left: 220px;
+}
+
+.sidebar-preview .app-header {
+  width: 220px;
+  height: 100dvh;
+  min-height: 0;
+  overflow-y: auto;
+  background: #e9e1f5;
+  border-right: 1px solid #ded5ef;
+  padding: 30px 18px 20px;
+}
+
+.sidebar-preview .sidebar-identity {
+  gap: 7px;
+}
+
+.sidebar-preview .sidebar-identity strong {
+  color: #40334f;
+  font-size: 29px;
+  font-weight: 850;
+  letter-spacing: -1px;
+  line-height: 1.2;
+}
+
+.sidebar-preview .sidebar-identity span {
+  color: #655484;
+  font-size: 12px;
+}
+
+.sidebar-preview .header-actions {
+  gap: 10px;
+  margin-top: 34px;
+}
+
+.sidebar-preview .sidebar-section-label {
+  order: 0;
+  padding: 0 12px;
+  color: #7b698f;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.sidebar-preview .view-tabs {
+  order: 1;
+  gap: 8px;
+}
+
+.sidebar-preview .view-tabs button {
+  min-height: 46px;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  color: #655a73;
+  font-size: 14px;
+  font-weight: 650;
+  text-align: left;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sidebar-preview .view-tabs button:hover {
+  background: #f4eefb;
+  color: #6f5a9f;
+  box-shadow: none;
+}
+
+.sidebar-preview .view-tabs button.is-active {
+  background: #fff;
+  color: #6f5a9f;
+  box-shadow: 0 5px 15px #46395f12;
+}
+
+.sidebar-preview .view-tabs button:focus-visible,
+.sidebar-preview .google-account button:focus-visible {
+  outline: 2px solid #6f5a9f;
+  outline-offset: 3px;
+}
+
+.sidebar-preview .google-account {
+  order: 2;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  margin-top: auto;
+  padding: 18px 4px 4px;
+  border-top: 1px solid #d6c9e7;
+}
+
+.sidebar-preview .google-account > svg {
+  margin-top: 2px;
+  color: #79638f;
+}
+
+.sidebar-preview .google-account strong {
+  font-size: 13px;
+}
+
+.sidebar-preview .google-account small {
+  color: #796e85;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.sidebar-preview .google-account button {
+  grid-column: 2;
+  justify-self: start;
+  min-height: 30px;
+  border: 1px solid #d1c2e3;
+  background: #f5effb;
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+.sidebar-preview .runtime-badge {
+  order: 3;
+  margin-top: 4px;
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+  color: #796e85;
+  font-size: 11px;
+}
+
+.sidebar-preview .sidebar-preview-label {
+  order: 4;
+  padding: 0 4px;
+  color: #877794;
+  font-size: 10px;
+}
+
+@media (max-width: 620px) {
+  .sidebar-preview.app-shell {
+    padding-left: 0;
+  }
+
+  .sidebar-preview .app-header {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    padding: 18px;
+  }
+
+  .sidebar-preview .header-actions {
+    gap: 12px;
+    margin-top: 4px;
+  }
+
+  .sidebar-preview .sidebar-section-label,
+  .sidebar-preview .runtime-badge,
+  .sidebar-preview .sidebar-preview-label {
+    display: none;
+  }
+
+  .sidebar-preview .view-tabs {
+    flex-direction: row;
+  }
+
+  .sidebar-preview .google-account {
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    align-items: center;
+    margin-top: 0;
+    padding: 12px 0 0;
+  }
+
+  .sidebar-preview .google-account button {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-preview .view-tabs button {
+    transition: none;
+  }
+}

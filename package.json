@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "api": "node server/api-router.mjs",
+    "api": "node --watch --watch-path=server --watch-path=shared server/api-router.mjs",
     "api:sqlite": "node server/api.mjs",
     "api:postgres": "node server/postgres/api.mjs",
     "db:postgres:init": "node server/postgres/init.mjs",
@@ -13,11 +13,13 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "drive:check": "node server/drive-check.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",
     "@vitejs/plugin-react": "^6.0.2",
+    "google-auth-library": "^11.3.0",
     "lucide-react": "^0.561.0",
     "pg": "^8.22.0",
     "react": "^19.2.1",

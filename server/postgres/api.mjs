@@ -1,3 +1,15 @@
+import { handleWorkTasks } from "../work-tasks.mjs";
+import { createPostgresWorkStore } from "../work-task-stores.mjs";
+import { handleRecipientPlans, guardProfilePlanFields } from "../recipient-plans.mjs";
+import { createPostgresPlanStore } from "../recipient-plan-stores.mjs";
+import { prepareServicePeriod } from "../service-period.mjs";
+import { randomUUID } from "node:crypto";
+import { handleRecipientDocuments } from "../recipient-documents.mjs";
+import { DriveError } from "../drive.mjs";
+import { handleDriveRequest } from "../drive.mjs";
+import { prepareEmploymentBody, prepareEmploymentDraftRows, sameEmploymentDraft } from "../employment-drafts.mjs";
+import { prepareRecipientBody, prepareDraftRows, sameDraft, visibleCareNumber } from "../recipient-drafts.mjs";
+import { normalizeWorkConditions } from "../work-conditions.mjs";
 import { AuthError, handleAuthRequest } from "../auth.mjs";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -137,7 +149,8 @@ const recipientFromRow = (row) => ({
   ...(row.operational_name ? { operationalName: row.operational_name } : {}),
   ...(row.assigned_backoffice_user_id ? { assignedBackofficeUserId: row.assigned_backoffice_user_id } : {}),
   birthDate: row.birth_date,
-  longTermCareNumber: row.long_term_care_number,
+  isDraft: row.is_draft === true,
+  longTermCareNumber: visibleCareNumber(row.long_term_care_number),
   careGrade: row.care_grade,
   ...(row.phone ? { phone: row.phone } : {}),
   address: row.address,
@@ -148,6 +161,7 @@ const recipientFromRow = (row) => ({
   caregiverRequirements: row.caregiver_requirements ?? "",
   reductionType: row.reduction_type ?? "일반",
   relatedPeople: row.related_people ?? "",
+  medicalHistory: row.medical_history ?? "",
   serviceStartDate: row.service_start_date,
   serviceEndDate: row.service_end_date,
   contractRegisteredDate: row.contract_registered_date,
@@ -223,6 +237,8 @@ const contractTermsForContract = async (contractId, contractRow) => {
   }));
 
   if (terms.length > 0) {
+    const order = contractRow.work_conditions?.conditions?.map((condition) => condition.termId) ?? [];
+    if (order.length) terms.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
     return terms;
   }
 
@@ -240,6 +256,7 @@ const contractTermsForContract = async (contractId, contractRow) => {
 
 const employmentContractFromRow = async (row) => ({
   id: row.id,
+  isDraft: row.is_draft === true,
   workerName: row.worker_name,
   workerBirthDate: row.worker_birth_date,
   residentRegistrationNumber: row.resident_registration_number,
@@ -267,11 +284,20 @@ const employmentContractFromRow = async (row) => ({
   paymentDate: row.payment_date,
   insuranceStatus: row.insurance_status,
   insuranceSnapshots: await insuranceSnapshotsForContract(row.id),
+  ...(row.work_conditions ? { workConditions: row.work_conditions } : {}),
   contractTerms: await contractTermsForContract(row.id, row),
   ...(row.memo ? { memo: row.memo } : {}),
   enabled: row.enabled !== false,
   createdAt: row.created_at,
   updatedAt: row.updated_at
+});
+
+const planStore = createPostgresPlanStore(pool, recipientFromRow, async (executor,id)=>{
+  const result=await executor.query('SELECT payload FROM recipient_documents WHERE recipient_id=$1',[id]);
+  return result.rows[0]?.payload?.periods??[];
+}, async executor=>{
+  const result=await executor.query("SELECT recipient_id, payload->'periods' AS periods FROM recipient_documents");
+  return result.rows.map(row=>({recipient_id:row.recipient_id,periods:(row.periods??[]).map(p=>({id:p.id,startDate:p.startDate,endDate:p.endDate}))}));
 });
 
 const readRecipient = async (recipientId) => {
@@ -290,42 +316,46 @@ const readRecipient = async (recipientId) => {
     [recipientId]
   );
 
-  return rows[0] ? recipientFromRow(rows[0]) : null;
+  return rows[0] ? (await planStore.enrich([recipientFromRow(rows[0])]))[0] : null;
 };
 
 const normalizeRecipient = (body, existing = null) => {
+  body = prepareRecipientBody(body, existing);
+  guardProfilePlanFields(body, existing);
   const now = new Date().toISOString();
   const recipient = {
+    isDraft: body.isDraft,
     id: assertString(body.id ?? existing?.id, "id"),
     name: assertString(body.name, "name"),
     operationalName: assertString(body.operationalName, "operationalName", { optional: true }),
     assignedBackofficeUserId: assertString(body.assignedBackofficeUserId, "assignedBackofficeUserId", { optional: true }),
-    birthDate: assertString(body.birthDate, "birthDate"),
+    birthDate: assertString(body.birthDate, "birthDate", { optional: body.isDraft }) ?? "",
     longTermCareNumber: assertString(body.longTermCareNumber, "longTermCareNumber"),
-    careGrade: assertString(body.careGrade, "careGrade"),
+    careGrade: assertString(body.careGrade, "careGrade", { optional: body.isDraft }) ?? "",
     phone: assertString(body.phone, "phone", { optional: true }),
-    address: assertString(body.address, "address"),
-    representativeName: assertString(body.representativeName, "representativeName"),
-    representativeRelation: assertString(body.representativeRelation, "representativeRelation"),
-    representativePhone: assertString(body.representativePhone, "representativePhone"),
+    address: assertString(body.address, "address", { optional: body.isDraft }) ?? "",
+    representativeName: assertString(body.representativeName, "representativeName", { optional: body.isDraft }) ?? "",
+    representativeRelation: assertString(body.representativeRelation, "representativeRelation", { optional: body.isDraft }) ?? "",
+    representativePhone: assertString(body.representativePhone, "representativePhone", { optional: body.isDraft }) ?? "",
     serviceType: assertString(body.serviceType ?? existing?.serviceType ?? "방문", "serviceType"),
     caregiverRequirements: assertString(body.caregiverRequirements ?? existing?.caregiverRequirements, "caregiverRequirements", { optional: true }) ?? "",
     reductionType: assertString(body.reductionType ?? existing?.reductionType ?? "일반", "reductionType"),
     relatedPeople: assertString(body.relatedPeople ?? existing?.relatedPeople, "relatedPeople", { optional: true }) ?? "",
-    serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate"),
-    serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate"),
-    contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate"),
-    contractExpiredDate: assertString(body.contractExpiredDate, "contractExpiredDate"),
+    medicalHistory: assertString(body.medicalHistory ?? existing?.medicalHistory, "medicalHistory", { optional: true }) ?? "",
+    serviceStartDate: assertString(body.serviceStartDate, "serviceStartDate", { optional: body.isDraft }) ?? "",
+    serviceEndDate: assertString(body.serviceEndDate, "serviceEndDate", { optional: body.isDraft }) ?? "",
+    contractRegisteredDate: assertString(body.contractRegisteredDate, "contractRegisteredDate", { optional: body.isDraft }) ?? "",
+    contractExpiredDate: assertString(body.contractExpiredDate, "contractExpiredDate", { optional: body.isDraft }) ?? "",
     enabled: typeof body.enabled === "boolean" ? body.enabled : existing?.enabled ?? true,
     createdAt: existing?.createdAt ?? body.createdAt ?? now,
     updatedAt: now
   };
 
-  if (recipient.serviceStartDate > recipient.serviceEndDate) {
+  if (recipient.serviceStartDate && recipient.serviceEndDate && recipient.serviceStartDate > recipient.serviceEndDate) {
     throw new Error("serviceStartDate must not be later than serviceEndDate");
   }
 
-  if (recipient.contractRegisteredDate > recipient.contractExpiredDate) {
+  if (recipient.contractRegisteredDate && recipient.contractExpiredDate && recipient.contractRegisteredDate > recipient.contractExpiredDate) {
     throw new Error("contractRegisteredDate must not be later than contractExpiredDate");
   }
 
@@ -333,6 +363,10 @@ const normalizeRecipient = (body, existing = null) => {
 };
 
 const normalizeEmploymentContract = (body, existing = null) => {
+  body = prepareEmploymentBody(body, existing);
+  if (existing && body.updatedAt && body.updatedAt !== existing.updatedAt) {
+    throw Object.assign(new Error("다른 사용자가 이 계약을 수정했습니다. 최신 계약을 다시 열어 수정해 주세요."), { status: 409 });
+  }
   const now = new Date().toISOString();
   const workplaceType = assertString(body.workplaceType ?? "office", "workplaceType");
 
@@ -369,7 +403,7 @@ const normalizeEmploymentContract = (body, existing = null) => {
             ? term.id.trim()
             : `employment-term-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         wageType: assertString(term.wageType, "contractTerm.wageType"),
-        wageAmount: assertNumber(term.wageAmount, "contractTerm.wageAmount", { min: 1 }),
+        wageAmount: assertNumber(term.wageAmount, "contractTerm.wageAmount", { min: body.isDraft ? 0 : 1 }),
         nonTaxableMealAllowance: assertNumber(
           term.nonTaxableMealAllowance ?? 0,
           "contractTerm.nonTaxableMealAllowance"
@@ -389,38 +423,39 @@ const normalizeEmploymentContract = (body, existing = null) => {
   const primaryTerm = contractTerms[0] ?? null;
   const residentRegistrationNumber = assertString(
     body.residentRegistrationNumber,
-    "residentRegistrationNumber"
-  );
+    "residentRegistrationNumber", { optional: body.isDraft }
+  ) ?? "";
   const workerBirthDate =
     assertString(body.workerBirthDate, "workerBirthDate", { optional: true }) ??
     deriveBirthDateFromResidentNumber(residentRegistrationNumber);
 
-  if (!workerBirthDate) {
+  if (!workerBirthDate && (!body.isDraft || residentRegistrationNumber)) {
     throw new Error("residentRegistrationNumber is invalid");
   }
 
   const contract = {
     id: assertString(body.id ?? existing?.id, "id"),
     workerName: assertString(body.workerName, "workerName"),
-    workerBirthDate,
+    workerBirthDate: workerBirthDate ?? "",
+    isDraft: body.isDraft,
     residentRegistrationNumber,
     workerPhone: assertString(body.workerPhone, "workerPhone", { optional: true }),
-    primaryBank: assertString(body.primaryBank, "primaryBank"),
-    bankAccountNumber: assertString(body.bankAccountNumber, "bankAccountNumber"),
-    workerAddress: assertString(body.workerAddress, "workerAddress"),
-    jobTitle: assertString(body.jobTitle, "jobTitle"),
-    employmentType: assertString(body.employmentType, "employmentType"),
+    primaryBank: assertString(body.primaryBank, "primaryBank", { optional: body.isDraft }) ?? "",
+    bankAccountNumber: assertString(body.bankAccountNumber, "bankAccountNumber", { optional: body.isDraft }) ?? "",
+    workerAddress: assertString(body.workerAddress, "workerAddress", { optional: body.isDraft }) ?? "",
+    jobTitle: assertString(body.jobTitle, "jobTitle", { optional: body.isDraft }) ?? "",
+    employmentType: assertString(body.employmentType, "employmentType", { optional: body.isDraft }) ?? "",
     workplaceType,
-    workplace: assertString(body.workplace, "workplace"),
+    workplace: assertString(body.workplace, "workplace", { optional: body.isDraft }) ?? "",
     recipientAssignments,
-    contractStartDate: assertString(body.contractStartDate, "contractStartDate"),
+    contractStartDate: assertString(body.contractStartDate, "contractStartDate", { optional: body.isDraft }) ?? "",
     contractEndDate: assertString(body.contractEndDate, "contractEndDate", { optional: true }),
-    workDays: assertString(body.workDays, "workDays"),
-    workStartTime: assertString(body.workStartTime, "workStartTime"),
-    workEndTime: assertString(body.workEndTime, "workEndTime"),
+    workDays: assertString(body.workDays, "workDays", { optional: body.isDraft }) ?? "",
+    workStartTime: assertString(body.workStartTime, "workStartTime", { optional: body.isDraft }) ?? "",
+    workEndTime: assertString(body.workEndTime, "workEndTime", { optional: body.isDraft }) ?? "",
     breakMinutes: assertNumber(body.breakMinutes, "breakMinutes"),
     wageType: primaryTerm?.wageType ?? assertString(body.wageType, "wageType"),
-    wageAmount: primaryTerm?.wageAmount ?? assertNumber(body.wageAmount, "wageAmount", { min: 1 }),
+    wageAmount: primaryTerm?.wageAmount ?? assertNumber(body.wageAmount, "wageAmount", { min: body.isDraft ? 0 : 1 }),
     nonTaxableVehicleAllowance:
       primaryTerm?.nonTaxableVehicleAllowance ??
       assertNumber(body.nonTaxableVehicleAllowance ?? 0, "nonTaxableVehicleAllowance"),
@@ -430,8 +465,8 @@ const normalizeEmploymentContract = (body, existing = null) => {
     taxableExtraPay:
       primaryTerm?.otherNonTaxablePay ?? assertNumber(body.taxableExtraPay ?? 0, "taxableExtraPay"),
     allowanceMemo: assertString(body.allowanceMemo, "allowanceMemo", { optional: true }),
-    paymentDate: assertString(body.paymentDate, "paymentDate"),
-    insuranceStatus: assertString(body.insuranceStatus, "insuranceStatus"),
+    paymentDate: assertString(body.paymentDate, "paymentDate", { optional: body.isDraft }) ?? "",
+    insuranceStatus: assertString(body.insuranceStatus, "insuranceStatus", { optional: body.isDraft }) ?? "",
     insuranceSnapshots,
     contractTerms,
     memo: assertString(body.memo, "memo", { optional: true }),
@@ -440,39 +475,44 @@ const normalizeEmploymentContract = (body, existing = null) => {
     updatedAt: now
   };
 
+  contract.workConditions = normalizeWorkConditions(body.workConditions, contract, existing);
+  if (contract.workConditions) {
+    contract.recipientAssignments = [...new Set(contract.workConditions.conditions.map((condition) => condition.recipientId).filter(Boolean))];
+  }
+
   const isValidContractDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
     Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
-  if (!isValidContractDate(contract.contractStartDate) ||
+  if ((!contract.isDraft && !isValidContractDate(contract.contractStartDate)) ||
       (contract.contractEndDate && !isValidContractDate(contract.contractEndDate)) ||
-      (!existing && !contract.contractEndDate)) {
+      (!contract.isDraft && (!existing || existing.isDraft) && !contract.contractEndDate)) {
     throw new Error("계약 시작일과 종료일을 YYYY-MM-DD 형식으로 입력하세요.");
   }
 
-  if (contract.contractEndDate && contract.contractStartDate > contract.contractEndDate) {
+  if (contract.contractStartDate && contract.contractEndDate && contract.contractStartDate > contract.contractEndDate) {
     throw new Error("contractStartDate must not be later than contractEndDate");
   }
 
-  if (contract.workStartTime >= contract.workEndTime) {
+  if ((!contract.isDraft || (contract.workStartTime && contract.workEndTime)) && contract.workStartTime >= contract.workEndTime) {
     throw new Error("workStartTime must be earlier than workEndTime");
   }
 
-  if (contract.workplaceType === "recipient_home" && contract.recipientAssignments.length === 0) {
+  if (!contract.isDraft && contract.workplaceType === "recipient_home" && contract.recipientAssignments.length === 0) {
     throw new Error("recipientAssignments is required when workplaceType is recipient_home");
   }
 
   return contract;
 };
 
-const insertRecipient = async (recipient) =>
-  pool.query(
+const insertRecipient = async (recipient, executor = pool) =>
+  executor.query(
     `
       INSERT INTO recipients (
         id, name, operational_name, assigned_backoffice_user_id, birth_date, long_term_care_number, care_grade, phone, address,
         representative_name, representative_relation, representative_phone,
         service_type, caregiver_requirements, reduction_type, related_people,
         service_start_date, service_end_date, contract_registered_date,
-        contract_expired_date, enabled, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+        contract_expired_date, enabled, created_at, updated_at, is_draft, medical_history
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
     `,
     [
       recipient.id,
@@ -497,19 +537,21 @@ const insertRecipient = async (recipient) =>
       recipient.contractExpiredDate,
       recipient.enabled,
       recipient.createdAt,
-      recipient.updatedAt
+      recipient.updatedAt,
+      recipient.isDraft ?? false,
+      recipient.medicalHistory ?? ""
     ]
   );
 
-const updateRecipient = async (recipient) =>
-  pool.query(
+const updateRecipient = async (recipient, executor = pool) =>
+  executor.query(
     `
       UPDATE recipients SET
         name = $1, operational_name = $2, assigned_backoffice_user_id = $3, birth_date = $4, long_term_care_number = $5, care_grade = $6,
         phone = $7, address = $8, representative_name = $9, representative_relation = $10,
         representative_phone = $11, service_type = $12, caregiver_requirements = $13,
         reduction_type = $14, related_people = $15, service_start_date = $16, service_end_date = $17,
-        contract_registered_date = $18, contract_expired_date = $19, enabled = $20, updated_at = $21
+        contract_registered_date = $18, contract_expired_date = $19, enabled = $20, updated_at = $21, is_draft = $23, medical_history = $24
       WHERE id = $22
     `,
     [
@@ -534,7 +576,9 @@ const updateRecipient = async (recipient) =>
       recipient.contractExpiredDate,
       recipient.enabled,
       recipient.updatedAt,
-      recipient.id
+      recipient.id,
+      recipient.isDraft ?? false,
+      recipient.medicalHistory ?? ""
     ]
   );
 
@@ -569,8 +613,8 @@ const insertEvent = async ({
     ]
   );
 
-const insertEmploymentContract = async (contract) =>
-  pool.query(
+const insertEmploymentContract = async (contract, executor = pool) =>
+  executor.query(
     `
       INSERT INTO employment_contracts (
         id, worker_name, worker_birth_date, resident_registration_number, worker_phone,
@@ -578,11 +622,11 @@ const insertEmploymentContract = async (contract) =>
         employment_type, workplace_type, workplace, contract_start_date, contract_end_date, work_days,
         work_start_time, work_end_time, break_minutes, wage_type, wage_amount,
         non_taxable_vehicle_allowance, non_taxable_meal_allowance, taxable_extra_pay,
-        allowance_memo, payment_date, insurance_status, memo, enabled, created_at, updated_at
+        allowance_memo, payment_date, insurance_status, memo, enabled, created_at, updated_at, is_draft
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-        $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
+        $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31
       )
     `,
     [
@@ -615,12 +659,13 @@ const insertEmploymentContract = async (contract) =>
       contract.memo,
       contract.enabled,
       contract.createdAt,
-      contract.updatedAt
+      contract.updatedAt,
+      contract.isDraft ?? false
     ]
   );
 
-const updateEmploymentContract = async (contract) =>
-  pool.query(
+const updateEmploymentContract = async (contract, executor = pool) =>
+  executor.query(
     `
       UPDATE employment_contracts SET
         worker_name = $1, worker_birth_date = $2, resident_registration_number = $3,
@@ -666,21 +711,23 @@ const updateEmploymentContract = async (contract) =>
     ]
   );
 
-const replaceEmploymentContractChildren = async (contract) => {
-  await pool.query("DELETE FROM employment_contract_recipient_assignments WHERE employment_contract_id = $1", [
+const replaceEmploymentContractChildren = async (contract, executor = pool) => {
+  await executor.query("UPDATE employment_contracts SET is_draft = $1 WHERE id = $2", [contract.isDraft ?? false, contract.id]);
+  await executor.query("UPDATE employment_contracts SET work_conditions = $1 WHERE id = $2", [contract.workConditions ? JSON.stringify(contract.workConditions) : null, contract.id]);
+  await executor.query("DELETE FROM employment_contract_recipient_assignments WHERE employment_contract_id = $1", [
     contract.id
   ]);
-  await pool.query("DELETE FROM employment_insurance_snapshots WHERE employment_contract_id = $1", [
+  await executor.query("DELETE FROM employment_insurance_snapshots WHERE employment_contract_id = $1", [
     contract.id
   ]);
-  await pool.query("DELETE FROM employment_contract_terms WHERE employment_contract_id = $1", [
+  await executor.query("DELETE FROM employment_contract_terms WHERE employment_contract_id = $1", [
     contract.id
   ]);
 
   const now = new Date().toISOString();
 
   for (const recipientId of contract.recipientAssignments) {
-    await pool.query(
+    await executor.query(
       `
         INSERT INTO employment_contract_recipient_assignments (
           employment_contract_id, recipient_id, created_at
@@ -692,7 +739,7 @@ const replaceEmploymentContractChildren = async (contract) => {
   }
 
   for (const snapshot of contract.insuranceSnapshots) {
-    await pool.query(
+    await executor.query(
       `
         INSERT INTO employment_insurance_snapshots (
           id, employment_contract_id, status, effective_start_date, effective_end_date,
@@ -713,7 +760,7 @@ const replaceEmploymentContractChildren = async (contract) => {
   }
 
   for (const term of contract.contractTerms) {
-    await pool.query(
+    await executor.query(
       `
         INSERT INTO employment_contract_terms (
           id, employment_contract_id, wage_type, wage_amount, non_taxable_meal_allowance,
@@ -734,10 +781,30 @@ const replaceEmploymentContractChildren = async (contract) => {
   }
 };
 
+const saveEmploymentContract = async (contract, updating, expectedUpdatedAt) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (updating) {
+      const { rows } = await client.query("SELECT updated_at FROM employment_contracts WHERE id = $1 FOR UPDATE", [contract.id]);
+      if (rows[0]?.updated_at !== expectedUpdatedAt) throw Object.assign(new Error("다른 사용자가 이 계약을 수정했습니다. 최신 계약을 다시 열어 수정해 주세요."), { status: 409 });
+      await updateEmploymentContract(contract, client);
+    }
+    else await insertEmploymentContract(contract, client);
+    await replaceEmploymentContractChildren(contract, client);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally { client.release(); }
+};
+
 const readEmploymentContractRow = async (contractId) => {
   const { rows } = await pool.query("SELECT * FROM employment_contracts WHERE id = $1", [contractId]);
   return rows[0] ?? null;
 };
+
+const workStore = createPostgresWorkStore(pool, () => true);
 
 export const handlePostgresRequest = async (request, response) => {
   if (request.method === "OPTIONS") {
@@ -748,7 +815,37 @@ export const handlePostgresRequest = async (request, response) => {
   try {
     const authentication = await handleAuthRequest(request, response, sendJson);
     if (authentication.handled) return;
+    if (await handleWorkTasks(request, response, sendJson, workStore, authentication.user)) return;
+    if (await handleRecipientPlans(request, response, sendJson, planStore, authentication.user)) return;
+    if (await handleDriveRequest(request, response, sendJson)) return;
+    if (await handleRecipientDocuments(request, response, sendJson, {
+      exists: async id => (await pool.query('SELECT 1 FROM recipients WHERE id=$1', [id])).rowCount > 0,
+      get: async id => (await pool.query('SELECT payload FROM recipient_documents WHERE recipient_id=$1', [id])).rows[0]?.payload ?? null,
+      save: async (id, payload, version) => {
+        const result = version === null
+          ? await pool.query('INSERT INTO recipient_documents(recipient_id,folder_id,payload,version) VALUES($1,$2,$3,$4) ON CONFLICT(recipient_id) DO NOTHING', [id,payload.folderId,JSON.stringify(payload),payload.version])
+          : await pool.query('UPDATE recipient_documents SET folder_id=$2,payload=$3,version=$4 WHERE recipient_id=$1 AND version=$5', [id,payload.folderId,JSON.stringify(payload),payload.version,version]);
+        if (!result.rowCount) throw new DriveError(409, '다른 사용자가 변경했습니다. 다시 불러와 주세요.');
+      }
+    })) return;
     const parts = parsePath(request.url ?? "/");
+    if (parts[0] === 'api' && parts[1] === 'recipients' && parts[2] && parts[3] === 'service-period' && !parts[4] && request.method === 'PUT') {
+      const body = await readBody(request), client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const result = await client.query('SELECT * FROM recipients WHERE id=$1 FOR UPDATE', [parts[2]]);
+        if (!result.rows[0]) throw Object.assign(new Error('수급자를 찾을 수 없습니다.'), {status:404});
+        const existing = recipientFromRow(result.rows[0]), change = prepareServicePeriod(body, existing);
+        if (change.changed) {
+          const now = new Date().toISOString();
+          await client.query('UPDATE recipients SET service_start_date=$1,service_end_date=$2,contract_registered_date=$1,contract_expired_date=$2,updated_at=$3 WHERE id=$4', [change.start,change.end,now,parts[2]]);
+          await client.query('INSERT INTO recipient_contract_events(id,recipient_id,type,service_start_date,service_end_date,memo,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)', [randomUUID(),parts[2],change.type,change.start,change.end,change.memo,now]);
+        }
+        await client.query('COMMIT');
+      } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+      sendJson(response, 200, await readRecipient(parts[2])); return;
+    }
+
 
     if (parts[0] === "api" && parts[1] === "health" && request.method === "GET") {
       const { rows } = await pool.query(
@@ -790,6 +887,56 @@ export const handlePostgresRequest = async (request, response) => {
       return;
     }
 
+    if (parts[1] === "recipients" && parts[2] === "bulk-drafts" && request.method === "POST") {
+      const rows = prepareDraftRows(await readBody(request)).map((row) => normalizeRecipient(row));
+      const client = await pool.connect();
+      const saved = [];
+      try {
+        await client.query("BEGIN");
+        for (const [index, recipient] of rows.entries()) {
+          const previous = await client.query("SELECT * FROM recipients WHERE id = $1", [recipient.id]);
+          if (previous.rows[0]) {
+            const existing = recipientFromRow(previous.rows[0]);
+            if (!sameDraft(existing, recipient)) throw Object.assign(new Error(`${index + 1}행: 이미 저장된 행과 내용이 다릅니다. 목록을 확인해 주세요.`), { status: 409 });
+            saved.push(existing);
+          } else {
+            await insertRecipient(recipient, client);
+            saved.push({ ...recipient, longTermCareNumber: visibleCareNumber(recipient.longTermCareNumber), recontractCount: 0 });
+          }
+        }
+        await client.query("COMMIT");
+      } catch (error) { await client.query("ROLLBACK"); throw error; }
+      finally { client.release(); }
+      sendJson(response, 200, { recipients: await planStore.enrich(saved) });
+      return;
+    }
+
+    if (parts[1] === "employment-contracts" && parts[2] === "bulk-drafts" && request.method === "POST") {
+      const contracts = prepareEmploymentDraftRows(await readBody(request)).map((body) => normalizeEmploymentContract(body));
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        for (const [index, contract] of contracts.entries()) {
+          const { rows } = await client.query("SELECT * FROM employment_contracts WHERE id = $1", [contract.id]);
+          const row = rows[0];
+          if (row) {
+            const existing = { isDraft: row.is_draft === true, workerName: row.worker_name, residentRegistrationNumber: row.resident_registration_number,
+              workerPhone: row.worker_phone, primaryBank: row.primary_bank, bankAccountNumber: row.bank_account_number,
+              contractStartDate: row.contract_start_date, contractEndDate: row.contract_end_date };
+            if (!sameEmploymentDraft(existing, contract)) throw Object.assign(new Error(`${index + 1}행: 이미 저장된 계약과 내용이 다릅니다. 목록을 확인해 주세요.`), { status: 409 });
+          } else {
+            await insertEmploymentContract(contract, client);
+            await replaceEmploymentContractChildren(contract, client);
+          }
+        }
+        await client.query("COMMIT");
+      } catch (error) { await client.query("ROLLBACK"); throw error; }
+      finally { client.release(); }
+      const saved = await Promise.all(contracts.map(async (contract) => employmentContractFromRow(await readEmploymentContractRow(contract.id))));
+      sendJson(response, 200, { contracts: saved });
+      return;
+    }
+
     if (parts[1] === "employment-contracts") {
       if (!parts[2] && request.method === "GET") {
         const { rows } = await pool.query(
@@ -811,8 +958,7 @@ export const handlePostgresRequest = async (request, response) => {
 
       if (!parts[2] && request.method === "POST") {
         const contract = normalizeEmploymentContract(await readBody(request));
-        await insertEmploymentContract(contract);
-        await replaceEmploymentContractChildren(contract);
+        await saveEmploymentContract(contract, false);
         sendJson(response, 201, contract);
         return;
       }
@@ -831,8 +977,7 @@ export const handlePostgresRequest = async (request, response) => {
           existing
         );
 
-        await updateEmploymentContract(contract);
-        await replaceEmploymentContractChildren(contract);
+        await saveEmploymentContract(contract, true, existing.updatedAt);
 
         const updatedRow = await readEmploymentContractRow(parts[2]);
         sendJson(response, 200, await employmentContractFromRow(updatedRow));
@@ -868,7 +1013,7 @@ export const handlePostgresRequest = async (request, response) => {
         FROM recipients
         ORDER BY contract_expired_date ASC, name ASC
       `);
-      sendJson(response, 200, rows.map(recipientFromRow));
+      sendJson(response, 200, await planStore.enrich(rows.map(recipientFromRow)));
       return;
     }
 
@@ -912,7 +1057,7 @@ export const handlePostgresRequest = async (request, response) => {
     if (!parts[2] && request.method === "POST") {
       const recipient = normalizeRecipient(await readBody(request));
       await insertRecipient(recipient);
-      sendJson(response, 201, recipient);
+      sendJson(response, 201, { ...recipient, longTermCareNumber: visibleCareNumber(recipient.longTermCareNumber) });
       return;
     }
 
@@ -1045,10 +1190,10 @@ export const handlePostgresRequest = async (request, response) => {
       return;
     }
     const message = error instanceof Error ? error.message : "Unknown error";
-    const statusCode = message.includes("duplicate key") ? 409 : 400;
+    const statusCode = error?.status === 404 ? 404 : error?.status === 409 || message.includes("duplicate key") ? 409 : 400;
     sendJson(response, statusCode, {
       error:
-        statusCode === 409
+        statusCode === 409 && error?.status !== 409
           ? "중복된 고유값이 이미 등록되어 있습니다."
           : message
     });

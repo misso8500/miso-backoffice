@@ -162,6 +162,8 @@ Miso Backoffice는 미소 노인재가복지센터의 장기요양 운영 업무
 
 ## Documentation Rule
 
+공동 업무의 등록·담당자별 조회·수정·취소·이력과 일간 계획·실제 수행·주월 캘린더는 [공동 업무 사용 안내](docs/work-hub.md)와 [단계별 개발 범위](docs/work-hub-development.md)를 참고한다. 공식 서류 연결은 후속 단계다.
+
 프로젝트 운영은 아래 문서를 기준으로 진행한다.
 
 - [개발-학습일지 시스템](docs/%EA%B0%9C%EB%B0%9C-%ED%95%99%EC%8A%B5%EC%9D%BC%EC%A7%80%20%EC%8B%9C%EC%8A%A4%ED%85%9C.md)

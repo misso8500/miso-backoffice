@@ -1,9 +1,12 @@
+import {validatePlanResponse} from '../shared/validate-plan-response.mjs';
 import { getAuthHeaders, authFailureEvent } from "./auth";
 import type {
   EmploymentContract,
   EmploymentContractInput,
   BackofficeState,
   Recipient,
+  RecipientPlanState,
+  RecipientPlanInput,
   RecipientInput,
   RestoreRecipientInput,
   TerminateContractInput
@@ -12,7 +15,7 @@ import type {
 export const API_UNAVAILABLE_MESSAGE =
   "API 서버에 연결할 수 없습니다. 터미널에서 `npm run api`를 실행한 뒤 다시 시도하세요.";
 
-const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> => {
+export const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   let response: Response;
   const authHeaders = await getAuthHeaders();
 
@@ -64,6 +67,21 @@ export const createRecipient = (recipient: RecipientInput) =>
     method: "POST",
     body: JSON.stringify({ ...recipient, enabled: recipient.enabled ?? true })
   }).then(normalizeRecipient);
+
+export type RecipientDraftRow = {
+  id: string;
+  name: string;
+  birthDate: string;
+  longTermCareNumber: string;
+  careGrade: string;
+  phone: string;
+  address: string;
+};
+
+export const saveRecipientDraftRows = (rows: RecipientDraftRow[]) =>
+  requestJson<{ recipients: Recipient[] }>("/api/recipients/bulk-drafts", {
+    method: "POST", body: JSON.stringify({ rows })
+  }).then(({ recipients }) => recipients.map(normalizeRecipient));
 
 export const updateRecipient = (recipient: RecipientInput) =>
   requestJson<Recipient>(`/api/recipients/${recipient.id}`, {
@@ -126,6 +144,22 @@ export const loadEmploymentContracts = async () => {
   return contracts.map(normalizeEmploymentContract);
 };
 
+export type EmploymentDraftRow = {
+  id: string;
+  workerName: string;
+  residentRegistrationNumber: string;
+  workerPhone: string;
+  primaryBank: string;
+  bankAccountNumber: string;
+  contractStartDate: string;
+  contractEndDate: string;
+};
+
+export const saveEmploymentDraftRows = (rows: EmploymentDraftRow[]) =>
+  requestJson<{ contracts: EmploymentContract[] }>("/api/employment-contracts/bulk-drafts", {
+    method: "POST", body: JSON.stringify({ rows })
+  }).then(({ contracts }) => contracts.map(normalizeEmploymentContract));
+
 export const createEmploymentContract = (contract: EmploymentContractInput) =>
   requestJson<EmploymentContract>("/api/employment-contracts", {
     method: "POST",
@@ -137,3 +171,12 @@ export const updateEmploymentContract = (contract: EmploymentContractInput) =>
     method: "PUT",
     body: JSON.stringify({ ...contract, enabled: contract.enabled ?? true })
   }).then(normalizeEmploymentContract);
+
+export const updateRecipientServicePeriod = (id: string, input: { serviceStartDate: string; serviceEndDate: string; reason: 'renewal' | 'correction'; updatedAt: string }) =>
+  requestJson<Recipient>(`/api/recipients/${id}/service-period`, { method: 'PUT', body: JSON.stringify(input) });
+
+export type RecipientPeriodEvent = { id: string; type: string; serviceStartDate: string; serviceEndDate: string; memo?: string; createdAt: string; contractExpiredDate?: string };
+export const loadRecipientPeriodEvents = (id: string) => requestJson<RecipientPeriodEvent[]>(`/api/recipients/${id}/contract-events`);
+
+export const loadRecipientPlan = (id: string) => requestJson<RecipientPlanState>(`/api/recipients/${id}/plan`).then(validatePlanResponse);
+export const saveRecipientPlan = (id: string, input: RecipientPlanInput) => requestJson<RecipientPlanState>(`/api/recipients/${id}/plan`, { method: 'PUT', body: JSON.stringify(input) }).then(validatePlanResponse);
