@@ -1415,7 +1415,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   };
 
   return (
-    <div className={`app-shell${import.meta.env.DEV ? " sidebar-preview" : ""}`}>
+    <div className="app-shell sidebar-preview">
       {notification && (
         <div key={notification.id} className="top-notification" role="status" aria-live="polite">
           <ClipboardCheck size={19} aria-hidden="true" />
@@ -1424,22 +1424,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       )}
       <header className="app-header">
         <div className="brand">
-          {import.meta.env.DEV ? (
             <div className="sidebar-identity">
               <strong>miso</strong>
               <span>센터 운영 백오피스</span>
             </div>
-          ) : (
-            <>
-              <span className="brand-mark">
-                <Users size={22} />
-              </span>
-              <div>
-                <strong>Miso Backoffice</strong>
-                <span>운영 정보 관리 MVP</span>
-              </div>
-            </>
-          )}
         </div>
         <div className="header-actions">
           <div className="google-account">
@@ -1447,7 +1435,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <span><strong>{authUser.name}</strong><small>{authUser.email}</small></span>
             <button type="button" className="secondary-button" onClick={() => void onSignOut()}>로그아웃</button>
           </div>
-          {import.meta.env.DEV && <span className="sidebar-section-label">센터 운영</span>}
+          <span className="sidebar-section-label">센터 운영</span>
           <nav className="view-tabs" aria-label="관리 메뉴">
             <button
               type="button"
@@ -1492,9 +1480,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <Database size={16} />
             Supabase Postgres
           </div>
-          {import.meta.env.DEV && <small className="sidebar-preview-label">로컬 디자인 미리보기</small>}
         </div>
       </header>
+      {import.meta.env.DEV && <div className="development-indicator" role="note" aria-label="개발 환경">DEV · 개발 환경</div>}
 
       <main className="main-content">
         {activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
