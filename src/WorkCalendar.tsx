@@ -1,62 +1,59 @@
-import { useEffect, useState } from 'react';
-import { workAssigneeInitial, workCalendarRange, calendarWorkRecords } from '../shared/work-calendar.mjs';
-import { loadWorkCalendar, workCategoryLabels, workPeriods, workToday, type WorkCalendarData, type WorkContext } from './lib/work-tasks';
+import { useEffect, useRef, useState } from 'react';
+import { workCalendarRange } from '../shared/work-calendar.mjs';
+import { calendarDayEntries, type CalendarEntry } from '../shared/work-calendar-entries.mjs';
+import { loadWorkCalendar, workToday, type WorkCalendarData, type WorkContext, type WorkTask } from './lib/work-tasks';
 
 type Props = {
-  context: WorkContext; date: string; view: 'week' | 'month'; assignee: string; revision: number;
-  onOpenDay: (date: string, assignee: string) => void;
+  context: WorkContext; tasks: WorkTask[]; date: string; view: 'week' | 'month'; assignee: string; revision: number; busy: boolean; editing: boolean; selectedId: string;
+  onOpenTask: (task: WorkTask, date: string) => void; onComplete: (task: WorkTask) => void; onOpenDay: (date: string, assignee: string) => void;
+  onSelectDate: (date: string) => void;
 };
-type Entry = { key: string; kind: 'plan' | 'execution' | 'deadline'; title: string; owner: string | null; detail: string };
 const labels = { plan: '계획', execution: '수행', deadline: '마감' };
 const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-
-export default function WorkCalendar({ context, date, view, assignee, revision, onOpenDay }: Props) {
+export default function WorkCalendar({ context, tasks, date, view, assignee, revision, busy, editing, selectedId, onOpenTask, onComplete, onOpenDay, onSelectDate }: Props) {
   const { from, to, dates } = workCalendarRange(date, view);
   const [result, setResult] = useState<WorkCalendarData | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  const [expandedDay, setExpandedDay] = useState('');
+  const [query, setQuery] = useState('');
+  const agenda = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (expandedDay) requestAnimationFrame(() => agenda.current?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
+  }, [expandedDay]);
   useEffect(() => {
     let active = true; setLoading(true); setError(''); setResult(null);
-    void loadWorkCalendar(from, to, assignee).then(data => { if (active) setResult(data); })
-      .catch(cause => { if (active) setError(cause instanceof Error ? cause.message : '기간별 업무를 불러오지 못했습니다.'); })
-      .finally(() => { if (active) setLoading(false); });
+    void loadWorkCalendar(from, to, assignee).then(data => { if (active) setResult(data); }).catch(cause => { if (active) setError(cause instanceof Error ? cause.message : '업무를 불러오지 못했습니다.'); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [from, to, assignee, revision, attempt]);
-  // Do not paint the previous person's records during a filter/date transition.
+  useEffect(() => { setExpandedDay(''); }, [from, to, view, assignee]);
   const data = result?.from === from && result.to === to && result.assignee === assignee ? result : null;
-  const records = data && calendarWorkRecords(data, view === 'month');
   const name = (id: string | null) => !id ? '담당자 미정' : context.assignees.find(m => m.id === id)?.name ?? context.members.find(m => m.id === id)?.name ?? '이전 구성원';
-  const open = (day: string, owner: string | null) => onOpenDay(day, !owner ? 'unassigned' : context.assignees.some(m => m.id === owner) ? owner : 'all');
-  const sticker = (owner: string | null) => assignee === 'all' && <span className="work-owner-sticker" title={name(owner)} aria-label={`담당 ${name(owner)}`}>{owner ? workAssigneeInitial(name(owner)) : '?'}</span>;
-  const today = workToday();
-  const inPeriod = (day: string) => view === 'week' || day.slice(0,7) === date.slice(0,7);
-  return <section className={`work-calendar work-calendar-${view}`} aria-label={view === 'week' ? '주간 업무' : '월간 업무'}>
-    <div className="work-calendar-heading"><div><h2>{view === 'week' ? '한 주의 흐름' : '한 달의 흐름'}</h2><p>{view === 'week' ? '이번 주' : '해당 월'}에 수행 기록이 있으면 초록, 계획만 있으면 보라, 둘 다 없으면 마감일에 노랑으로 표시합니다. 담당자가 다르면 각자의 진행 상태를 보여줍니다. 날짜나 업무를 누르면 일간 화면으로 이동합니다.</p></div></div>
-    {error && <div className="work-day-error" role="alert">{error} <button type="button" onClick={() => setAttempt(value => value + 1)}>다시 불러오기</button></div>}
+  const matches = (title: string, owner: string | null, task?: WorkTask | null) => `${title} ${name(owner)} ${task?.related.map(r => r.name).join(' ') ?? ''}`.toLowerCase().includes(query.trim().toLowerCase());
+  const entriesOn = (day: string) => data ? calendarDayEntries(data, tasks, day).filter(e => matches(e.title, e.owner, e.task)) : [];
+  const inPeriod = (day: string) => view === 'week' || day.slice(0, 7) === date.slice(0, 7);
+  function expand(day: string) { setExpandedDay(day); onSelectDate(day); }
+  function renderEntry(entry: CalendarEntry, day: string) {
+    const kind = entry.kinds.includes('execution') ? 'execution' : entry.kinds.includes('plan') ? 'plan' : entry.kinds.includes('deadline') ? 'deadline' : 'unplanned', task = entry.task;
+    return <div key={entry.key} className={`work-calendar-item is-${kind} ${selectedId && selectedId === entry.taskId ? 'is-selected' : ''} ${task?.status === 'done' ? 'is-done' : ''}`}>
+      {task && <input type="checkbox" aria-label={`${task.title} ${task.status === 'done' ? '완료 되돌리기' : '완료하기'}`} checked={task.status === 'done'} disabled={busy || editing || !task.canEdit || task.status === 'cancelled'} onChange={() => onComplete(task)}/>}
+      <button type="button" className="work-calendar-item-title" disabled={busy} onClick={() => task ? onOpenTask(task, day) : onOpenDay(day, context.assignees.some(p => p.id === entry.owner) ? entry.owner! : 'all')} aria-label={`${day} ${entry.title} ${task ? '상세 열기' : '수행 기록 열기'}`}><strong>{entry.title}</strong><span className="work-calendar-item-meta">{entry.kinds.map(k => <small key={k} className={`is-${k}`}>{labels[k]}</small>)}<span>{name(entry.owner)}</span>{task?.status === 'done' && <span>완료</span>}</span></button>
+    </div>;
+  }
+  return <section className={`work-calendar work-calendar-${view} work-calendar-compact`} aria-label={view === 'week' ? '주간 업무' : '월간 업무'}>
+    <div className="work-calendar-heading"><h2>{view === 'week' ? '한 주의 할 일' : '한 달의 할 일'}</h2><p>업무를 눌러 상세를 확인하고 체크해서 완료하세요. 계획·수행·마감은 각각의 날짜에 표시됩니다.</p></div>
+    <input type="search" className="work-calendar-search" aria-label="달력 업무 검색" placeholder="업무·담당자·관련자 검색" value={query} onChange={event => setQuery(event.target.value)}/>
+    {error && <div className="work-day-error" role="alert">{error} <button type="button" onClick={() => setAttempt(v => v + 1)}>다시 불러오기</button></div>}
     {loading && <p role="status">기간별 업무를 불러오는 중입니다.</p>}
-    {data && records && <>
-      <div className="work-calendar-summary" aria-label="기간별 표시 기록 수"><span className="is-plan">계획 <strong>{records.plans.filter(p => inPeriod(p.date)).length}</strong></span><span className="is-execution">수행 <strong>{records.executions.filter(e => inPeriod(e.date)).length}</strong></span><span className="is-deadline">마감 예정 <strong>{records.deadlines.filter(t => t.dueDate && inPeriod(t.dueDate)).length}</strong></span><small>{view === 'month' ? '선택한 달' : '이번 주'}에 표시된 기록 수입니다. 수행 기록이 업무 전체 완료를 뜻하지는 않습니다.</small></div>
-      <div className="work-calendar-scroll"><div className="work-calendar-grid">
-        {weekdays.map(day => <div key={day} className="work-calendar-weekday">{day}</div>)}
-        {dates.map((day, index) => {
-          const weekday = (new Date(day+'T12:00:00Z').getUTCDay()+6)%7;
-          const entries: Entry[] = [
-            ...records.deadlines.filter(t => t.dueDate === day).map(t => ({ key: `deadline:${t.id}`, kind: 'deadline' as const, title: t.title, owner: t.assigneeId, detail: workCategoryLabels[t.category] })),
-            ...records.plans.filter(p => p.date === day).map(p => ({ key: `plan:${p.id}`, kind: 'plan' as const, title: p.snapshot.title, owner: p.assigneeId, detail: workPeriods[p.period] })),
-            ...records.executions.filter(e => e.date === day).map(e => ({ key: `execution:${e.id}`, kind: 'execution' as const, title: e.content, owner: e.assigneeId, detail: workPeriods[e.period] }))
-          ];
-          return <div key={day} style={index === 0 ? { gridColumnStart: weekday+1 } : undefined} className={`work-calendar-cell ${day.slice(0,7) !== date.slice(0,7) && view === 'month' ? 'is-outside' : ''} ${day === today ? 'is-today' : ''}`}>
-            <button type="button" className="work-calendar-date" aria-label={`${day} 일간 업무 열기`} onClick={() => onOpenDay(day, assignee)}><time dateTime={day}>{Number(day.slice(5,7))}/{Number(day.slice(8))}</time>{day === today && <small>오늘</small>}<span className="work-weekday-mobile">{weekdays[weekday]}</span></button>
-            <div className="work-calendar-entries">{entries.map(entry => <button key={entry.key} type="button" className={`work-calendar-card is-${entry.kind}`} onClick={() => open(day, entry.owner)} aria-label={`${day} ${name(entry.owner)} ${labels[entry.kind]}: ${entry.title}. 일간에서 열기`}>
-              {sticker(entry.owner)}<span className="work-calendar-card-meta">{labels[entry.kind]} · {entry.detail}</span><strong>{entry.title}</strong><small>{name(entry.owner)}</small>
-            </button>)}{!entries.length && <span className="work-calendar-empty">등록된 기록 없음</span>}</div>
-          </div>;
-        })}
-      </div></div>
-      <section className="work-calendar-backlog"><h3>날짜를 정할 업무 <small>{data.unplanned.length}건</small></h3><p>진행 중이며 활성 계획이 없는 업무입니다. 다른 날짜에 계획된 업무는 여기에 나오지 않습니다.</p><div className="work-calendar-backlog-list">{data.unplanned.map(task => <button key={task.id} type="button" className="work-calendar-card is-plan" onClick={() => open(date, task.assigneeId)}>
-        {sticker(task.assigneeId)}<span className="work-calendar-card-meta">{workCategoryLabels[task.category]}{task.dueDate ? ` · 기한 ${task.dueDate}` : ' · 기한 미정'}</span><strong>{task.title}</strong><small>{name(task.assigneeId)} · 일간에서 계획하기</small>
-      </button>)}</div>{!data.unplanned.length && <p>계획이 없는 진행 업무가 없습니다.</p>}</section>
+    {data && <>
+      <div className="work-calendar-summary"><span className="is-plan">계획 {data.plans.filter(p => p.status === 'planned' && inPeriod(p.date)).length}</span><span className="is-execution">수행 {data.executions.filter(e => e.status === 'recorded' && inPeriod(e.date)).length}</span><span className="is-deadline">마감 {data.deadlines.filter(t => t.dueDate && inPeriod(t.dueDate)).length}</span><small>수행 기록과 업무 전체 완료는 구분됩니다.</small></div>
+      <div className="work-calendar-scroll"><div className="work-calendar-grid">{weekdays.map(day => <div key={day} className="work-calendar-weekday">{day}</div>)}{dates.map((day, index) => {
+        const weekday = (new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7, entries = entriesOn(day), limit = view === 'month' ? 3 : 6;
+        return <div key={day} style={index === 0 ? { gridColumnStart: weekday + 1 } : undefined} className={`work-calendar-cell ${!inPeriod(day) ? 'is-outside' : ''} ${day === workToday() ? 'is-today' : ''} ${expandedDay === day ? 'is-expanded-day' : ''}`}><button type="button" className="work-calendar-date" aria-label={`${day} 업무 모아보기`} aria-pressed={expandedDay === day} onClick={() => expand(day)}><time dateTime={day}>{Number(day.slice(5, 7))}/{Number(day.slice(8))}</time><span className="work-weekday-mobile">{weekdays[weekday]}</span><small>{day === workToday() ? '오늘' : ''} {entries.length ? `${entries.length}건` : ''}</small></button><div className="work-calendar-entries">{entries.slice(0, limit).map(e => renderEntry(e, day))}{!entries.length && <span className="work-calendar-empty">—</span>}</div>{entries.length > limit && <button type="button" className="work-calendar-more" onClick={() => expand(day)}>{entries.length - limit}개 더 보기</button>}</div>;
+      })}</div></div>
+      {expandedDay && <section ref={agenda} className="work-calendar-agenda" aria-label={`${expandedDay} 업무 모아보기`}><div className="section-title-row"><h3>{expandedDay} <small>{entriesOn(expandedDay).length}건</small></h3><button type="button" className="secondary-button" onClick={() => onOpenDay(expandedDay, assignee)}>일간에서 보기</button><button type="button" className="secondary-button" onClick={() => setExpandedDay('')}>접기</button></div>{entriesOn(expandedDay).map(e => renderEntry(e, expandedDay))}{!entriesOn(expandedDay).length && <p>등록된 업무가 없습니다.</p>}</section>}
+      <section className="work-calendar-backlog"><h3>날짜를 정할 업무</h3><div className="work-calendar-backlog-list">{data.unplanned.filter(row => matches(row.title, row.assigneeId, tasks.find(t => t.id === row.id))).map(row => renderEntry({ key: row.id, taskId: row.id, owner: row.assigneeId, title: row.title, kinds: [], task: tasks.find(t => t.id === row.id) ?? null }, date))}</div>{!data.unplanned.length && <p>날짜를 정하지 않은 업무가 없습니다.</p>}</section>
     </>}
   </section>;
 }

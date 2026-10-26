@@ -128,7 +128,7 @@ export function createWorkJournalStore(transaction, resolveRelated) {
           if (priorRequest.plan_id === id && priorRequest.period === period && priorRequest.status === 'recorded') return executionFromRow(priorRequest);
           throw workError(409, '이미 처리되었거나 취소된 수행 요청입니다. 최신 기록을 확인해 주세요.');
         }
-        const existing = (await q("SELECT * FROM work_executions WHERE plan_id=$1 AND assignee_id=$2 AND status='recorded'", [id, plan.assignee_id])).rows[0];
+        const existing = (await q("SELECT * FROM work_executions WHERE plan_id=$1 AND status='recorded'", [id])).rows[0];
         if (existing) {
           if (existing.period === period) return executionFromRow(existing);
           assertVersion(existing, body.executionVersion, 'recorded');
@@ -175,7 +175,8 @@ export function createWorkJournalStore(transaction, resolveRelated) {
       const period = workPeriod(body?.period), text = content(body?.content);
       return transaction(async q => {
         const old = await readEntity(q, 'work_executions', id); assertVersion(old, body.version, 'recorded');
-        const row = (await q("UPDATE work_executions SET period=$1,content=$2,version=version+1,updated_by=$3,updated_at=$4 WHERE id=$5 AND version=$6 AND status='recorded' RETURNING *", [period, text, current.me.id, new Date().toISOString(), id, body.version])).rows[0];
+        const assignee = body.assigneeId === undefined ? old.assignee_id : staffId(body.assigneeId, current);
+        const row = (await q("UPDATE work_executions SET period=$1,content=$2,assignee_id=$7,version=version+1,updated_by=$3,updated_at=$4 WHERE id=$5 AND version=$6 AND status='recorded' RETURNING *", [period, text, current.me.id, new Date().toISOString(), id, body.version, assignee])).rows[0];
         if (!row) throw workError(409, '수행 기록이 변경되었습니다.');
         await journalEvent(q, 'execution', row, 'updated', current.me.id); return executionFromRow(row);
       });

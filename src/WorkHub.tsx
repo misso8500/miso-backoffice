@@ -2,11 +2,14 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ClipboardList, Plus, RefreshCw, Search, X } from 'lucide-react';
 import DateInput from './DateInput';
 import WorkCalendar from './WorkCalendar';
+import WorkTaskDetails from './WorkTaskDetails';
+import WorkOperationStatus from './WorkOperationStatus';
+import { groupDayTasks } from '../shared/work-day-tasks.mjs';
 import { moveWorkCalendar, workCalendarRange, type WorkCalendarMode } from '../shared/work-calendar.mjs';
 import WorkDayPanel, { type WorkDayHandle } from './WorkDayPanel';
 import { saveEmploymentDraftRows, saveRecipientDraftRows } from './storage';
 import {
-  cancelWorkTask, completeWorkTask, createWorkTask, loadWorkContext, loadWorkTasks, loadWorkTaskHistory, updateWorkTask, workCategoryLabels, workToday,
+  cancelWorkTask, completeWorkTask, createWorkTask, loadWorkContext, loadWorkTasks, loadWorkTaskHistory, workCategoryLabels, workToday,
   type WorkCategory, type WorkContext, type WorkReference, type WorkTask, type WorkTaskInput, type WorkTaskEvent, type WorkDay
 } from './lib/work-tasks';
 import './WorkHub.css';
@@ -36,14 +39,20 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const [context, setContext] = useState<WorkContext | null>(null);
   const [tasks, setTasks] = useState<WorkTask[]>([]);
   const [date, setDate] = useState(workToday);
+  const [detailDate, setDetailDate] = useState(workToday);
   const [view, setView] = useState<WorkCalendarMode>('day');
   const [calendarRevision, setCalendarRevision] = useState(0);
   const [activity, setActivity] = useState<WorkDay | null>(null);
+  useEffect(() => { if (activity) setCalendarRevision(value => value + 1); }, [activity]);
   const [journalBusy, setJournalBusy] = useState(false);
   const [journalReady, setJournalReady] = useState(false);
   const dayPanel = useRef<WorkDayHandle>(null);
   const [form, setForm] = useState<WorkTaskInput>(emptyForm);
-  const [editing, setEditing] = useState<WorkTask | null>(null);
+  const [detailEditing, setDetailEditing] = useState(false);
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
+  const [relationsOpen, setRelationsOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState('');
+  const [lastResolvedId, setLastResolvedId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState('');
@@ -62,6 +71,7 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const [quickBusy, setQuickBusy] = useState(false);
   const generation = useRef(0);
   const titleInput = useRef<HTMLInputElement>(null);
+  const detailPanel = useRef<HTMLElement>(null);
   const errorBox = useRef<HTMLDivElement>(null);
   const quickId = useRef(crypto.randomUUID());
   const createRequestId = useRef(crypto.randomUUID());
@@ -82,53 +92,65 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const memberName = (id: string | null) => !id ? '담당자 미정' : context?.assignees.find(m => m.id === id)?.name ?? context?.members.find(m => m.id === id)?.name ?? '이전 구성원';
   const references = [...(context?.references ?? [])];
   for (const item of tasks.flatMap(t => t.related)) if (!references.some(r => sameLink(r, item))) references.push(item);
-  const available = (context?.references ?? []).filter(r => r.type === referenceType && `${r.name} ${r.info}`.toLowerCase().includes(referenceQuery.toLowerCase()));
-  const selectedActivity = activity?.date === date && activity.assignee === (assignee === 'unassigned' ? 'all' : assignee) ? activity : null;
+  const available = referenceQuery.trim() ? (context?.references ?? []).filter(r => r.type === referenceType && `${r.name} ${r.info}`.toLowerCase().includes(referenceQuery.trim().toLowerCase())) : [];
+  const selectedTask = tasks.find(task => task.id === selectedId);
+  useEffect(() => { if (detailPanel.current) detailPanel.current.scrollTop = 0; }, [selectedId]);
+  const lastResolved = tasks.find(task => task.id === lastResolvedId);
+  const focusDate = view === 'day' ? date : detailDate;
+  const selectedActivity = activity?.date === focusDate && activity.assignee === (assignee === 'unassigned' ? 'all' : assignee) ? activity : null;
   const visible = tasks.filter(t => (status === 'all' || t.status === status)
     && (assignee === 'all' || (assignee === 'unassigned' ? !t.assigneeId : t.assigneeId === assignee))
     && `${t.title} ${t.description} ${t.related.map(r => r.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
   const updateForm = <K extends keyof WorkTaskInput>(key: K, value: WorkTaskInput[K]) => setForm(previous => ({ ...previous, [key]: value }));
+  function selectTask(task: WorkTask, day = date) {
+    if (detailEditing && selectedId !== task.id && !window.confirm('수정 중인 내용을 닫고 다른 업무를 볼까요?')) return;
+    setSelectedId(task.id); setDetailDate(day);
+  }
+  function openRecord(kind: 'plan' | 'execution', task: WorkTask) {
+    if (kind === 'plan') dayPanel.current?.plan(task);
+    else dayPanel.current?.execution(task);
+  }
   function toggleReference(reference: WorkReference) {
     setForm(previous => ({ ...previous, related: previous.related.some(r => sameLink(r, reference))
       ? previous.related.filter(r => !sameLink(r, reference)) : [...previous.related, { id: reference.id, type: reference.type }] }));
   }
-  function startEdit(task: WorkTask) {
-    if ((editing || form.title || form.description || form.related.length) && !window.confirm('입력 중인 내용을 바꾸고 이 업무를 편집할까요?')) return;
-    setEditing(task); setForm({ title: task.title, description: task.description, assigneeId: task.assigneeId ?? '', category: task.category, dueDate: task.dueDate ?? '', related: task.related.map(({ id, type }) => ({ id, type })) });
-    setFormError(''); setNotice(''); titleInput.current?.focus(); titleInput.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  function resetForm() {
+    setForm(emptyForm()); setFormError('');
+    setDescriptionOpen(false); setRelationsOpen(false);
+    setQuickOpen(false); setQuickError(''); setReferenceQuery('');
+    createRequestId.current = crypto.randomUUID();
   }
-  function resetForm() { setEditing(null); setForm(emptyForm()); setFormError(''); createRequestId.current = crypto.randomUUID(); }
   async function submit(event: FormEvent) {
     event.preventDefault(); if (saving || !context) return;
-    setSaving(true); setFormError(''); setNotice('');
+    setSaving(true); setFormError(''); setNotice(''); setLastResolvedId('');
     try {
-      const saved = editing ? await updateWorkTask(editing.id, form, editing.version) : await createWorkTask({ ...form, requestId: createRequestId.current });
+      const saved = await createWorkTask({ ...form, requestId: createRequestId.current });
       // Invalidate any older refresh before updating the visible list.
       generation.current++; setLoading(false);
-      setTasks(previous => editing ? previous.map(t => t.id === saved.id ? saved : t) : [saved, ...previous.filter(t => t.id !== saved.id)]);
-      resetForm(); setNotice(editing ? '업무 수정 내용을 서버에 저장했습니다.' : '업무를 서버에 등록했습니다.');
+      setTasks(previous => [saved, ...previous.filter(t => t.id !== saved.id)]);
+      setSelectedId(saved.id); setDetailDate(date); setCalendarRevision(value => value + 1); resetForm(); setNotice('업무를 등록했습니다.');
     } catch (cause) { setFormError(message(cause)); }
     finally { setSaving(false); }
   }
   async function cancel(task: WorkTask) {
     if (busyId || !window.confirm(`‘${task.title}’ 업무를 취소할까요? 취소 내역은 보존됩니다.`)) return;
-    setBusyId(task.id); setError(''); setNotice('');
+    setBusyId(task.id); setError(''); setNotice(''); setLastResolvedId('');
     try {
       const saved = await cancelWorkTask(task);
       generation.current++; setLoading(false);
       setTasks(previous => previous.map(t => t.id === saved.id ? saved : t));
-      if (editing?.id === saved.id) resetForm();
-      dayPanel.current?.refresh(); setNotice('업무와 남은 계획을 취소했습니다. 기존 수행과 이력은 보존됩니다.');
+      dayPanel.current?.refresh(); setCalendarRevision(value => value + 1); setNotice('업무와 남은 계획을 취소했습니다. 기존 수행과 이력은 보존됩니다.');
     } catch (cause) { setError(message(cause)); }
     finally { setBusyId(''); }
   }
   async function resolveTask(task: WorkTask) {
-    if (busyId || !window.confirm(task.status === 'done' ? '업무를 다시 진행 상태로 바꿀까요?' : '업무 전체가 해결되었나요? 수행 기록과 별도로 완료 처리합니다.')) return;
-    setBusyId(task.id); setError('');
+    if (busyId || task.status === 'cancelled') return;
+    setBusyId(task.id); setError(''); setNotice(''); setLastResolvedId('');
     try {
       const saved = await completeWorkTask(task, task.status === 'done');
       generation.current++; setLoading(false); setTasks(previous => previous.map(t => t.id === saved.id ? saved : t));
-      setNotice(saved.status === 'done' ? '업무 전체를 완료했습니다. 계획과 수행은 보존됩니다.' : '업무를 다시 진행 상태로 바꿨습니다.');
+      setLastResolvedId(saved.id); setCalendarRevision(value => value + 1);
+      setNotice(saved.status === 'done' ? '업무를 완료했습니다. 기존 계획·수행 기록은 유지됩니다.' : '업무를 다시 진행 상태로 바꿨습니다.');
     } catch (cause) { setError(message(cause)); }
     finally { setBusyId(''); }
   }
@@ -137,7 +159,7 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
     const kind = referenceType, name = quickName.trim(), phone = quickPhone.trim();
     const matches = (context?.references ?? []).filter(r => r.type === kind && r.name === name);
     if (matches.length && !window.confirm(`동일한 이름의 기록이 ${matches.length}건 있습니다. 기존 검색 결과를 확인하셨나요? 별도 인물의 초안을 새로 만들까요?`)) return;
-    setQuickBusy(true); setQuickError('');
+    setQuickBusy(true); setQuickError(''); setLastResolvedId('');
     try {
       const id = quickId.current;
       if (kind === 'recipient') await saveRecipientDraftRows([{ id, name, phone, birthDate: '', longTermCareNumber: '', careGrade: '', address: '' }]);
@@ -153,35 +175,60 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
     finally { setQuickBusy(false); }
   }
 
+  const capture = context && (
+        <form className="work-capture" onSubmit={event => void submit(event)} aria-labelledby="work-capture-title">
+        <div className="section-title-row"><h2 id="work-capture-title">떠오른 일부터, 한 줄로</h2><small>요청자: {context.me.name}</small></div>
+        <fieldset disabled={detailEditing || saving || quickBusy || journalBusy}>
+          <div className="work-capture-fields">
+            <input ref={titleInput} aria-label="업무 제목" required maxLength={500} placeholder="예: 이번 주까지 10월 급여계산" value={form.title} onChange={event => updateForm('title', event.target.value)}/>
+            <select aria-label="업무 담당자" value={form.assigneeId} onChange={event => updateForm('assigneeId', event.target.value)}><option value="">담당자 미정</option>{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+            <select aria-label="센터 업무 분류" value={form.category} onChange={event => updateForm('category', event.target.value as WorkCategory)}>{Object.entries(workCategoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            <DateInput aria-label="기한 (선택)" title="기한 (선택)" value={form.dueDate} onChange={event => updateForm('dueDate', event.target.value)}/>
+          </div>
+          <div className="work-capture-actions">
+            <button type="button" className="secondary-button work-expand-button" aria-expanded={descriptionOpen} aria-controls="work-description-panel" onClick={() => setDescriptionOpen(open => !open)}><span aria-hidden="true">⌄</span>내용 추가{form.description && ' · 작성됨'}</button>
+            <button type="button" className="secondary-button work-expand-button" aria-expanded={relationsOpen} aria-controls="work-relations-panel" onClick={() => setRelationsOpen(open => !open)}><span aria-hidden="true">⌄</span>수급자·근로자 연결{form.related.length > 0 && ` · ${form.related.length}`}</button>
+            <button className="primary-button work-capture-submit" type="submit"><Plus size={16}/>{saving ? '저장 중…' : '업무 추가'}</button>
+          </div>
+          <div id="work-description-panel" className={`work-slide-panel ${descriptionOpen ? 'is-open' : ''}`} inert={!descriptionOpen} role="region" aria-label="상세 내용 입력"><div className="work-slide-clip"><div className="work-slide-content"><textarea aria-label="업무 상세 내용" maxLength={5000} value={form.description} onChange={event => updateForm('description', event.target.value)} placeholder="요청 배경과 필요한 결과를 적어 주세요."/></div></div></div>
+          <div id="work-relations-panel" className={`work-slide-panel ${relationsOpen ? 'is-open' : ''}`} inert={!relationsOpen} role="region" aria-label="수급자·근로자 연결"><div className="work-slide-clip"><div className="work-slide-content work-relations"><div className="work-reference-search"><select aria-label="관련자 종류" value={referenceType} onChange={event => { setReferenceType(event.target.value as 'recipient' | 'worker'); quickId.current = crypto.randomUUID(); setQuickOpen(false); setQuickError(''); }}><option value="recipient">수급자</option><option value="worker">근로자</option></select><input type="search" aria-label="관련자 검색" placeholder="이름·구분 정보 검색" value={referenceQuery} onKeyDown={event => { if (event.key === 'Enter') event.preventDefault(); }} onChange={event => setReferenceQuery(event.target.value)}/><button type="button" className="secondary-button" onClick={() => { setQuickOpen(!quickOpen); setQuickName(referenceQuery); setQuickError(''); }}>＋ 간단 등록</button></div>
+            <div className="work-reference-results">{!referenceQuery.trim() && <small>이름을 검색하면 일치하는 대상만 표시합니다.</small>}{available.slice(0, 8).map(r => <button key={`${r.type}:${r.id}`} type="button" className={`work-reference ${form.related.some(x => sameLink(x, r)) ? 'is-selected' : ''}`} aria-pressed={form.related.some(x => sameLink(x, r))} onClick={() => toggleReference(r)}>{form.related.some(x => sameLink(x, r)) ? '✓ ' : '＋ '}{r.name}{r.info && <small>{r.info}</small>}{r.isDraft && <small>정보 입력 중</small>}</button>)}{referenceQuery.trim() && !available.length && <small>검색 결과가 없습니다. 간단 등록으로 초안을 먼저 남길 수 있습니다.</small>}{available.length > 8 && <small>외 {available.length - 8}건 · 이름으로 검색해 주세요.</small>}</div>
+            <div className="work-selected" aria-label="선택한 관련자">{form.related.map(link => { const r = references.find(r => sameLink(r, link)); return <button key={`${link.type}:${link.id}`} type="button" onClick={() => toggleReference(r ?? { ...link, name: '', info: '' })} aria-label={`${r?.name ?? '관련자'} 연결 해제`}>✓ {r?.name ?? link.id}<X size={12}/></button>; })}</div>
+            {quickOpen && <div className="work-quick-create" onKeyDown={event => { if (event.key === 'Enter' && event.target instanceof HTMLInputElement) { event.preventDefault(); void quickCreate(); } }}><strong>{referenceType === 'recipient' ? '수급자' : '근로계약'} 초안 등록</strong><input aria-label="간단 등록 이름" placeholder="이름" maxLength={60} value={quickName} onChange={event => setQuickName(event.target.value)}/><input aria-label="간단 등록 연락처" placeholder="연락처 (선택)" maxLength={30} value={quickPhone} onChange={event => setQuickPhone(event.target.value)}/><button type="button" className="secondary-button" disabled={!quickName.trim()} onClick={() => void quickCreate()}>등록 후 연결</button><p>기존 명부에 실제 초안으로 저장됩니다. 상세 정보는 수급자·근로계약 화면에서 보완합니다.</p>{quickError && <p role="alert">{quickError}</p>}</div>}
+          </div></div></div>
+        </fieldset>
+        {formError && <div ref={errorBox} tabIndex={-1} className="form-error" role="alert">{formError} 입력 내용은 유지됩니다. 상단 새로고침 후 최신 업무를 선택해 비교할 수 있습니다.</div>}
+      </form>
+  );
+
   return <section className="work-hub" aria-label="공동 업무">
+    <WorkOperationStatus/>
     <div className="work-day-navigation" role="region" aria-label="업무 기간 탐색">
-      <nav className="work-view-tabs" aria-label="업무 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" aria-current={view === mode ? 'page' : undefined} disabled={journalBusy || saving || quickBusy || Boolean(busyId)} onClick={() => setView(mode)}>{({ day: '일간', week: '주간', month: '월간' })[mode]}</button>)}</nav>
-      <div className="work-period-controls"><div className="work-date-step"><button type="button" disabled={journalBusy || date === '1000-01-01'} onClick={() => setDate(moveWorkCalendar(date,view,-1))} aria-label={`이전 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>←</button><strong>{view === 'week' ? `${workCalendarRange(date,view).from} ~ ${workCalendarRange(date,view).to}` : view === 'month' ? date.slice(0,7).replace('-', '년 ')+'월' : date.replaceAll('-', '.')}<small>{view === 'day' ? '오늘의 계획과 실제 수행' : view === 'week' ? '월요일부터 일요일까지' : '한 달의 계획과 실제 수행'}</small></strong><button type="button" disabled={journalBusy || date === '9999-12-31'} onClick={() => setDate(moveWorkCalendar(date,view,1))} aria-label={`다음 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>→</button></div><div className="work-date-picker"><label className="sr-only" htmlFor="work-date">기준 날짜</label><DateInput id="work-date" required disabled={journalBusy} value={date} onChange={event => { if(event.target.value >= '1000-01-01' && event.target.value <= '9999-12-31') setDate(event.target.value); }}/><button type="button" disabled={journalBusy} onClick={() => setDate(workToday())}>오늘로</button></div></div>
+      <nav className="work-view-tabs" aria-label="업무 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" aria-current={view === mode ? 'page' : undefined} disabled={detailEditing || journalBusy || saving || quickBusy || Boolean(busyId)} onClick={() => setView(mode)}>{({ day: '일간', week: '주간', month: '월간' })[mode]}</button>)}</nav>
+      <div className="work-period-controls"><div className="work-date-step"><button type="button" disabled={journalBusy || date === '1000-01-01'} onClick={() => setDate(moveWorkCalendar(date,view,-1))} aria-label={`이전 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>←</button><strong>{view === 'week' ? `${workCalendarRange(date,view).from} ~ ${workCalendarRange(date,view).to}` : view === 'month' ? date.slice(0,7).replace('-', '년 ')+'월' : date.replaceAll('-', '.')}<small>{view === 'day' ? '할 일을 확인하고 바로 완료하세요' : view === 'week' ? '월요일부터 일요일까지' : '한 달의 계획과 실제 수행'}</small></strong><button type="button" disabled={journalBusy || date === '9999-12-31'} onClick={() => setDate(moveWorkCalendar(date,view,1))} aria-label={`다음 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>→</button></div><div className="work-date-picker"><label className="sr-only" htmlFor="work-date">기준 날짜</label><DateInput id="work-date" required disabled={journalBusy} value={date} onChange={event => { if(event.target.value >= '1000-01-01' && event.target.value <= '9999-12-31') setDate(event.target.value); }}/><button type="button" disabled={journalBusy} onClick={() => setDate(workToday())}>오늘로</button></div></div>
     </div>
     <header className="page-heading"><div><span className="eyebrow">Shared workspace</span><h1>공동 업무</h1><p>요청을 한곳에 모으고, 담당자와 기한을 함께 확인합니다.</p></div><button type="button" className="secondary-button" disabled={loading || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void reload()}><RefreshCw size={16} className={loading ? 'spin' : ''}/>목록 새로고침</button></header>
     {error && <div className="error-banner" role="alert">{error}<button type="button" className="secondary-button" onClick={() => void reload()} disabled={loading}>다시 불러오기</button></div>}
-    {notice && <p className="work-notice" role="status">{notice}</p>}
+    {notice && <div className="work-notice" role="status">{notice}{lastResolved && <button type="button" className="secondary-button" disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void resolveTask(lastResolved)}>{lastResolved.status === 'done' ? '완료 되돌리기' : '다시 완료'}</button>}</div>}
     {!context ? <div className="empty-state"><ClipboardList size={28}/><p>{loading ? '업무 공간을 준비하고 있습니다.' : '구성원을 불러온 뒤 업무를 등록할 수 있습니다.'}</p></div> : <>
-      <form hidden={view !== 'day'} className="work-capture" onSubmit={event => void submit(event)} aria-labelledby="work-capture-title">
-        <div className="section-title-row"><h2 id="work-capture-title">{editing ? '업무 수정' : '떠오른 일부터, 한 줄로'}</h2><small>요청자: {editing ? memberName(editing.requesterId) : context.me.name}</small></div>
-        <fieldset disabled={saving || quickBusy || journalBusy}>
-          <div className="work-capture-line"><input ref={titleInput} aria-label="업무 제목" required maxLength={500} placeholder="예: 이번 주까지 10월 급여계산" value={form.title} onChange={event => updateForm('title', event.target.value)}/><label className="sr-only" htmlFor="work-assignee">업무 담당자</label><select id="work-assignee" value={form.assigneeId} onChange={event => updateForm('assigneeId', event.target.value)}><option value="">담당자 미정</option>{editing && form.assigneeId && !context.assignees.some(m => m.id === form.assigneeId) && <option value={form.assigneeId}>기존 배정: {memberName(form.assigneeId)}</option>}{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select><button className="primary-button" type="submit"><Plus size={16}/>{saving ? '저장 중…' : editing ? '수정 저장' : '업무 추가'}</button>{editing && <button type="button" className="secondary-button" onClick={resetForm}>편집 취소</button>}</div>
-          <div className="work-meta"><label>센터 업무 분류<select value={form.category} onChange={event => updateForm('category', event.target.value as WorkCategory)}>{Object.entries(workCategoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>기한 (선택)<DateInput value={form.dueDate} onChange={event => updateForm('dueDate', event.target.value)}/></label></div>
-          <details open={Boolean(form.description)}><summary>상세 내용 (선택)</summary><textarea aria-label="업무 상세 내용" maxLength={5000} value={form.description} onChange={event => updateForm('description', event.target.value)} placeholder="요청 배경과 필요한 결과를 적어 주세요."/></details>
-          <div className="work-relations"><div className="work-reference-search"><select aria-label="관련자 종류" value={referenceType} onChange={event => { setReferenceType(event.target.value as 'recipient' | 'worker'); quickId.current = crypto.randomUUID(); setQuickOpen(false); setQuickError(''); }}><option value="recipient">수급자</option><option value="worker">근로자</option></select><input type="search" aria-label="관련자 검색" placeholder="이름·구분 정보 검색" value={referenceQuery} onChange={event => setReferenceQuery(event.target.value)}/><button type="button" className="secondary-button" onClick={() => { setQuickOpen(!quickOpen); setQuickName(referenceQuery); setQuickError(''); }}>＋ 간단 등록</button></div>
-            <div className="work-reference-results">{available.slice(0, 8).map(r => <button key={`${r.type}:${r.id}`} type="button" className={`work-reference ${form.related.some(x => sameLink(x, r)) ? 'is-selected' : ''}`} aria-pressed={form.related.some(x => sameLink(x, r))} onClick={() => toggleReference(r)}>{form.related.some(x => sameLink(x, r)) ? '✓ ' : '＋ '}{r.name}{r.info && <small>{r.info}</small>}{r.isDraft && <small>정보 입력 중</small>}</button>)}{!available.length && <small>검색 결과가 없습니다. 간단 등록으로 초안을 먼저 남길 수 있습니다.</small>}{available.length > 8 && <small>외 {available.length - 8}건 · 이름으로 검색해 주세요.</small>}</div>
-            <div className="work-selected" aria-label="선택한 관련자">{form.related.map(link => { const r = references.find(r => sameLink(r, link)); return <button key={`${link.type}:${link.id}`} type="button" onClick={() => toggleReference(r ?? { ...link, name: '', info: '' })} aria-label={`${r?.name ?? '관련자'} 연결 해제`}>✓ {r?.name ?? link.id}<X size={12}/></button>; })}</div>
-            {quickOpen && <div className="work-quick-create" onKeyDown={event => { if (event.key === 'Enter' && event.target instanceof HTMLInputElement) { event.preventDefault(); void quickCreate(); } }}><strong>{referenceType === 'recipient' ? '수급자' : '근로계약'} 초안 등록</strong><input aria-label="간단 등록 이름" placeholder="이름" maxLength={60} value={quickName} onChange={event => setQuickName(event.target.value)}/><input aria-label="간단 등록 연락처" placeholder="연락처 (선택)" maxLength={30} value={quickPhone} onChange={event => setQuickPhone(event.target.value)}/><button type="button" className="secondary-button" disabled={!quickName.trim()} onClick={() => void quickCreate()}>등록 후 연결</button><p>기존 명부에 실제 초안으로 저장됩니다. 상세 정보는 수급자·근로계약 화면에서 보완합니다.</p>{quickError && <p role="alert">{quickError}</p>}</div>}
-          </div>
-        </fieldset>
-        <small className="work-help">담당자는 일을 할 구성원, 관련자는 업무의 대상입니다. 분류는 센터 업무용 초안이며 공단 평가 지표와의 연결은 별도입니다.</small>
-        {formError && <div ref={errorBox} tabIndex={-1} className="form-error" role="alert">{formError} 입력 내용은 유지됩니다. 상단 새로고침 후 최신 업무를 선택해 비교할 수 있습니다.</div>}
-      </form>
-      {view !== 'day' && <><div className="work-calendar-filters"><label htmlFor="work-calendar-assignee">담당자</label><select id="work-calendar-assignee" className="filter-select" value={assignee} onChange={event => setAssignee(event.target.value)}><option value="all">전체 구성원</option><option value="unassigned">담당자 미정</option>{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div><WorkCalendar context={context} date={date} view={view} assignee={assignee} revision={calendarRevision} onOpenDay={(day, owner) => { setDate(day); setAssignee(owner); setView('day'); setStatus('all'); setQuery(''); void reload(); }}/></>}
-      {view === 'day' && <div className="work-day-columns"><section className="work-task-section"><div className="work-list-heading"><div><h2>함께 보는 업무 <small>{visible.length}건</small></h2><p>허용된 구성원 모두가 조회·수정·취소할 수 있습니다.</p></div><div className="work-filters"><label className="search-box"><Search size={16}/><input type="search" aria-label="업무 검색" placeholder="업무·관련자 검색" value={query} onChange={event => setQuery(event.target.value)}/></label><select className="filter-select" aria-label="담당자 필터" value={assignee} disabled={journalBusy} onChange={event => setAssignee(event.target.value)}><option value="all">전체 구성원</option><option value="unassigned">담당자 미정</option>{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select><select className="filter-select" aria-label="업무 상태 필터" value={status} onChange={event => setStatus(event.target.value)}><option value="open">진행할 업무</option><option value="done">완료됨</option><option value="cancelled">취소됨</option><option value="all">전체 상태</option></select></div></div>
+      {capture}
+
+      {<div className={`work-day-columns ${view !== 'day' ? 'is-period' : ''} ${selectedTask ? 'has-detail' : ''}`}><section className="work-task-section">{view === 'day' ? <><div className="work-list-heading"><div><h2>하루 할 일 <small>{visible.length}건</small></h2><p>체크하면 완료, 업무를 선택하면 상세 보기</p></div><div className="work-filters"><label className="search-box"><Search size={16}/><input type="search" aria-label="업무 검색" placeholder="업무·관련자 검색" value={query} onChange={event => setQuery(event.target.value)}/></label><select className="filter-select" aria-label="담당자 필터" value={assignee} disabled={journalBusy} onChange={event => setAssignee(event.target.value)}><option value="all">전체 구성원</option><option value="unassigned">담당자 미정</option>{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select><select className="filter-select" aria-label="업무 상태 필터" value={status} onChange={event => setStatus(event.target.value)}><option value="open">진행할 업무</option><option value="done">완료됨</option><option value="cancelled">취소됨</option><option value="all">전체 상태</option></select></div></div>
       {loading && <p role="status">최신 목록을 불러오는 중입니다.</p>}
-      <div className="work-task-list">{visible.map(t => <article key={t.id} className={`work-task-card ${t.status === 'cancelled' ? 'is-cancelled' : ''}`}><div className="work-task-top"><span className="work-category">{workCategoryLabels[t.category]}</span><span className="work-task-status">{t.status === 'cancelled' ? '취소됨' : t.status === 'done' ? '완료됨' : '진행할 업무'}</span>{t.dueDate && <span className="work-due">기한 {t.dueDate}</span>}</div><h3><mark className={`work-task-title ${selectedActivity?.executions.some(e => e.taskId === t.id && e.status === 'recorded') ? 'has-execution' : selectedActivity?.plans.some(p => p.taskId === t.id && p.status === 'planned') ? 'has-plan' : ''}`}>{t.title}</mark></h3><small className="work-task-activity">선택일 계획 {selectedActivity?.plans.filter(p => p.taskId === t.id && p.status === 'planned').length ?? 0}건 · 수행 {selectedActivity?.executions.filter(e => e.taskId === t.id && e.status === 'recorded').length ?? 0}건</small>{t.description && <p className="work-description">{t.description}</p>}<p>{memberName(t.requesterId)} 요청 → <strong>{memberName(t.assigneeId)}</strong></p><div className="work-linked">{t.related.map(r => <span key={`${r.type}:${r.id}`}>{r.type === 'recipient' ? '수급자' : '근로자'} · {r.name}{r.info && <small>{r.info}</small>}</span>)}</div><footer><small>마지막 변경: {memberName(t.updatedBy)} · {formatTime(t.updatedAt)} · 버전 {t.version}</small>{t.canEdit && <div>{t.status === 'open' && <button className="secondary-button" type="button" disabled={!journalReady || saving || quickBusy || journalBusy || Boolean(busyId)} title={!journalReady ? '일간 기록을 먼저 불러와야 합니다.' : undefined} onClick={() => dayPanel.current?.plan(t)}>계획</button>}<button className="secondary-button" type="button" disabled={!journalReady || saving || quickBusy || journalBusy || Boolean(busyId)} title={!journalReady ? '일간 기록을 먼저 불러와야 합니다.' : undefined} onClick={() => dayPanel.current?.execution(t)}>수행 기록</button><button className="secondary-button" type="button" disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void resolveTask(t)}>{t.status === 'done' ? '다시 진행' : '업무 전체 완료'}</button><button className="secondary-button" type="button" disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => startEdit(t)}>수정</button><button className="danger-button" type="button" disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void cancel(t)}>{busyId === t.id ? '취소 중…' : '취소'}</button></div>}</footer><WorkHistory task={t} memberName={memberName}/></article>)}</div>
-      {!loading && !visible.length && <div className="empty-state"><ClipboardList size={28}/><p>{tasks.length ? '조건에 맞는 업무가 없습니다.' : '아직 등록된 업무가 없습니다. 첫 업무를 남겨보세요.'}</p></div>}</section><WorkDayPanel ref={dayPanel} context={context} date={date} assignee={assignee} onActivity={setActivity} onBusy={setJournalBusy} onReady={setJournalReady}/></div>}
+      <div className="work-task-list work-compact-list">{groupDayTasks(visible, date, selectedActivity).map(group => <section key={group.title} className="work-task-group" aria-label={group.title}><h3>{group.title} <small>{group.rows.length}</small></h3>{group.rows.map(t => <article key={t.id} className={`work-task-row ${selectedId === t.id ? 'is-selected' : ''} ${t.status === 'cancelled' ? 'is-cancelled' : ''}`}>
+        <input type="checkbox" checked={t.status === 'done'} aria-label={`${t.title} ${t.status === 'done' ? '완료 되돌리기' : '완료하기'}`} disabled={detailEditing || !t.canEdit || t.status === 'cancelled' || saving || quickBusy || journalBusy || Boolean(busyId)} onChange={() => void resolveTask(t)}/>
+        <button type="button" className="work-row-title" aria-pressed={selectedId === t.id} disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => selectTask(t)}><span className={`work-task-title ${selectedActivity?.executions.some(e => e.taskId === t.id && e.status === 'recorded') ? 'has-execution' : selectedActivity?.plans.some(p => p.taskId === t.id && p.status === 'planned') ? 'has-plan' : ''}`}>{t.title}</span><small>{t.status === 'cancelled' ? '취소됨' : t.status === 'done' ? '완료됨' : selectedActivity?.executions.some(e => e.taskId === t.id && e.status === 'recorded') ? '선택일 수행 기록 있음' : selectedActivity?.plans.some(p => p.taskId === t.id && p.status === 'planned') ? '선택일 계획됨' : ''}{t.related.length > 0 && ` · ${t.related.map(r => r.name).join(', ')}`}</small></button>
+        <span className="work-row-assignee">{memberName(t.assigneeId)}</span><span className="work-row-due">{t.dueDate ? t.dueDate === date ? '선택일 마감' : t.dueDate : '기한 미정'}</span>
+      </article>)}</section>)}</div>
+      {!loading && !visible.length && <div className="empty-state"><ClipboardList size={28}/><p>{tasks.length ? '조건에 맞는 업무가 없습니다.' : '아직 등록된 업무가 없습니다. 첫 업무를 남겨보세요.'}</p></div>}</> : <><div className="work-calendar-filters"><label htmlFor="work-calendar-assignee">담당자</label><select id="work-calendar-assignee" className="filter-select" value={assignee} onChange={event => setAssignee(event.target.value)}><option value="all">전체 구성원</option><option value="unassigned">담당자 미정</option>{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div><WorkCalendar onSelectDate={setDetailDate} tasks={tasks} selectedId={selectedId} editing={detailEditing} busy={saving || quickBusy || journalBusy || Boolean(busyId)} onOpenTask={(task, day) => selectTask(task, day)} onComplete={task => void resolveTask(task)} context={context} date={date} view={view} assignee={assignee} revision={calendarRevision} onOpenDay={(day, owner) => { setDate(day); setAssignee(owner); setView('day'); setStatus('all'); setQuery(''); void reload(); }}/></>}</section>
+      <div className="work-detail-slot" inert={!selectedTask}><aside ref={detailPanel} className="work-task-detail work-detail-sidebar" aria-label="선택한 업무 상세"><header className="work-detail-heading"><h2>업무 상세</h2>{selectedTask && <button type="button" className="icon-button" aria-label="업무 상세 닫기" disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => { if (detailEditing && !window.confirm('수정 중인 내용을 닫을까요?')) return; setSelectedId(''); }}><X size={18}/></button>}</header>
+        {selectedTask ? <div className="work-detail-content"><span className="work-category">{selectedTask.status === 'done' ? '완료됨' : selectedTask.status === 'cancelled' ? '취소됨' : '미완료'}</span>
+          <WorkTaskDetails onReferenceCreated={reference => { setContext(previous => previous ? { ...previous, references: [...previous.references.filter(r => !sameLink(r, reference)), reference] } : previous); onDirectoryChanged(); }} key={`detail:${selectedTask.id}`} task={selectedTask} context={context} date={focusDate} activity={selectedActivity} disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onBusy={setSaving} onEditing={setDetailEditing} onSaved={saved => { setCalendarRevision(value => value + 1); generation.current++; setLoading(false); setTasks(previous => previous.map(task => task.id === saved.id ? saved : task)); }} onPlansChanged={() => { dayPanel.current?.refresh(); setCalendarRevision(value => value + 1); }}/>
+          {selectedTask.canEdit && selectedTask.status !== 'cancelled' && <div className="work-detail-actions"><><button type="button" className="primary-button" disabled={detailEditing || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void resolveTask(selectedTask)}>{selectedTask.status === 'done' ? '다시 진행' : '✓ 완료하기'}</button><button type="button" className="secondary-button" disabled={detailEditing || !journalReady || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => openRecord('execution', selectedTask)}>수행 내용 남기기</button><button type="button" className="danger-button" disabled={detailEditing || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void cancel(selectedTask)}>업무 취소</button></></div>}
+          <small className="work-help">완료 체크는 업무 상태를 바꿉니다. 실제 수행일·내용이 필요하면 수행 기록을 남겨주세요.</small><WorkHistory key={`history:${selectedTask.id}`} task={selectedTask} memberName={memberName}/>
+        </div> : <div className="work-detail-empty"><ClipboardList size={26}/><p>업무를 선택하면<br/>담당자·일정·상세 내용을 볼 수 있어요.</p></div>}
+      </aside></div></div>}
+      <div className="work-records-section"><WorkDayPanel ref={dayPanel} context={context} date={focusDate} assignee={assignee} onActivity={setActivity} onBusy={setJournalBusy} onReady={setJournalReady}/></div>
     </>}
   </section>;
 }
