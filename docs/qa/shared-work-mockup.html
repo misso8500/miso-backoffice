@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공동업무 · UI 예시</title>
+<style>
+:root{font-family:"Pretendard","Malgun Gothic",sans-serif;color:#26362f;background:#f6f7f5;font-size:14px}*{box-sizing:border-box}body{margin:0}button,input{font:inherit}button{cursor:default;color:inherit;background:white;border:1px solid #dfe5df;border-radius:7px;padding:8px 12px}button:focus-visible,a:focus-visible{outline:2px solid #377456;outline-offset:3px}.shell{max-width:1480px;margin:auto;min-height:100vh;display:grid;grid-template-columns:190px 1fr}.sidebar{padding:30px 18px;border-right:1px solid #e3e8e2;background:#fff}.brand{font-size:19px;font-weight:800;padding:0 12px;letter-spacing:-1px}.brand span{color:#42815d}.subtitle{font-size:11px;color:#859087;margin:7px 12px 36px}.nav{padding:12px;border-radius:7px;margin:5px 0;color:#78817c}.nav.active{background:#eaf2ec;color:#2e6846;font-weight:700}.sidebar-note{margin:40px 12px;color:#8b948e;font-size:11px;line-height:1.8}.main{padding:36px 34px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px}.eyebrow{color:#89928c;font-size:12px;margin-bottom:8px}h1{font-size:25px;letter-spacing:-1px;margin:0}.prototype{font-size:11px;color:#6d776e;border:1px solid #dce3db;border-radius:20px;padding:6px 10px}.workspace{display:grid;grid-template-columns:minmax(360px,1fr) 310px;gap:22px;align-items:start}.intro{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}.intro h2{font-size:17px;margin:0}.muted{color:#87928b;font-size:12px}.composer{border:1px solid #dbe3db;background:white;border-radius:10px;padding:12px 14px;box-shadow:0 3px 8px #26362f03}.input-line{display:flex;align-items:center;gap:12px}.plus{font-size:23px;color:#5f8469}.placeholder{flex:1;color:#929b95;font-size:14px}.primary{background:#326a48;color:white;border-color:#326a48;padding:7px 14px}.options{display:flex;gap:6px;margin:9px 0 0 27px;flex-wrap:wrap}.options button{font-size:11px;padding:4px 8px;border-color:#edf0eb;color:#758076;background:#fafbf9}.tools{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #dfe5df;margin-top:22px;gap:12px}.tabs{display:flex;gap:22px}.tab{border:0;background:none;border-radius:0;padding:13px 0;color:#8a948c;font-size:13px}.tab.current{color:#326a48;border-bottom:2px solid #326a48;font-weight:700}.views{display:flex;padding:3px;background:#ecefe9;border-radius:7px}.views span{padding:5px 8px;font-size:11px;color:#859087}.views .selected{background:white;border-radius:5px;color:#344c3c;box-shadow:0 1px 3px #00000008}.filter{display:flex;justify-content:space-between;margin:16px 0 20px;font-size:12px;color:#839087}.filter strong{color:#4a6553;font-weight:500}.group{margin:22px 0 9px;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700}.count{font-size:10px;font-weight:400;color:#8e9890}.overdue{color:#b16e48}.list{background:white;border:1px solid #e1e6df;border-radius:9px;overflow:hidden}.task{min-height:61px;display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #edf0eb}.task:last-child{border-bottom:0}.task.chosen{background:#f0f6ef;box-shadow:inset 3px 0 #53865c}.check{width:17px;height:17px;border:1.5px solid #cbd4cb;border-radius:5px;flex-shrink:0}.task-content{flex:1;min-width:0}.task-title{font-size:13px;line-height:1.6}.task-sub{font-size:10px;color:#89958d;margin-top:3px}.person{font-size:11px;white-space:nowrap;color:#77867c}.avatar{display:inline-grid;place-items:center;width:22px;height:22px;background:#edf0e9;border-radius:50%;font-size:9px;margin-right:5px;color:#67816a}.due{width:30px;text-align:right;font-size:10px;color:#8c978f;white-space:nowrap}.due.late{color:#b47854}.unassigned{font-size:10px;color:#ae8b58;border:1px dashed #ded2ba;padding:3px 6px;border-radius:5px;white-space:nowrap}.completed{display:flex;align-items:center;gap:9px;color:#9aa39b;font-size:12px;margin-top:23px;padding:12px 2px}.footnote{font-size:11px;color:#939d95;margin-top:28px;line-height:1.8}.detail{background:white;border:1px solid #dfe5dd;border-radius:11px;overflow:hidden}.detail-top{padding:15px 20px;border-bottom:1px solid #edf0eb;display:flex;justify-content:space-between;color:#8b968d;font-size:11px}.detail-body{padding:23px 20px}.status{font-size:10px;color:#5d7d58;background:#edf4e9;padding:4px 7px;border-radius:4px;display:inline-block}.detail h2{font-size:18px;line-height:1.6;letter-spacing:-.6px;margin:12px 0 23px}.field{display:grid;grid-template-columns:72px 1fr;gap:8px;align-items:center;font-size:12px;margin:17px 0}.label{color:#929b94}.value{color:#4e6253}.link{color:#4f7a60;background:#f1f5ef;border-radius:4px;padding:5px 7px;font-size:11px}.detail hr{border:0;border-top:1px solid #edf0eb;margin:23px 0}.small-title{font-size:12px;font-weight:700;margin-bottom:12px}.description{color:#7b897f;font-size:12px;line-height:1.9}.memo{border:1px solid #e5e9e1;border-radius:7px;padding:11px;color:#a0a79f;font-size:11px;margin-top:14px}.history{font-size:10px;color:#96a093;line-height:2}.detail-bottom{padding:14px 20px;border-top:1px solid #edf0eb}.detail-bottom button{width:100%;font-size:12px}.demo-note{font-size:10px;color:#9da59d;margin:12px 0 0;text-align:center}@media(min-width:1400px){.main{padding:40px 44px}.workspace{grid-template-columns:minmax(400px,1fr) 330px;gap:28px}}@media(max-width:1100px){.shell{grid-template-columns:150px 1fr}.sidebar{padding:30px 12px}.main{padding:28px 20px}.workspace{grid-template-columns:minmax(300px,1fr) 270px;gap:14px}.person .avatar{display:none}.detail-body{padding:20px 16px}}@media(max-width:850px){.shell{display:block}.sidebar{display:none}.workspace{grid-template-columns:1fr}.detail{margin-top:8px}.main{padding:24px 18px}.top{gap:12px}.prototype{white-space:nowrap}.footnote{margin-top:15px}.person{font-size:10px}.task{gap:9px}.tabs{gap:18px}}
+</style>
+</head>
+<body>
+<div class="shell">
+ <aside class="sidebar" aria-label="주 메뉴">
+  <div class="brand"><span>미소</span> 백오피스</div><div class="subtitle">노인재가복지센터</div>
+  <div class="nav">대시보드</div><div class="nav active" aria-current="page">공동업무</div><div class="nav">수급자 관리</div><div class="nav">직원 관리</div>
+  <div class="sidebar-note">함께 확인하고,<br>하나씩 마무리해요.</div>
+ </aside>
+ <main class="main">
+  <header class="top"><div><div class="eyebrow">우리 센터의 할 일</div><h1>공동업무</h1></div><span class="prototype">UI 예시 · 기능 없음</span></header>
+  <div class="workspace">
+   <section aria-label="업무 목록">
+    <div class="intro"><h2>오늘, 10월 26일 <span class="muted">월요일</span></h2><span class="muted">오늘 할 일 4개</span></div>
+    <div class="composer" aria-label="업무 입력 예시">
+     <div class="input-line"><span class="plus" aria-hidden="true">+</span><span class="placeholder">어떤 일을 해야 하나요?</span><button type="button" class="primary">추가</button></div>
+     <div class="options"><button type="button">+ 담당자</button><button type="button">+ 할 날짜</button><button type="button">+ 마감일</button><button type="button">+ 분류</button><button type="button">+ 수급자 연결</button></div>
+    </div>
+    <div class="tools"><div class="tabs"><button type="button" class="tab current">오늘</button><button type="button" class="tab">예정</button><button type="button" class="tab">전체</button></div><div class="views" aria-label="보기 예시"><span class="selected">목록</span><span>주간</span><span>월간</span></div></div>
+    <div class="filter"><span><strong>전체 업무 ▾</strong>　내 업무</span><span>담당자 전체 ▾</span></div>
+    <h3 class="group overdue">기한 지남 <span class="count">1</span></h3>
+    <div class="list"><div class="task"><span class="check" aria-hidden="true"></span><div class="task-content"><div class="task-title">보호자에게 방문 일정 확인하기</div><div class="task-sub">김○○ 어르신</div></div><span class="person"><span class="avatar">이</span>이담당</span><span class="due late">어제</span></div></div>
+    <h3 class="group">오늘 할 일 <span class="count">4</span></h3>
+    <div class="list">
+     <div class="task chosen"><span class="check" aria-hidden="true"></span><div class="task-content"><div class="task-title">다음 주 방문 일정 조정하기</div><div class="task-sub">박○○ 어르신 · 메모 1</div></div><span class="person"><span class="avatar">김</span>김담당</span><span class="due">오늘</span></div>
+     <div class="task"><span class="check" aria-hidden="true"></span><div class="task-content"><div class="task-title">급여 제공 서류 전달하기</div></div><span class="unassigned">미배정</span><span class="due">오늘</span></div>
+     <div class="task"><span class="check" aria-hidden="true"></span><div class="task-content"><div class="task-title">신규 상담 내용 확인하기</div><div class="task-sub">최○○ 어르신</div></div><span class="person"><span class="avatar">박</span>박담당</span><span class="due">오늘</span></div>
+     <div class="task"><span class="check" aria-hidden="true"></span><div class="task-content"><div class="task-title">사무실 소모품 주문하기</div></div><span class="person"><span class="avatar">김</span>김담당</span><span class="due">내일<br>마감</span></div>
+    </div>
+    <div class="completed">▸　완료한 업무 <span class="count">3</span></div>
+    <p class="footnote">예시 데이터입니다. 선택된 업무의 상세 내용을 오른쪽에 펼친 상태입니다.</p>
+   </section>
+   <aside class="detail" aria-label="선택한 업무 상세 예시">
+    <div class="detail-top"><span>업무 상세</span><span aria-hidden="true">···　 ×</span></div>
+    <div class="detail-body">
+     <span class="status">미완료</span><h2>다음 주 방문 일정<br>조정하기</h2>
+     <div class="field"><span class="label">담당자</span><span class="value"><span class="avatar">김</span>김담당</span></div>
+     <div class="field"><span class="label">할 날짜</span><span class="value">10월 26일 · 오늘</span></div>
+     <div class="field"><span class="label">마감일</span><span class="value">10월 28일 수요일</span></div>
+     <div class="field"><span class="label">연결 수급자</span><span><span class="link">박○○ 어르신 ↗</span></span></div>
+     <hr><div class="small-title">전달 메모 <span class="count">1</span></div>
+     <div class="description">보호자 요청으로 다음 주 수요일 방문 시간을 오전으로 변경할 수 있는지 확인해주세요.</div>
+     <div class="history" style="margin-top:8px">이담당 · 오늘 09:15</div>
+     <div class="memo">메모 남기기…</div>
+     <hr><div class="small-title">업무 이력</div><div class="history">오늘 09:20　김담당에게 배정<br>오늘 09:15　이담당이 업무 생성</div>
+    </div>
+    <div class="detail-bottom"><button type="button" class="primary">✓　완료하기</button></div>
+   </aside>
+  </div>
+  <p class="demo-note">레이아웃 검토용 정적 화면 · 버튼과 체크박스는 동작하지 않습니다.</p>
+ </main>
+</div>
+</body>
+</html>

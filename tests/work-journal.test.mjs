@@ -32,6 +32,25 @@ async function setup(t, mode) {
 }
 
 for (const mode of ['sqlite','postgres-adapter']) {
+  test(`${mode}: actual performer can change without changing the plan or duplicating execution`, async t => {
+    const { db, store, current, other, actor, colleague, createTask, plan } = await setup(t, mode);
+    const task = await createTask();
+    const p = await store.createPlan(plan(task), current);
+    const execution = await store.recordPlan(p.id, { requestId: randomUUID(), period: 'morning', executionVersion: 0 }, current);
+    const saved = await store.updateExecution(execution.id, { version: execution.version, content: '동료가 대신 처리', period: 'afternoon', assigneeId: colleague }, other);
+    assert.equal(saved.assigneeId, colleague); assert.equal(saved.createdBy, current.me.id); assert.equal(saved.updatedBy, other.me.id);
+    assert.equal(saved.planId, p.id); assert.equal(saved.date, p.date);
+    assert.equal((await store.day(p.date, actor, current)).executions.length, 0);
+    assert.equal((await store.day(p.date, colleague, current)).executions[0].id, execution.id);
+    assert.equal((await store.day(p.date, actor, current)).plans[0].assigneeId, actor);
+    const quick = await store.recordPlan(p.id, { requestId: randomUUID(), period: 'morning', executionVersion: saved.version }, current);
+    assert.equal(quick.id, saved.id); assert.equal(quick.assigneeId, colleague);
+    assert.equal((await store.day(p.date, 'all', current)).executions.length, 1);
+    await assert.rejects(store.updateExecution(saved.id, { version: saved.version, content: '오래된 수정', period: 'morning', assigneeId: actor }, current), { status: 409 });
+    await assert.rejects(store.updateExecution(saved.id, { version: quick.version, content: '잘못된 수행자', period: 'morning', assigneeId: 'unknown' }, current), { status: 400 });
+    const payload = JSON.parse(db.prepare("SELECT payload FROM work_journal_events WHERE entity_id=? AND action='updated'").get(saved.id).payload);
+    assert.equal(payload.assigneeId, colleague); assert.equal(payload.updatedBy, other.me.id);
+  });
   test(`${mode}: calendar respects record dates, historical performers and global scheduling`, async t => {
     const { store, current, other, actor, colleague, createTask, plan } = await setup(t, mode);
     const task = await createTask('원래 담당 업무');

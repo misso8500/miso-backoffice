@@ -1,5 +1,6 @@
 import {validatePlanResponse} from '../shared/validate-plan-response.mjs';
 import { getAuthHeaders, authFailureEvent } from "./auth";
+import { workOperationEvent } from './WorkOperationStatus';
 import type {
   EmploymentContract,
   EmploymentContractInput,
@@ -16,6 +17,15 @@ export const API_UNAVAILABLE_MESSAGE =
   "API 서버에 연결할 수 없습니다. 터미널에서 `npm run api`를 실행한 뒤 다시 시도하세요.";
 
 export const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> => {
+  const tracked = path.startsWith('/api/work/') || path === '/api/recipients/bulk-drafts' || path === '/api/employment-contracts/bulk-drafts';
+  const id = crypto.randomUUID();
+  const notify = (phase: 'start' | 'success' | 'error') => { if (tracked) window.dispatchEvent(new CustomEvent(workOperationEvent, { detail: { id, phase } })); };
+  notify('start');
+  try { const result = await requestJsonImpl<T>(path, options); notify('success'); return result; }
+  catch (error) { notify('error'); throw error; }
+};
+
+const requestJsonImpl = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   let response: Response;
   const authHeaders = await getAuthHeaders();
 

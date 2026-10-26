@@ -85,6 +85,23 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     assert.equal(events[0].actor_id, a.me.id); assert.equal(JSON.parse(events[0].payload).title, body.title);
   } finally { db.close(); }
 
+  await t.test('batch detail edits link newly registered people and survive a server restart', async () => {
+    const task = (await call('work/tasks', 'POST', { ...body, requestId: randomUUID(), title: '상세 수정 전', related: [] })).data;
+    const recipientId = randomUUID(), workerId = randomUUID();
+    assert.equal((await call('recipients/bulk-drafts', 'POST', { rows: [{ id: recipientId, name: '상세에서 추가한 수급자' }] })).status, 200);
+    assert.equal((await call('employment-contracts/bulk-drafts', 'POST', { rows: [{ id: workerId, workerName: '상세에서 추가한 근로자' }] })).status, 200);
+    const changed = { ...body, title: '여러 항목을 함께 수정', description: '새 연결 대상에게 전달', category: 'service', dueDate: '2026-11-02', assigneeId: a.assignees[2].id, related: [{ id: recipientId, type: 'recipient' }, { id: workerId, type: 'worker' }], version: task.version };
+    const saved = await call(`work/tasks/${task.id}`, 'PUT', changed);
+    assert.equal(saved.status, 200, JSON.stringify(saved.data));
+    assert.equal(saved.data.version, task.version + 1);
+    assert.deepEqual(saved.data.related.map(r => r.name), ['상세에서 추가한 수급자', '상세에서 추가한 근로자']);
+    assert.equal((await call(`work/tasks/${task.id}`, 'PUT', { ...changed, title: '오래된 저장' })).status, 409);
+    await stop(); await start();
+    const restored = (await call('work/tasks?status=all')).data.find(row => row.id === task.id);
+    for (const key of ['title', 'description', 'category', 'dueDate', 'assigneeId']) assert.equal(restored[key], changed[key]);
+    assert.deepEqual(restored.related.map(r => r.id), [recipientId, workerId]);
+  });
+
   await t.test('daily journal routes persist plans/executions, deduplicate quick actions and keep completion separate', async () => {
     assert.equal((await call('work/day?date=2000-10-19', 'GET', undefined, '')).status, 401);
     assert.equal((await call('work/day?date=2026-02-30')).status, 400);
