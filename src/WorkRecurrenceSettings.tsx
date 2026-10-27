@@ -15,15 +15,16 @@ export default function WorkRecurrenceSettings({ context, onChanged, onBusy, onD
   const [busy, setBusy] = useState(false), [loading, setLoading] = useState(true), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [categoryName, setCategoryName] = useState(''), [categoryEdit, setCategoryEdit] = useState<Category | null>(null), [canManage, setCanManage] = useState(false);
   const [section, setSection] = useState<'rules' | 'categories'>('rules');
+  const [leaveLinked, setLeaveLinked] = useState<string[]>([]);
   const lock = useRef(false), generation = useRef(0);
   useEffect(() => { onBusy(busy); return () => onBusy(false); }, [busy, onBusy]);
   useEffect(() => { onDirty(Boolean(form.title || form.description || form.assigneeId || categoryName)); return () => onDirty(false); }, [form, categoryName, onDirty]);
   async function reload() {
     const run = ++generation.current; setLoading(true); setError('');
     try {
-      const [recurrence, catalog] = await Promise.all([requestJson<{rules: Rule[]; month: string}>('/api/work/recurrences'), requestJson<{categories: Category[]; canManage: boolean}>('/api/work/categories')]);
+      const [recurrence, catalog] = await Promise.all([requestJson<{rules: Rule[]; month: string; leaveLinkedAssignees?: string[]}>('/api/work/recurrences'), requestJson<{categories: Category[]; canManage: boolean}>('/api/work/categories')]);
       if (run !== generation.current) return;
-      setRules(recurrence.rules); setMonth(recurrence.month); setCategories(catalog.categories); setCanManage(catalog.canManage);
+      setRules(recurrence.rules); setMonth(recurrence.month); setCategories(catalog.categories); setCanManage(catalog.canManage); setLeaveLinked(recurrence.leaveLinkedAssignees ?? []);
     } catch (cause) { if (run === generation.current) setError(errorText(cause)); }
     finally { if (run === generation.current) setLoading(false); }
   }
@@ -59,7 +60,7 @@ export default function WorkRecurrenceSettings({ context, onChanged, onBusy, onD
       <label>업무 제목<input required maxLength={450} value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} placeholder={form.kind === 'daily' ? 'RFID <YYMMDD> 체크' : '월별 급여 자료 확인'}/></label>
       {form.kind === 'daily' && <small>제목의 &lt;YYMMDD&gt;는 해당 날짜로 바뀝니다. 예: RFID 261001 체크</small>}
       <div className="work-system-fields"><label>업무 담당자<select aria-label="업무 담당자" required value={form.assigneeId} onChange={event => setForm({ ...form, assigneeId: event.target.value })}><option value="">담당자 선택</option>{context.assignees.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label><label>카테고리<select aria-label="카테고리" value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>{categories.filter(row => row.active || row.id === form.category).map(row => <option key={row.id} value={row.id}>{row.name}{row.active ? '' : ' (삭제됨)'}</option>)}</select></label></div>
-      {form.kind === 'monthly' ? <label>매월 마감일<div className="work-system-day"><input type="number" required min={1} max={31} value={form.dueDay} onChange={event => setForm({ ...form, dueDay: Number(event.target.value) })}/>일</div><small>해당 날짜가 없는 달은 말일로 맞춥니다.</small></label> : <><div className="work-system-checks"><label><input type="checkbox" checked={form.includeSaturday} onChange={event => setForm({ ...form, includeSaturday: event.target.checked })}/>토요일 생성</label><label><input type="checkbox" checked={form.includeSunday} onChange={event => setForm({ ...form, includeSunday: event.target.checked })}/>일요일 생성</label></div><label className="work-system-pending"><input type="checkbox" disabled checked={false} readOnly/>연차일 제외 — 근무기록 연동 예정</label><small>현재는 연차 여부를 판별하지 않습니다. 선택한 주말 조건만 적용합니다.</small></>}
+      {form.kind === 'monthly' ? <label>매월 마감일<div className="work-system-day"><input type="number" required min={1} max={31} value={form.dueDay} onChange={event => setForm({ ...form, dueDay: Number(event.target.value) })}/>일</div><small>해당 날짜가 없는 달은 말일로 맞춥니다.</small></label> : <><div className="work-system-checks"><label><input type="checkbox" checked={form.includeSaturday} onChange={event => setForm({ ...form, includeSaturday: event.target.checked })}/>토요일 생성</label><label><input type="checkbox" checked={form.includeSunday} onChange={event => setForm({ ...form, includeSunday: event.target.checked })}/>일요일 생성</label></div><label className="work-system-pending"><input type="checkbox" disabled={!leaveLinked.includes(form.assigneeId)} checked={!form.includeLeave} onChange={event => setForm({ ...form, includeLeave: !event.target.checked })}/>연차·반차일 제외</label><small>근무기록에 연결된 담당자는 확정 연차 계획·출근부를 기준으로 제외할 수 있습니다. 이미 생성된 업무는 자동 삭제하지 않습니다.</small></>}
       <label>내용 (선택)<textarea maxLength={5000} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })}/></label>
       <div className="work-system-preview"><strong>이번 달 생성 대상 {dates.length}개</strong>{dates.slice(0, 4).map(date => <div key={date}><time>{date}</time><span>{recurrenceTitle(form.title, date)}</span></div>)}{dates.length > 4 && <small>외 {dates.length - 4}개</small>}</div>
       <p className="work-help">저장하면 이번 달분만 생성합니다. 다음 달분은 월이 바뀐 후 공동업무에 처음 접속할 때 생성됩니다. 규칙 수정은 기존 업무를 덮어쓰지 않습니다.</p>

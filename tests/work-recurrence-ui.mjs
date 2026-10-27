@@ -43,7 +43,7 @@ try {
     await page.getByRole('checkbox', { name: '토요일 생성', exact: true }).check();
     await page.getByRole('checkbox', { name: '일요일 생성', exact: true }).check();
     await page.getByText('이번 달 생성 대상 31개', { exact: true }).waitFor();
-    assert(await page.getByRole('checkbox', { name: /연차일 제외/ }).isDisabled());
+    assert(await page.getByRole('checkbox', { name: /연차.*제외/ }).isDisabled());
     await page.getByRole('button', { name: '규칙 저장 및 이번 달 생성', exact: true }).click();
     await page.getByText('규칙을 저장했습니다. 2026-10 업무 31개를 생성했습니다. 이미 생성된 업무는 유지됩니다.').waitFor();
     assert.equal(rules.length, 2); assert.equal(rules[1].includeLeave, true);

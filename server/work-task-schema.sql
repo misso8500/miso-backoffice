@@ -70,3 +70,10 @@ CREATE TABLE IF NOT EXISTS work_recurrence_instances (
   PRIMARY KEY(rule_id, occurrence),
   UNIQUE(task_id)
 );
+
+CREATE TABLE IF NOT EXISTS staff_record_profiles (owner_id TEXT PRIMARY KEY REFERENCES work_members(id), staff_id TEXT NOT NULL UNIQUE REFERENCES work_assignees(id), payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS staff_record_documents (owner_id TEXT NOT NULL REFERENCES work_members(id), kind TEXT NOT NULL CHECK(kind IN ('attendance','journal')), period TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','confirmed')), source_hash TEXT NOT NULL, version INTEGER NOT NULL, confirmed_at TEXT, PRIMARY KEY(owner_id,kind,period));
+CREATE TABLE IF NOT EXISTS staff_leave_accounts (owner_id TEXT NOT NULL REFERENCES work_members(id), year TEXT NOT NULL, granted REAL NOT NULL, opening_used REAL NOT NULL, version INTEGER NOT NULL, PRIMARY KEY(owner_id,year));
+CREATE TABLE IF NOT EXISTS staff_leave_plans (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES work_members(id), year TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','confirmed','used','cancelled')), version INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_staff_leave_owner ON staff_leave_plans(owner_id,year);
+CREATE TABLE IF NOT EXISTS staff_record_events (id TEXT PRIMARY KEY, actor_id TEXT REFERENCES work_members(id), owner_id TEXT NOT NULL REFERENCES work_members(id), kind TEXT NOT NULL, record_key TEXT NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL);

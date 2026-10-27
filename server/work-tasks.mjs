@@ -28,11 +28,11 @@ export function normalizeWorkTask(body, categories = workCategories) {
   return { title, description, assigneeId: assigneeId || null, dueDate: dueDate || null, category: body.category, related, requestId: requestId || null };
 }
 
-export async function readWorkBody(request) {
+export async function readWorkBody(request, maxSize = 40000) {
   let size = 0; const chunks = [];
   for await (const chunk of request) {
     size += Buffer.byteLength(chunk);
-    if (size > 40000) throw workError(413, '입력 내용이 너무 큽니다.');
+    if (size > maxSize) throw workError(413, '입력 내용이 너무 큽니다.');
     chunks.push(Buffer.from(chunk));
   }
   try {
@@ -51,6 +51,21 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
+    if (path.startsWith('/api/work/records/')) {
+      const recordCurrent = await store.staffRecordContext(new URL(request.url, 'http://localhost').searchParams.get('staffId'), current);
+      const monthRoute = /^\/api\/work\/records\/(attendance|journal)\/(\d{4}-\d{2})$/.exec(path);
+      const accountRoute = /^\/api\/work\/records\/leave\/(\d{4})(\/account)?$/.exec(path);
+      const leaveRoute = /^\/api\/work\/records\/leave-plans(?:\/([^/]+))?$/.exec(path);
+      if (path === '/api/work/records/profile' && request.method === 'GET') sendJson(response, 200, await store.recordProfile(recordCurrent));
+      else if (path === '/api/work/records/profile' && request.method === 'PUT') sendJson(response, 200, await store.saveRecordProfile(await readWorkBody(request), recordCurrent));
+      else if (monthRoute && request.method === 'GET') sendJson(response, 200, await store.recordMonth(monthRoute[1], monthRoute[2], recordCurrent));
+      else if (monthRoute && request.method === 'PUT') sendJson(response, 200, await store.saveRecordMonth(monthRoute[1], monthRoute[2], await readWorkBody(request, 4000000), recordCurrent));
+      else if (accountRoute && !accountRoute[2] && request.method === 'GET') sendJson(response, 200, await store.leaveLedger(accountRoute[1], recordCurrent));
+      else if (accountRoute?.[2] && request.method === 'PUT') sendJson(response, 200, await store.saveLeaveAccount(accountRoute[1], await readWorkBody(request), recordCurrent));
+      else if (leaveRoute && (request.method === 'POST' && !leaveRoute[1] || request.method === 'PUT' && leaveRoute[1])) sendJson(response, 200, await store.saveLeavePlan(leaveRoute[1] ?? null, await readWorkBody(request), recordCurrent));
+      else throw workError(404, '근무기록 API를 찾을 수 없습니다.');
+      return true;
+    }
     const categoryRoute = /^\/api\/work\/categories(?:\/([^/]+))?$/.exec(path);
     const recurrenceRoute = /^\/api\/work\/recurrences(?:\/([^/]+))?$/.exec(path);
     if ((path === '/api/work/context' || path === '/api/work/tasks') && request.method === 'GET') await store.ensureRecurring();
@@ -61,7 +76,7 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       return true;
     }
     if (recurrenceRoute) {
-      if (request.method === 'GET' && !recurrenceRoute[1]) sendJson(response, 200, { rules: await store.recurrenceRules(current), month: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit' }).format(new Date()) });
+      if (request.method === 'GET' && !recurrenceRoute[1]) sendJson(response, 200, { rules: await store.recurrenceRules(current), leaveLinkedAssignees: await store.leaveLinkedAssignees(), month: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit' }).format(new Date()) });
       else if (request.method === 'POST' && !recurrenceRoute[1] || request.method === 'PUT' && recurrenceRoute[1]) sendJson(response, 200, await store.saveRecurrence(recurrenceRoute[1] ?? null, await readWorkBody(request), current));
       else throw workError(405, '지원하지 않는 요청입니다.');
       return true;

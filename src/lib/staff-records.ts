@@ -1,0 +1,10 @@
+export type StaffProfile = { staffId: string; name: string; organization: string; jobTitle: string; startTime: string; endTime: string; hours: number; version: number };
+export type AttendanceKind = 'pending' | 'work' | 'off' | 'leave' | 'absent' | 'other';
+export type StaffRow = { date: string; reviewed: boolean; kind: AttendanceKind; start: string; end: string; hours: number; leaveDays: number; note: string; signature: string; morning: string; afternoon: string; unknown: string; morningNote: string; afternoonNote: string; other: string };
+export type StaffPayload = { profile: Omit<StaffProfile,'staffId'|'version'>; rows: StaffRow[]; imported: string[]; attendance?: Pick<StaffRow,'date'|'kind'|'hours'|'leaveDays'>[] };
+export type StaffDocument = { kind: 'attendance'|'journal'; period: string; payload: StaffPayload; version: number; status: 'draft'|'confirmed'; sourceHash: string; confirmedAt: string | null };
+export type RecordSource = { id: string; version: number; date: string; period: 'morning'|'afternoon'|'unknown'; content: string };
+export type StaffMonth = { document: StaffDocument; executions: RecordSource[]; leaveDates?: {date:string;days:number}[]; attendance: StaffDocument | null; sourceHash: string; sourceChanged: boolean };
+export type LeavePlan = { id?: string; dates: {date: string; days: number}[]; leaveReason: string; contact: string; substitute: string; applicationDate: string; status: 'draft'|'confirmed'|'used'|'cancelled'; version: number; profile?: Pick<StaffProfile,'name'|'organization'|'jobTitle'>; reason?: string };
+export type LeaveLedger = { account: {granted: number; opening_used: number; version: number}; plans: LeavePlan[]; attendanceUses?: {date:string;days:number}[]; totals: { granted: number; used: number; remaining: number; planned: number; available: number } };
+export const attendanceLabels: Record<AttendanceKind,string> = { pending:'확인 필요',work:'출근',off:'휴무',leave:'연차',absent:'결근',other:'기타' };

@@ -15,7 +15,6 @@ export function normalizeRecurrence(body, current) {
   if (!current.assignees.some(person => person.id === body.assigneeId)) throw workError(400, '업무 담당자를 선택해 주세요.');
   if (!Number.isInteger(body.dueDay) || body.dueDay < 1 || body.dueDay > 31) throw workError(400, '마감일은 1~31일로 지정해 주세요.');
   for (const key of ['includeSaturday', 'includeSunday', 'includeLeave', 'active']) if (typeof body[key] !== 'boolean') throw workError(400, '반복 설정을 확인해 주세요.');
-  if (!body.includeLeave && body.kind === 'daily') throw workError(400, '연차 제외는 근무기록 연동 후 사용할 수 있습니다.');
   if (typeof body.category !== 'string') throw workError(400, '카테고리를 선택해 주세요.');
   if (body.requestId && (typeof body.requestId !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.requestId))) throw workError(400, '등록 요청을 확인해 주세요.');
   return { ...body, title: body.title.trim(), description: body.description.trim() };
@@ -30,11 +29,19 @@ export function createRecurrenceStore(transaction) {
   }
   async function generate(q, raw, today) {
     const rule = fromRow(raw), month = today.slice(0, 7);
-    if (!rule.active || month < rule.startMonth || rule.kind === 'daily' && !rule.includeLeave) return 0;
+    if (!rule.active || month < rule.startMonth) return 0;
+    let leaveDates = [];
+    if (rule.kind === 'daily' && !rule.includeLeave) {
+      const person = (await q('SELECT owner_id FROM staff_record_profiles WHERE staff_id=$1', [rule.assigneeId])).rows[0];
+      if (!person) return 0;
+      const plans = (await q("SELECT payload FROM staff_leave_plans WHERE owner_id=$1 AND year=$2 AND status IN ('confirmed','used')", [person.owner_id, month.slice(0,4)])).rows;
+      const attendance = (await q("SELECT payload FROM staff_record_documents WHERE owner_id=$1 AND kind='attendance' AND period=$2 AND status='confirmed'", [person.owner_id, month])).rows;
+      leaveDates = [...plans.flatMap(row => JSON.parse(row.payload).dates.map(date => date.date)), ...attendance.flatMap(row => JSON.parse(row.payload).rows.filter(date => date.kind === 'leave').map(date => date.date))];
+    }
     const activeCategory = (await q('SELECT * FROM work_categories WHERE id=$1', [rule.category])).rows[0];
     const existing = new Set((await q('SELECT occurrence FROM work_recurrence_instances WHERE rule_id=$1 AND occurrence LIKE $2', [rule.id, month + '%'])).rows.map(row => row.occurrence));
     const now = new Date().toISOString();
-    const items = recurrenceDates(rule, month).map(date => ({ date, occurrence: rule.kind === 'monthly' ? month : date })).filter(item => !existing.has(item.occurrence)).map(item => ({ ...item, id: newWorkId(), title: recurrenceTitle(rule.title, item.date), category: activeCategory?.active ? rule.category : 'unclassified' }));
+    const items = recurrenceDates(rule, month, leaveDates).map(date => ({ date, occurrence: rule.kind === 'monthly' ? month : date })).filter(item => !existing.has(item.occurrence)).map(item => ({ ...item, id: newWorkId(), title: recurrenceTitle(rule.title, item.date), category: activeCategory?.active ? rule.category : 'unclassified' }));
     if (!items.length) return 0;
     const values = [];
     const bind = value => { values.push(value); return '$' + values.length; };
@@ -68,10 +75,12 @@ export function createRecurrenceStore(transaction) {
       });
     },
     recurrenceRules(current) { return transaction(async q => (await q('SELECT * FROM work_recurrence_rules WHERE owner_id=$1 ORDER BY created_at,id', [current.me.id])).rows.map(fromRow)); },
+    leaveLinkedAssignees() { return transaction(async q => (await q('SELECT staff_id FROM staff_record_profiles', [])).rows.map(row => row.staff_id)); },
     saveRecurrence(id, body, current) {
       const input = normalizeRecurrence(body, current);
       return transaction(async q => {
         await seed(q);
+        if (input.kind === 'daily' && !input.includeLeave && !(await q('SELECT owner_id FROM staff_record_profiles WHERE staff_id=$1', [input.assigneeId])).rows.length) throw workError(400, '연차 제외를 사용하려면 해당 담당자의 근무기록 기본정보를 먼저 연결해 주세요.');
         const ruleId = id ?? body.requestId ?? newWorkId();
         const old = (await q(`SELECT * FROM work_recurrence_rules WHERE id=$1${q.forUpdate ?? ''}`, [ruleId])).rows[0];
         if (old && old.owner_id !== current.me.id) throw workError(404, '나의 반복 업무를 찾을 수 없습니다.');
