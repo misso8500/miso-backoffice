@@ -287,6 +287,21 @@ CREATE TABLE IF NOT EXISTS work_visit_tasks (
   PRIMARY KEY(month,recipient_id)
 );
 
+CREATE TABLE IF NOT EXISTS recipient_service_pauses (
+ id TEXT PRIMARY KEY,recipient_id TEXT NOT NULL REFERENCES recipients(id),start_date TEXT NOT NULL,
+ expected_return_date TEXT,reason TEXT NOT NULL,returned_date TEXT,version INTEGER NOT NULL,
+ created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recipient_active_pause ON recipient_service_pauses(recipient_id) WHERE returned_date IS NULL;
+CREATE TABLE IF NOT EXISTS work_visit_holds (
+ task_id TEXT NOT NULL REFERENCES work_tasks(id),pause_id TEXT NOT NULL REFERENCES recipient_service_pauses(id),released_at TEXT,
+ PRIMARY KEY(task_id,pause_id)
+);
+CREATE TABLE IF NOT EXISTS recipient_service_pause_events (
+ id TEXT PRIMARY KEY,pause_id TEXT NOT NULL REFERENCES recipient_service_pauses(id),actor_id TEXT NOT NULL REFERENCES work_members(id),
+ action TEXT NOT NULL,payload TEXT NOT NULL,created_at TEXT NOT NULL
+);
+
 ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS roster_assignee_id TEXT REFERENCES work_assignees(id);
 ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS completed_at TEXT;
 CREATE TABLE IF NOT EXISTS work_plans (
@@ -378,3 +393,12 @@ UPDATE staff_record_events SET actor_id=owner_id WHERE actor_id IS NULL;
 
 ALTER TABLE work_visit_tasks ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON work_visit_tasks FROM anon, authenticated;
+
+ALTER TABLE recipient_service_pauses ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON recipient_service_pauses FROM anon, authenticated;
+
+ALTER TABLE work_visit_holds ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON work_visit_holds FROM anon, authenticated;
+
+ALTER TABLE recipient_service_pause_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON recipient_service_pause_events FROM anon, authenticated;

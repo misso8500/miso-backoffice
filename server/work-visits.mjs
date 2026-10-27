@@ -2,6 +2,7 @@ import { workError, newWorkId } from './work-tasks.mjs';
 import { monthDays } from '../shared/staff-records.mjs';
 import { recurrenceToday } from '../shared/work-recurrence.mjs';
 import { visitAssigneeIds } from '../shared/work-visits.mjs';
+import { pauseFrom } from './service-pauses.mjs';
 
 export function createVisitStore(transaction, task, event) {
   function range(month) { const days=monthDays(month);return [days[0],days.at(-1)]; }
@@ -16,9 +17,12 @@ export function createVisitStore(transaction, task, event) {
       return transaction(async q=>{
         const people=(await q('SELECT * FROM recipients ORDER BY name,id',[])).rows;
         const links=(await q('SELECT v.recipient_id,t.* FROM work_visit_tasks v JOIN work_tasks t ON t.id=v.task_id WHERE v.month=$1',[month])).rows;
-        return {month,dueDate:to,rows:people.filter(person=>eligible(person,from,to)||links.some(link=>link.recipient_id===person.id)).map(person=>{
+        const pauses=(await q('SELECT * FROM recipient_service_pauses ORDER BY start_date DESC,created_at DESC',[])).rows;
+        const holds=(await q('SELECT task_id FROM work_visit_holds WHERE released_at IS NULL',[])).rows;
+        return {month,dueDate:to,rows:people.filter(person=>eligible(person,from,to)||links.some(link=>link.recipient_id===person.id)||pauses.some(pause=>pause.recipient_id===person.id&&!pause.returned_date)).map(person=>{
           const linked=links.find(link=>link.recipient_id===person.id);
-          return {recipientId:person.id,name:person.name,enabled:Boolean(person.enabled),eligible:Boolean(eligible(person,from,to)),serviceStartDate:person.service_start_date,serviceEndDate:person.service_end_date,task:linked?task(linked):null};
+          const paused=pauses.find(row=>row.recipient_id===person.id&&!row.returned_date),last=pauses.find(row=>row.recipient_id===person.id);
+          return {recipientId:person.id,name:person.name,enabled:Boolean(person.enabled),eligible:Boolean(eligible(person,from,to)),serviceStartDate:person.service_start_date,serviceEndDate:person.service_end_date,servicePause:pauseFrom(paused),lastServicePause:pauseFrom(last),task:linked?task({...linked,visit_on_hold:holds.some(row=>row.task_id===linked.id)?1:0}):null};
         })};
       });
     },
@@ -31,6 +35,7 @@ export function createVisitStore(transaction, task, event) {
       return transaction(async q=>{
         const person=(await q(`SELECT * FROM recipients WHERE id=$1${q.forUpdate??''}`,[body.recipientId])).rows[0];
         if(!person)throw workError(404,'수급자를 찾을 수 없습니다.');
+        if((await q('SELECT id FROM recipient_service_pauses WHERE recipient_id=$1 AND returned_date IS NULL',[person.id])).rows.length)throw workError(409,'서비스 일시정지 중에는 라운딩 할일을 생성하지 않습니다.');
         const existing=(await q('SELECT t.* FROM work_visit_tasks v JOIN work_tasks t ON t.id=v.task_id WHERE v.month=$1 AND v.recipient_id=$2',[month,person.id])).rows[0];
         if(existing)return task(existing);
         if(!person.enabled||!eligible(person,from,to))throw workError(409,'계약·서비스 기간 또는 종료 상태가 변경되었습니다. 명단을 다시 확인해 주세요.');

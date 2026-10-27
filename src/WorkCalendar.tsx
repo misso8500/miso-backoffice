@@ -37,7 +37,7 @@ export default function WorkCalendar({ context, tasks, date, view, assignee, rev
   function renderEntry(entry: CalendarEntry, day: string) {
     const kind = entry.kinds.includes('execution') ? 'execution' : entry.kinds.includes('plan') ? 'plan' : entry.kinds.includes('deadline') ? 'deadline' : 'unplanned', task = entry.task;
     return <div key={entry.key} className={`work-calendar-item is-${kind} ${selectedId && selectedId === entry.taskId ? 'is-selected' : ''} ${task?.status === 'done' ? 'is-done' : ''}`}>
-      {task && <input type="checkbox" aria-label={`${task.title} ${task.status === 'done' ? '완료 되돌리기' : '완료하기'}`} checked={task.status === 'done'} disabled={busy || editing || !task.canEdit || task.status === 'cancelled'} onChange={() => onComplete(task)}/>}
+      {task && <input type="checkbox" aria-label={`${task.title} ${task.status === 'done' ? '완료 되돌리기' : '완료하기'}`} checked={task.status === 'done'} disabled={Boolean(task.onHold) || busy || editing || !task.canEdit || task.status === 'cancelled'} onChange={() => onComplete(task)}/>}
       <button type="button" className="work-calendar-item-title" disabled={busy} onClick={() => task ? onOpenTask(task, day) : onOpenDay(day, context.assignees.some(p => p.id === entry.owner) ? entry.owner! : 'all')} aria-label={`${day} ${entry.title} ${task ? '상세 열기' : '수행 기록 열기'}`}><strong>{entry.title}</strong><span className="work-calendar-item-meta">{entry.kinds.map(k => <small key={k} className={`is-${k}`}>{labels[k]}</small>)}<span>{name(entry.owner)}</span>{task?.status === 'done' && <span>완료</span>}</span></button>
     </div>;
   }

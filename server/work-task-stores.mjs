@@ -1,3 +1,4 @@
+import {createServicePauseStore, heldTaskSql, assertVisitAvailable} from './service-pauses.mjs';
 import { createVisitStore } from './work-visits.mjs';
 import { readFileSync } from 'node:fs';
 import { newWorkId, workError } from './work-tasks.mjs';
@@ -9,7 +10,7 @@ import { createStaffRecordStore } from './staff-records.mjs';
 const member = row => ({ id: row.id, name: row.name, email: row.email, linked: Boolean(row.auth_id) });
 const task = row => ({ id: row.id, requesterId: row.requester_id, assigneeId: row.roster_assignee_id ?? row.assignee_id,
   title: row.title, description: row.description, category: row.category, dueDate: row.due_date,
-  related: JSON.parse(row.related), status: row.status === 'open' && row.completed_at ? 'done' : row.status, completedAt: row.completed_at ?? null, version: Number(row.version),
+  onHold: Boolean(row.visit_on_hold), related: JSON.parse(row.related), status: row.status === 'open' && row.completed_at ? 'done' : row.status, completedAt: row.completed_at ?? null, version: Number(row.version),
   createdAt: row.created_at, updatedAt: row.updated_at, updatedBy: row.updated_by });
 
 function createWorkStore(transaction, canEdit) {
@@ -45,6 +46,7 @@ function createWorkStore(transaction, canEdit) {
       [newWorkId(), row.id, row.version, actor, kind, JSON.stringify(task(row)), row.updated_at]);
   };
   return {
+    ...createServicePauseStore(transaction,event),
     ...createVisitStore(transaction, task, event),
     ...createStaffRecordStore(transaction),
     ...createRecurrenceStore(transaction),
@@ -78,7 +80,7 @@ function createWorkStore(transaction, canEdit) {
         if (status !== 'all') { values.push(status === 'done' ? 'open' : status); conditions.push(`status=$${values.length}`); }
         if (status === 'open') conditions.push('completed_at IS NULL');
         if (status === 'done') conditions.push('completed_at IS NOT NULL');
-        const rows = (await q(`SELECT * FROM work_tasks${conditions.length ? ' WHERE ' + conditions.join(' AND ') : ''} ORDER BY created_at DESC,id DESC`, values)).rows;
+        const rows = (await q(`SELECT *,${heldTaskSql} AS visit_on_hold FROM work_tasks${conditions.length ? ' WHERE ' + conditions.join(' AND ') : ''} ORDER BY created_at DESC,id DESC`, values)).rows;
         return rows.map(row => ({ ...task(row), canEdit: row.status !== 'cancelled' && canEdit(task(row), current.me.id) }));
       });
     },
@@ -105,6 +107,7 @@ function createWorkStore(transaction, canEdit) {
       return transaction(async q => {
         const previous = await lockTask(q, id);
         authorizeVersion(previous, version, current);
+        await assertVisitAvailable(q,id);
         await validateWorkCategory(q, input.category, previous.category);
         validateAssignee(input, current, task(previous).assigneeId);
         const isRoster = current.assignees.some(m => m.id === input.assigneeId);
@@ -131,6 +134,7 @@ function createWorkStore(transaction, canEdit) {
       return transaction(async q => {
         const previous = await lockTask(q, id);
         authorizeVersion(previous, version, current);
+        await assertVisitAvailable(q,id);
         if (Boolean(previous.completed_at) === !reopen) throw workError(409, '업무 완료 상태가 이미 변경되었습니다. 다시 확인해 주세요.');
         const now = new Date().toISOString();
         const row = (await q("UPDATE work_tasks SET completed_at=$1,version=version+1,updated_by=$2,updated_at=$3 WHERE id=$4 AND version=$5 AND status='open' RETURNING *", [reopen ? null : now, current.me.id, now, id, version])).rows[0];

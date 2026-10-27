@@ -84,3 +84,18 @@ CREATE TABLE IF NOT EXISTS work_visit_tasks (
   task_id TEXT NOT NULL UNIQUE REFERENCES work_tasks(id),
   PRIMARY KEY(month,recipient_id)
 );
+
+CREATE TABLE IF NOT EXISTS recipient_service_pauses (
+ id TEXT PRIMARY KEY,recipient_id TEXT NOT NULL REFERENCES recipients(id),start_date TEXT NOT NULL,
+ expected_return_date TEXT,reason TEXT NOT NULL,returned_date TEXT,version INTEGER NOT NULL,
+ created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recipient_active_pause ON recipient_service_pauses(recipient_id) WHERE returned_date IS NULL;
+CREATE TABLE IF NOT EXISTS work_visit_holds (
+ task_id TEXT NOT NULL REFERENCES work_tasks(id),pause_id TEXT NOT NULL REFERENCES recipient_service_pauses(id),released_at TEXT,
+ PRIMARY KEY(task_id,pause_id)
+);
+CREATE TABLE IF NOT EXISTS recipient_service_pause_events (
+ id TEXT PRIMARY KEY,pause_id TEXT NOT NULL REFERENCES recipient_service_pauses(id),actor_id TEXT NOT NULL REFERENCES work_members(id),
+ action TEXT NOT NULL,payload TEXT NOT NULL,created_at TEXT NOT NULL
+);

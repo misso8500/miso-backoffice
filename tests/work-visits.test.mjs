@@ -28,4 +28,29 @@ for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: monthly visits sh
  await store.cancel(row.task.id,row.task.version,a);assert.equal((await store.startVisit('2026-09',body,a)).status,'cancelled');assert.equal(db.prepare('SELECT COUNT(*) n FROM work_tasks').get().n,1);
  db.prepare("UPDATE recipients SET contract_expired_date='2026-08-31' WHERE id='active'").run();row=(await store.visitMonth('2026-09')).rows.find(row=>row.recipientId==='active');assert.equal(row.eligible,false);assert.equal(row.task.status,'cancelled');
  await assert.rejects(store.visitMonth('2026-13'),{status:400});
+
+ // Pause keeps the same task, blocks ordinary completion and planned/manual execution,
+ // and resumes only uncompleted work from the actual return month.
+ const visit=await store.startVisit('2026-09',{...body,recipientId:'midmonth'},a);
+ const plan=await store.createPlan({requestId:'a146857e-d5f4-421b-916a-961b1ff1376f',taskId:visit.id,assigneeId:body.assigneeId,date:'2026-09-21',period:'morning'},a);
+ const paused=await store.pauseService('midmonth',{startDate:'2026-09-20',expectedReturnDate:null,reason:'입원'},a);
+ let held=(await store.visitMonth('2026-09')).rows.find(row=>row.recipientId==='midmonth');assert.equal(held.task.onHold,true);assert.equal(held.servicePause.reason,'입원');assert.equal(held.servicePause.expectedReturnDate,null);
+ assert.equal((await store.list(b,'all','open')).find(row=>row.id===visit.id).onHold,true);
+ await assert.rejects(store.complete(visit.id,held.task.version,b),{status:409});await assert.rejects(store.startVisit('2026-09',{...body,recipientId:'midmonth'},b),{status:409});
+ await assert.rejects(store.pauseService('midmonth',{startDate:'2026-09-21',reason:'중복'},b),{status:409});
+ await assert.rejects(store.recordPlan(plan.id,{requestId:'bbb5c057-2283-4141-8ec0-25cd63052abf',period:'morning',executionVersion:0,date:'2026-09-21'},b),{status:409});
+ await assert.rejects(store.recordManual({requestId:'adb5c057-2283-4141-8ec0-25cd63052abf',taskId:visit.id,date:'2026-09-21',assigneeId:body.assigneeId,period:'morning',content:'우회 수행',category:'service',related:[]},b),{status:409});
+ await assert.rejects(store.resumeService('midmonth',{pauseId:paused.id,version:0,returnedDate:'2026-09-25'},b),{status:409});
+ await assert.rejects(store.resumeService('midmonth',{pauseId:paused.id,version:1,returnedDate:'2026-09-19'},b),{status:400});
+ await store.resumeService('midmonth',{pauseId:paused.id,version:1,returnedDate:'2026-09-25'},b);
+ held=(await store.visitMonth('2026-09')).rows.find(row=>row.recipientId==='midmonth');assert.equal(held.task.id,visit.id);assert.equal(held.task.onHold,false);assert.equal(held.servicePause,null);assert.equal(held.lastServicePause.returnedDate,'2026-09-25');
+ await store.complete(visit.id,held.task.version,b);
+ const pausedAgain=await store.pauseService('midmonth',{startDate:'2026-09-26',expectedReturnDate:'2026-09-29',reason:'개인 사유'},a);
+ await store.resumeService('midmonth',{pauseId:pausedAgain.id,version:1,returnedDate:'2026-09-29'},a);
+ held=(await store.visitMonth('2026-09')).rows.find(row=>row.recipientId==='midmonth');assert.equal(held.task.status,'done');assert.equal((await store.startVisit('2026-09',{...body,recipientId:'midmonth'},b)).id,visit.id);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM recipient_service_pause_events').get().n,4);
+ assert.equal(db.prepare("SELECT COUNT(*) n FROM recipient_service_pause_events WHERE actor_id=?").get(b.me.id).n,1);
+ person('crossmonth');const cross=await store.startVisit('2026-09',{...body,recipientId:'crossmonth'},a);const crossPause=await store.pauseService('crossmonth',{startDate:'2026-09-28',reason:'개인 사유'},a);
+ await store.resumeService('crossmonth',{pauseId:crossPause.id,version:1,returnedDate:'2026-10-01'},b);assert.equal((await store.visitMonth('2026-09')).rows.find(row=>row.recipientId==='crossmonth').task.onHold,true);
+ await assert.rejects(store.complete(cross.id,(await store.visitMonth('2026-09')).rows.find(row=>row.recipientId==='crossmonth').task.version,a),{status:409});
 });

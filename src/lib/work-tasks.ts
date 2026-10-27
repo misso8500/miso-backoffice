@@ -11,7 +11,7 @@ export type WorkReference = { id: string; type: 'recipient' | 'worker'; name: st
 export type WorkAssignee = { id: string; name: string };
 export type WorkContext = { me: WorkMember; members: WorkMember[]; assignees: WorkAssignee[]; references: WorkReference[]; categories: WorkCategory[]; categoryLabels?: Record<string, string>; canManageCategories?: boolean };
 export type WorkTask = {
-  id: string; requesterId: string; assigneeId: string | null; title: string; description: string;
+  onHold?: boolean; id: string; requesterId: string; assigneeId: string | null; title: string; description: string;
   category: WorkCategory; dueDate: string | null; related: WorkReference[]; status: 'open' | 'done' | 'cancelled'; completedAt: string | null;
   version: number; createdAt: string; updatedAt: string; updatedBy: string; canEdit: boolean;
 };

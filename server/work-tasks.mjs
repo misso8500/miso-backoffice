@@ -51,6 +51,13 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
+    const pauseRoute=/^\/api\/work\/recipient-services\/([^/]+)\/(pause|resume)$/.exec(path);
+    if(pauseRoute){
+      if(request.method!=='POST')throw workError(405,'지원하지 않는 요청입니다.');
+      const body=await readWorkBody(request);
+      sendJson(response,200,await store[pauseRoute[2]==='pause'?'pauseService':'resumeService'](decodeURIComponent(pauseRoute[1]),body,current));
+      return true;
+    }
     const visitRoute=/^\/api\/work\/visits\/(\d{4}-\d{2})$/.exec(path);
     if(visitRoute){
       if(request.method==='GET')sendJson(response,200,await store.visitMonth(visitRoute[1]));
