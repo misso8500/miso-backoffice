@@ -3,6 +3,7 @@ import './dev-sidebar.css';
 import './dev-workspace.css';
 import WorkHub from './WorkHub';
 import StaffRecords from './StaffRecords';
+import SidebarGroup from './SidebarGroup';
 import RecipientPlanPanel from "./RecipientPlanPanel";
 import RecipientList, { type RecipientView } from "./RecipientList";
 import RecipientServicePeriod from "./RecipientServicePeriod";
@@ -1438,7 +1439,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <button type="button" className="secondary-button" onClick={() => void onSignOut()}>로그아웃</button>
           </div>
           <span className="sidebar-section-label">센터 운영</span>
-          <nav className="view-tabs" aria-label="관리 메뉴">
+          <nav className="view-tabs sidebar-group-navigation" aria-label="관리 메뉴">
+            <SidebarGroup title="수급자" active={activeView === "recipients"}>
             <button
               type="button"
               className={activeView === "recipients" ? "is-active" : ""}
@@ -1450,8 +1452,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               }}
             >
               <Users size={16} />
-              수급자
+              수급자 기초정보
             </button>
+</SidebarGroup>
+            <SidebarGroup title="요양보호사, 사회복지사" active={activeView === "employmentContracts"}>
             <button
               type="button"
               className={activeView === "employmentContracts" ? "is-active" : ""}
@@ -1463,8 +1467,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               }}
             >
               <Briefcase size={16} />
-              근로계약
+              근로계약서
             </button>
+            </SidebarGroup>
+            <SidebarGroup title="센터 실무" active={activeView === "work" || activeView === "records"}>
             <button type="button" className={activeView === "work" ? "is-active" : ""}
               aria-current={activeView === "work" ? "page" : undefined}
               onClick={() => {
@@ -1478,6 +1484,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <ClipboardCheck size={16} />센터업무(할일)
             </button>
             <button type="button" className={activeView === "records" ? "is-active" : ""} aria-current={activeView === "records" ? "page" : undefined} onClick={() => { setActiveView("records"); setSelectedRecipientId(null); setSelectedEmploymentContractId(null); setIsCreatePanelOpen(false); setIsEmploymentCreatePanelOpen(false); }}><ClipboardCheck size={16}/>근무기록</button>
+            </SidebarGroup>
+            <SidebarGroup title="기관 운영 서류 업무"><button type="button" disabled className="sidebar-coming-soon">추가중</button></SidebarGroup>
           </nav>
           <div className="runtime-badge">
             <Database size={16} />

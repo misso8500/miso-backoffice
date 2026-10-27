@@ -37,6 +37,14 @@
 .staff-review-status.is-awaiting { color:#8a6a36;background:#fff7e8; }
 .staff-review-status.is-pending { color:#796a87;background:#f3edf9; }
 .staff-paper-preview .att .att-heading-line { white-space:nowrap; }
+.staff-preview-modal { width:min(980px,calc(100vw - 28px));max-width:calc(100vw - 28px);height:min(900px,90dvh);max-height:90dvh;padding:0;border:1px solid #ded5e8;border-radius:14px;background:#fff;color:#45394e;box-shadow:0 22px 65px #39254833;overflow:hidden; }
+.staff-preview-modal[open] { display:flex;flex-direction:column; }
+.staff-preview-modal::backdrop { background:#36274066; }
+.staff-preview-heading { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid #e4dced;flex-shrink:0; }
+.staff-preview-heading h2 { margin:0;font-size:16px; }
+.staff-preview-heading button { display:inline-flex;align-items:center;gap:6px; }
+.staff-preview-scroll { min-height:0;overflow:auto;overscroll-behavior:contain; }
+.staff-preview-modal .staff-paper-preview { margin:0;border-radius:0;min-height:100%;width:max-content;min-width:100%; }
 .staff-attendance-table .staff-weekend { background:#faf7fc; }
 .staff-inline-source { margin:6px 0;font-size:11px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere; }
 .staff-help { font-size:11px;color:#93849e;line-height:1.8; }.staff-warning { background:#fff7e8;border:1px solid #f0dfbc;color:#8a6a36;padding:12px;border-radius:9px;font-size:12px;line-height:1.8; }
