@@ -2,6 +2,8 @@ import {summarizePlan} from './lib/recipient-plan-summary';
 import './dev-sidebar.css';
 import './dev-workspace.css';
 import WorkHub from './WorkHub';
+import StaffRecords from './StaffRecords';
+import SidebarGroup from './SidebarGroup';
 import RecipientPlanPanel from "./RecipientPlanPanel";
 import RecipientList, { type RecipientView } from "./RecipientList";
 import RecipientServicePeriod from "./RecipientServicePeriod";
@@ -455,7 +457,8 @@ const limitDateYear = (value: string) => {
 const dateInputLimits = { min: "1000-01-01", max: "9999-12-31" } as const;
 
 function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Promise<void> }) {
-  const [activeView, setActiveView] = useState<"recipients" | "employmentContracts" | "work">(
+  const [recordsDirty, setRecordsDirty] = useState(false);
+  const [activeView, setActiveView] = useState<"recipients" | "employmentContracts" | "work" | "records">(
     "recipients"
   );
   const [recipients, setRecipients] = useState<Recipient[]>([]);
@@ -1436,45 +1439,53 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <button type="button" className="secondary-button" onClick={() => void onSignOut()}>로그아웃</button>
           </div>
           <span className="sidebar-section-label">센터 운영</span>
-          <nav className="view-tabs" aria-label="관리 메뉴">
+          <nav className="view-tabs sidebar-group-navigation" aria-label="관리 메뉴">
+            <SidebarGroup title="수급자" active={activeView === "recipients"}>
             <button
               type="button"
               className={activeView === "recipients" ? "is-active" : ""}
               aria-current={activeView === "recipients" ? "page" : undefined}
               onClick={() => {
-                setActiveView("recipients");
+                if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("recipients");
                 setSelectedEmploymentContractId(null);
                 setIsEmploymentCreatePanelOpen(false);
               }}
             >
               <Users size={16} />
-              수급자
+              수급자 기초정보
             </button>
+</SidebarGroup>
+            <SidebarGroup title="요양보호사, 사회복지사" active={activeView === "employmentContracts"}>
             <button
               type="button"
               className={activeView === "employmentContracts" ? "is-active" : ""}
               aria-current={activeView === "employmentContracts" ? "page" : undefined}
               onClick={() => {
-                setActiveView("employmentContracts");
+                if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("employmentContracts");
                 setSelectedRecipientId(null);
                 setIsCreatePanelOpen(false);
               }}
             >
               <Briefcase size={16} />
-              근로계약
+              근로계약서
             </button>
+            </SidebarGroup>
+            <SidebarGroup title="센터 실무" active={activeView === "work" || activeView === "records"}>
             <button type="button" className={activeView === "work" ? "is-active" : ""}
               aria-current={activeView === "work" ? "page" : undefined}
               onClick={() => {
-                setActiveView("work");
+                if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("work");
                 setSelectedRecipientId(null);
                 setSelectedEmploymentContractId(null);
                 setIsCreatePanelOpen(false);
                 setIsEmploymentCreatePanelOpen(false);
                 setIsQuickAddOpen(false);
               }}>
-              <ClipboardCheck size={16} />공동 업무
+              <ClipboardCheck size={16} />센터업무(할일)
             </button>
+            <button type="button" className={activeView === "records" ? "is-active" : ""} aria-current={activeView === "records" ? "page" : undefined} onClick={() => { setActiveView("records"); setSelectedRecipientId(null); setSelectedEmploymentContractId(null); setIsCreatePanelOpen(false); setIsEmploymentCreatePanelOpen(false); }}><ClipboardCheck size={16}/>근무기록</button>
+            </SidebarGroup>
+            <SidebarGroup title="기관 운영 서류 업무"><button type="button" disabled className="sidebar-coming-soon">추가중</button></SidebarGroup>
           </nav>
           <div className="runtime-badge">
             <Database size={16} />
@@ -1485,7 +1496,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       {import.meta.env.DEV && <div className="development-indicator" role="note" aria-label="개발 환경">DEV · 개발 환경</div>}
 
       <main className="main-content">
-        {activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
+        {activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
           <>
         <section className="page-heading">
           <div>
@@ -1754,7 +1765,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       {isEmploymentGridOpen && <BasicEntryGrid mode="employment" existingContracts={employmentContracts}
         onClose={() => setIsEmploymentGridOpen(false)} onContractsSaved={(saved) => {
           setEmploymentContracts((current) => [...current.filter((contract) => !saved.some((item) => item.id === contract.id)), ...saved]);
-          setIsEmploymentGridOpen(false); setActiveView("employmentContracts"); setEmploymentSearchQuery("");
+          setIsEmploymentGridOpen(false); if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("employmentContracts"); setEmploymentSearchQuery("");
           setShowEnabledEmploymentOnly(false); setEmploymentRegistrationFilter("draft");
           showNotification(`${saved.length}건의 기본 정보를 저장했습니다. 이름을 눌러 상세 정보를 보완해 주세요.`);
         }} />}
@@ -1763,7 +1774,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         onClose={() => setIsRecipientGridOpen(false)} onSaved={(saved) => {
           setRecipients((current) => [...current.filter((recipient) => !saved.some((item) => item.id === recipient.id)), ...saved]);
           setIsRecipientGridOpen(false);
-          setActiveView("recipients"); setSelectedStatus("정보입력중"); setShowEnabledOnly(true);
+          if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("recipients"); setSelectedStatus("정보입력중"); setShowEnabledOnly(true);
           setSearchQuery(""); setSelectedAssignedUserId("all");
           showNotification(`${saved.length}명의 기본 정보를 저장했습니다. 이름을 눌러 상세 정보를 보완해 주세요.`);
         }} />}

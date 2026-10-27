@@ -1,0 +1,57 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { createSqliteWorkStore, createPostgresWorkStore } from '../server/work-task-stores.mjs';
+import { recurrenceToday } from '../shared/work-recurrence.mjs';
+
+for (const mode of ['sqlite', 'postgres-adapter']) test(`${mode}: personal recurrence, secure categories, month boundaries and durable deduplication`, async t => {
+  const db = new DatabaseSync(':memory:'); t.after(() => db.close());
+  db.exec(`PRAGMA foreign_keys=ON; CREATE TABLE recipients(id TEXT PRIMARY KEY,name TEXT,operational_name TEXT,is_draft INTEGER,enabled INTEGER); CREATE TABLE employment_contracts(id TEXT PRIMARY KEY,worker_name TEXT,contract_start_date TEXT,contract_end_date TEXT,is_draft INTEGER,enabled INTEGER);`);
+  const bridge = { async connect() { return { async query(sql, params = []) {
+    if (['BEGIN','COMMIT','ROLLBACK'].includes(sql)) { db.exec(sql); return { rows: [] }; }
+    const values = [], converted = sql.replace(/ FOR UPDATE$/, '').replace(/\$(\d+)/g, (_, n) => { values.push(params[Number(n)-1]); return '?'; });
+    const rows = db.prepare(converted).all(...values); return { rows, rowCount: rows.length };
+  }, release() {} }; } };
+  if (mode === 'postgres-adapter') db.exec(readFileSync(new URL('../server/work-task-schema.sql', import.meta.url), 'utf8') + readFileSync(new URL('../server/work-journal-schema.sql', import.meta.url), 'utf8'));
+  const store = mode === 'sqlite' ? createSqliteWorkStore(db, () => true) : createPostgresWorkStore(bridge, () => true);
+  const owner = await store.members({ id: 'a', email: 'owner@example.com', name: '개발자' }, ['owner@example.com','other@example.com']);
+  const other = await store.members({ id: 'b', email: 'other@example.com', name: '직원' }, ['owner@example.com','other@example.com']);
+  const oldEnv = process.env.WORK_CATEGORY_ADMIN_EMAILS; process.env.WORK_CATEGORY_ADMIN_EMAILS = 'owner@example.com';
+  t.after(() => { if (oldEnv === undefined) delete process.env.WORK_CATEGORY_ADMIN_EMAILS; else process.env.WORK_CATEGORY_ADMIN_EMAILS = oldEnv; });
+  await assert.rejects(async () => store.categoryChange(null, { name: '금지' }, other), { status: 403 });
+  const category = await store.categoryChange(null, { name: 'RFID 관리' }, owner);
+  await assert.rejects(async () => store.categoryChange(null, { name: 'RFID 관리' }, owner), { status: 409 });
+  const input = { title: '월별 확인', description: '', assigneeId: owner.assignees[0].id, category: category.id, kind: 'monthly', dueDay: 31, includeSaturday: false, includeSunday: false, includeLeave: true, active: true, requestId: randomUUID() };
+  const saved = await store.saveRecurrence(null, input, owner), month = recurrenceToday().slice(0,7);
+  assert.equal(saved.created, 1); assert.equal((await store.saveRecurrence(null, input, owner)).created, 0);
+  assert.equal((await store.recurrenceRules(other)).length, 0);
+  await assert.rejects(async () => store.saveRecurrence(saved.rule.id, { ...input, version: 1 }, other), { status: 404 });
+  assert.equal((await store.ensureRecurring()).created, 0);
+  const first = (await store.list(owner, 'all', 'all'))[0]; assert.equal(first.dueDate.slice(0,7), month);
+  const changed = await store.saveRecurrence(saved.rule.id, { ...input, title: '수정한 규칙', dueDay: 1, version: 1 }, owner);
+  assert.equal(changed.created, 0); assert.equal((await store.list(owner, 'all', 'all'))[0].title, '월별 확인');
+  await assert.rejects(async () => store.saveRecurrence(saved.rule.id, { ...input, version: 1 }, owner), { status: 409 });
+  const pause = await store.saveRecurrence(saved.rule.id, { ...changed.rule, active: false }, owner);
+  const next = new Date(`${month}-01T12:00:00Z`); next.setUTCMonth(next.getUTCMonth() + 1); const nextMonth = next.toISOString().slice(0,7);
+  assert.equal((await store.ensureRecurring(`${nextMonth}-01`)).created, 0);
+  await store.saveRecurrence(saved.rule.id, { ...pause.rule, active: true }, owner);
+  assert.equal((await store.ensureRecurring(`${nextMonth}-01`)).created, 1);
+  assert.equal((await store.ensureRecurring(`${nextMonth}-02`)).created, 0);
+  const daily = await store.saveRecurrence(null, { ...input, requestId: randomUUID(), title: 'RFID <YYMMDD> 체크', kind: 'daily', includeSaturday: true, includeSunday: true }, owner);
+  const days = new Date(Number(month.slice(0,4)), Number(month.slice(5)), 0).getDate(); assert.equal(daily.created, days);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM work_recurrence_instances WHERE rule_id=?').get(daily.rule.id).n, days);
+  assert((await store.list(owner, 'all', 'all')).some(task => task.title === `RFID ${month.slice(2).replace('-','')}01 체크`));
+  await assert.rejects(async () => store.saveRecurrence(null, { ...input, kind: 'daily', includeLeave: false }, owner), { status: 400 });
+  await assert.rejects(async () => store.categoryChange('unclassified', { version: 1 }, owner, true), { status: 400 });
+  await store.categoryChange(category.id, { version: category.version }, owner, true);
+  const future = new Date(`${nextMonth}-01T12:00:00Z`); future.setUTCMonth(future.getUTCMonth()+1);
+  await store.ensureRecurring(future.toISOString().slice(0,10));
+  assert((await store.list(owner, 'all', 'all')).some(task => task.category === 'unclassified'));
+  assert.equal((await store.list(owner, 'all', 'all')).find(task => task.id === first.id).category, category.id);
+  db.exec("CREATE TRIGGER reject_auto_event BEFORE INSERT ON work_task_events BEGIN SELECT RAISE(ABORT,'rollback'); END");
+  const count = db.prepare('SELECT COUNT(*) AS n FROM work_recurrence_rules').get().n;
+  await assert.rejects(async () => store.saveRecurrence(null, { ...input, requestId: randomUUID(), category: 'unclassified' }, owner));
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM work_recurrence_rules').get().n, count);
+});

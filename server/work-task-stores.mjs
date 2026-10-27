@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { newWorkId, workError } from './work-tasks.mjs';
 import { fixedWorkAssignees } from '../shared/work-assignees.mjs';
 import { createWorkJournalStore, lockTask, cancelTaskPlans } from './work-journal.mjs';
+import { createRecurrenceStore, validateWorkCategory } from './work-recurrence.mjs';
+import { createStaffRecordStore } from './staff-records.mjs';
 
 const member = row => ({ id: row.id, name: row.name, email: row.email, linked: Boolean(row.auth_id) });
 const task = row => ({ id: row.id, requesterId: row.requester_id, assigneeId: row.roster_assignee_id ?? row.assignee_id,
@@ -42,6 +44,8 @@ function createWorkStore(transaction, canEdit) {
       [newWorkId(), row.id, row.version, actor, kind, JSON.stringify(task(row)), row.updated_at]);
   };
   return {
+    ...createStaffRecordStore(transaction),
+    ...createRecurrenceStore(transaction),
     ...createWorkJournalStore(transaction, related),
     members(user, emails) {
       return transaction(async q => {
@@ -79,6 +83,7 @@ function createWorkStore(transaction, canEdit) {
     async create(input, current) {
       validateAssignee(input, current);
       return transaction(async q => {
+        await validateWorkCategory(q, input.category);
         const links = await related(q, input.related), now = new Date().toISOString();
         const id = input.requestId || newWorkId();
         const row = (await q(`INSERT INTO work_tasks(id,requester_id,roster_assignee_id,title,description,category,due_date,related,status,version,created_at,updated_at,updated_by)
@@ -98,6 +103,7 @@ function createWorkStore(transaction, canEdit) {
       return transaction(async q => {
         const previous = await lockTask(q, id);
         authorizeVersion(previous, version, current);
+        await validateWorkCategory(q, input.category, previous.category);
         validateAssignee(input, current, task(previous).assigneeId);
         const isRoster = current.assignees.some(m => m.id === input.assigneeId);
         const links = await related(q, input.related, JSON.parse(previous.related));
@@ -139,6 +145,8 @@ export function createSqliteWorkStore(db, canEdit) {
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'roster_assignee_id')) db.exec('ALTER TABLE work_tasks ADD COLUMN roster_assignee_id TEXT REFERENCES work_assignees(id)');
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'completed_at')) db.exec('ALTER TABLE work_tasks ADD COLUMN completed_at TEXT');
   db.exec(readFileSync(new URL('./work-journal-schema.sql', import.meta.url), 'utf8'));
+  if (!db.prepare('PRAGMA table_info(staff_record_events)').all().some(column => column.name === 'actor_id')) db.exec('ALTER TABLE staff_record_events ADD COLUMN actor_id TEXT REFERENCES work_members(id)');
+  db.exec('UPDATE staff_record_events SET actor_id=owner_id WHERE actor_id IS NULL');
   let pending = Promise.resolve();
   const transaction = fn => {
     const result = pending.then(async () => {

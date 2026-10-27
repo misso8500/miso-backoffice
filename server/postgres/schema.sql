@@ -241,6 +241,45 @@ CREATE TABLE IF NOT EXISTS work_task_events (
   UNIQUE(task_id, version)
 );
 
+CREATE TABLE IF NOT EXISTS work_categories (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS work_recurrence_rules (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL REFERENCES work_members(id),
+  assignee_id TEXT NOT NULL REFERENCES work_assignees(id),
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('monthly','daily')),
+  due_day INTEGER NOT NULL,
+  include_saturday INTEGER NOT NULL,
+  include_sunday INTEGER NOT NULL,
+  include_leave INTEGER NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  start_month TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS work_recurrence_instances (
+  rule_id TEXT NOT NULL REFERENCES work_recurrence_rules(id),
+  occurrence TEXT NOT NULL,
+  task_id TEXT NOT NULL REFERENCES work_tasks(id),
+  PRIMARY KEY(rule_id, occurrence),
+  UNIQUE(task_id)
+);
+
+CREATE TABLE IF NOT EXISTS staff_record_profiles (owner_id TEXT PRIMARY KEY REFERENCES work_members(id), staff_id TEXT NOT NULL UNIQUE REFERENCES work_assignees(id), payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS staff_record_documents (owner_id TEXT NOT NULL REFERENCES work_members(id), kind TEXT NOT NULL CHECK(kind IN ('attendance','journal')), period TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','confirmed')), source_hash TEXT NOT NULL, version INTEGER NOT NULL, confirmed_at TEXT, PRIMARY KEY(owner_id,kind,period));
+CREATE TABLE IF NOT EXISTS staff_leave_accounts (owner_id TEXT NOT NULL REFERENCES work_members(id), year TEXT NOT NULL, granted REAL NOT NULL, opening_used REAL NOT NULL, version INTEGER NOT NULL, PRIMARY KEY(owner_id,year));
+CREATE TABLE IF NOT EXISTS staff_leave_plans (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES work_members(id), year TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','confirmed','used','cancelled')), version INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_staff_leave_owner ON staff_leave_plans(owner_id,year);
+CREATE TABLE IF NOT EXISTS staff_record_events (id TEXT PRIMARY KEY, actor_id TEXT REFERENCES work_members(id), owner_id TEXT NOT NULL REFERENCES work_members(id), kind TEXT NOT NULL, record_key TEXT NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL);
+
 ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS roster_assignee_id TEXT REFERENCES work_assignees(id);
 ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS completed_at TEXT;
 CREATE TABLE IF NOT EXISTS work_plans (
@@ -302,3 +341,30 @@ ALTER TABLE work_executions ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE work_executions FROM anon, authenticated;
 ALTER TABLE work_journal_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE work_journal_events FROM anon, authenticated;
+
+ALTER TABLE work_categories ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_categories FROM anon, authenticated;
+
+ALTER TABLE work_recurrence_rules ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_recurrence_rules FROM anon, authenticated;
+
+ALTER TABLE work_recurrence_instances ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_recurrence_instances FROM anon, authenticated;
+
+ALTER TABLE staff_record_profiles ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE staff_record_profiles FROM anon, authenticated;
+
+ALTER TABLE staff_record_documents ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE staff_record_documents FROM anon, authenticated;
+
+ALTER TABLE staff_leave_accounts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE staff_leave_accounts FROM anon, authenticated;
+
+ALTER TABLE staff_leave_plans ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE staff_leave_plans FROM anon, authenticated;
+
+ALTER TABLE staff_record_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE staff_record_events FROM anon, authenticated;
+
+ALTER TABLE staff_record_events ADD COLUMN IF NOT EXISTS actor_id TEXT REFERENCES work_members(id);
+UPDATE staff_record_events SET actor_id=owner_id WHERE actor_id IS NULL;

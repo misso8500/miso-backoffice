@@ -24,7 +24,7 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
   t.after(async () => { await stop(); await new Promise(resolve => auth.close(resolve)); await rm(dir, { recursive: true, force: true }); });
   const start = async () => {
     child = spawn(process.execPath, ['server/api.mjs'], { cwd: new URL('..', import.meta.url), env: { ...process.env, PORT: String(port), MISO_BACKOFFICE_DB_PATH: dbPath,
-      SUPABASE_URL: `http://127.0.0.1:${auth.address().port}`, SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test', AUTH_ALLOWED_EMAILS: 'a@example.com,b@example.com,c@example.com' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      SUPABASE_URL: `http://127.0.0.1:${auth.address().port}`, SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test', AUTH_ALLOWED_EMAILS: 'a@example.com,b@example.com,c@example.com', WORK_CATEGORY_ADMIN_EMAILS: 'a@example.com' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = '';
     child.stderr.on('data', chunk => { stderr += chunk; });
     await new Promise((resolve, reject) => {
@@ -102,6 +102,27 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     assert.deepEqual(restored.related.map(r => r.id), [recipientId, workerId]);
   });
 
+  await t.test('recurrence HTTP routes enforce developer permissions and private rules', async () => {
+    assert.equal((await call('work/categories', 'POST', { name: '금지' }, 'b')).status, 403);
+    const category = await call('work/categories', 'POST', { name: '반복 관리' }); assert.equal(category.status, 200);
+    const currentContext = (await call('work/context')).data;
+    assert.equal(currentContext.categoryLabels[category.data.id], '반복 관리'); assert.equal(currentContext.canManageCategories, true);
+    const input = { requestId: randomUUID(), title: '월간 테스트', description: '', assigneeId: a.assignees[0].id, category: category.data.id, kind: 'monthly', dueDay: 31, includeSaturday: false, includeSunday: false, includeLeave: true, active: true, month: '2099-12' };
+    const created = await call('work/recurrences', 'POST', input); assert.equal(created.status, 200, JSON.stringify(created.data)); assert.equal(created.data.created, 1);
+    assert.equal((await call('work/recurrences', 'POST', input)).data.created, 0);
+    assert.equal((await call(`work/recurrences/${created.data.rule.id}`, 'PUT', { ...created.data.rule, title: '다른 사람의 수정' }, 'b')).status, 404);
+    assert.equal((await call('work/recurrences', 'GET', undefined, 'b')).data.rules.length, 0);
+    const month = (await call('work/recurrences')).data.month;
+    const tasks = (await call('work/tasks?status=all')).data.filter(row => row.title === input.title);
+    assert.equal(tasks.length, 1); assert.equal(tasks[0].dueDate.slice(0, 7), month); assert.notEqual(month, input.month);
+    const manual = await call('work/tasks', 'POST', { ...body, requestId: randomUUID(), category: category.data.id }); assert.equal(manual.status, 201);
+    const paused = await call(`work/recurrences/${created.data.rule.id}`, 'PUT', { ...created.data.rule, active: false }); assert.equal(paused.status, 200);
+    assert.equal((await call('work/categories/'+category.data.id, 'DELETE', { version: category.data.version }, 'b')).status, 403);
+    assert.equal((await call('work/categories/'+category.data.id, 'DELETE', { version: category.data.version })).status, 200);
+    assert.equal((await call('work/tasks', 'POST', { ...body, requestId: randomUUID(), category: category.data.id })).status, 400);
+    assert.equal((await call('work/recurrences', 'POST', { ...input, requestId: randomUUID(), kind: 'daily', includeLeave: false, category: 'unclassified' })).status, 400);
+  });
+
   await t.test('daily journal routes persist plans/executions, deduplicate quick actions and keep completion separate', async () => {
     assert.equal((await call('work/day?date=2000-10-19', 'GET', undefined, '')).status, 401);
     assert.equal((await call('work/day?date=2026-02-30')).status, 400);
@@ -150,5 +171,36 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     const restoredCalendar = (await call(range)).data;
     assert.equal(restoredCalendar.plans.length,0); assert.equal(restoredCalendar.executions.length,1);
     assert.equal(restoredCalendar.executions[0].id,manual.data.id);
+  });
+  await t.test('staff record HTTP endpoints share a selected employee across accounts and isolate other employees', async () => {
+    const first=a.assignees[0].id,second=a.assignees[1].id;
+    const record=(path,method='GET',body,token='a',staffId=first)=>call(path+'?staffId='+encodeURIComponent(staffId),method,body,token);
+    assert.equal((await call('work/records/profile','GET',undefined,'')).status,401);
+    assert.equal((await call('work/records/profile')).status,400);
+    assert.equal((await record('work/records/profile','GET',undefined,'a','invented')).status,400);
+    const profile={staffId:first,name:'직원 A',organization:'기존 기관',jobTitle:'사회복지사',startTime:'09:00',endTime:'18:00',hours:8,version:0};
+    assert.equal((await record('work/records/profile','PUT',profile)).status,200);
+    assert.equal((await record('work/records/profile','GET',undefined,'b')).data.name,'직원 A');
+    assert.equal((await record('work/records/profile','PUT',profile,'b')).status,409);
+    assert.equal((await record('work/records/profile','PUT',{...profile,staffId:second,name:'직원 B'},'a',second)).status,200);
+    const draft=(await record('work/records/attendance/2000-10')).data;
+    draft.document.payload.rows.forEach(row=>{row.kind='off';row.reviewed=true;});
+    Object.assign(draft.document.payload.rows[0],{kind:'work',start:'09:00',end:'18:00',hours:8});
+    const body={action:'confirm',version:0,payload:draft.document.payload,sourceHash:draft.sourceHash};
+    const confirmed=await record('work/records/attendance/2000-10','PUT',body);assert.equal(confirmed.status,200,JSON.stringify(confirmed.data));
+    assert.equal((await record('work/records/attendance/2000-10','GET',undefined,'b')).data.document.version,1);
+    assert.equal((await record('work/records/attendance/2000-10','GET',undefined,'a',second)).data.document.version,0);
+    assert.equal((await record('work/records/attendance/2000-10','PUT',body,'b')).status,409);
+    assert.equal((await record('work/records/profile','PUT',{...profile,organization:'새 기관',version:1},'b')).status,200);
+    assert.equal((await record('work/records/attendance/2000-10')).data.document.payload.profile.organization,'기존 기관');
+    assert.equal((await record('work/records/attendance/2000-10','PUT',{action:'reopen',version:1,reason:''})).status,400);
+    assert.equal((await record('work/records/attendance/2000-10','PUT',{action:'reopen',version:1,reason:'근무 시간 정정'},'b')).status,200);
+    assert.equal((await record('work/records/profile','PUT',{...profile,staffId:second,version:2})).status,400);
+    const budget=await record('work/records/leave/2026/account','PUT',{version:0,granted:15,openingUsed:1});assert.equal(budget.status,200);
+    assert.equal((await record('work/records/leave/2026','GET',undefined,'b')).data.totals.granted,15);
+    const plan=await record('work/records/leave-plans','POST',{dates:[{date:'2026-09-10',days:1}],leaveReason:'개인사유',contact:'',substitute:'직원 B',applicationDate:'2026-09-01',status:'confirmed',version:0});assert.equal(plan.status,200,JSON.stringify(plan.data));
+    assert.equal((await record('work/records/leave-plans/'+plan.data.id,'PUT',{...plan.data,status:'draft',reason:'다른 직원 수정'},'b',second)).status,404);
+    assert.equal((await record('work/records/leave-plans/'+plan.data.id,'PUT',{...plan.data,status:'draft',reason:'대리 수정'},'b')).status,200);
+    assert.equal((await record('work/records/leave/2026','GET',undefined,'a',second)).data.plans.length,0);
   });
 });

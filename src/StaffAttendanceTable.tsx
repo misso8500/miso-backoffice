@@ -1,0 +1,14 @@
+import type { StaffMonth, StaffRow } from './lib/staff-records';
+import { attendanceLabels } from './lib/staff-records';
+
+export default function StaffAttendanceTable({ data, disabled, onChange }: {
+  data: StaffMonth; disabled: boolean; onChange: (date: string, patch: Partial<StaffRow>) => void;
+}) {
+  return <div className="staff-table-scroll"><table className="staff-month-table staff-attendance-table"><thead><tr><th>일자</th><th>근태</th><th>출근</th><th>퇴근</th><th>인정시간</th><th>비고 / 수행 근거</th><th>검토 상태</th></tr></thead><tbody>{data.document.payload.rows.map(row => {
+    const sources = data.executions.filter(item => item.date === row.date);
+    const leave = data.leaveDates?.find(item => item.date === row.date);
+    const reviewLabel = row.reviewed ? '검토 완료' : row.kind === 'pending' ? '작성 필요' : '검토 대기';
+    const day = new Date(row.date+'T12:00:00Z').getUTCDay();
+    return <tr key={row.date} className={day===0||day===6?'staff-weekend':''}><td><strong>{Number(row.date.slice(8))}일 ({['일','월','화','수','목','금','토'][day]})</strong></td><td><select aria-label={`${row.date} 근태`} disabled={disabled} value={row.kind} onChange={event=>onChange(row.date,{kind:event.target.value as StaffRow['kind'],...(['off','absent','leave'].includes(event.target.value)?{start:'',end:'',hours:0}:{})})}>{Object.entries(attendanceLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select>{row.kind==='leave'&&<select aria-label={`${row.date} 연차 일수`} disabled={disabled} value={row.leaveDays} onChange={event=>onChange(row.date,{leaveDays:Number(event.target.value)})}><option value={1}>1일</option><option value={0.5}>0.5일</option></select>}</td><td><input aria-label={`${row.date} 출근`} disabled={disabled} type="time" value={row.start} onChange={event=>onChange(row.date,{start:event.target.value})}/></td><td><input aria-label={`${row.date} 퇴근`} disabled={disabled} type="time" value={row.end} onChange={event=>onChange(row.date,{end:event.target.value})}/></td><td><input aria-label={`${row.date} 인정시간`} disabled={disabled} type="number" min={0} max={24} step={0.5} value={row.hours} onChange={event=>onChange(row.date,{hours:Number(event.target.value)})}/></td><td><input aria-label={`${row.date} 비고`} disabled={disabled} maxLength={5000} value={row.note} onChange={event=>onChange(row.date,{note:event.target.value})}/>{leave&&<p className="staff-help">연차 계획 {leave.days}일</p>}{sources.map(source=><p className="staff-inline-source" key={source.id}>{source.content}</p>)}{!sources.length&&row.kind==='work'&&<span className="staff-help">수행 근거 없음 · 실제 출근 확인</span>}</td><td><span className={`staff-review-status ${row.reviewed ? 'is-reviewed' : row.kind === 'pending' ? 'is-pending' : 'is-awaiting'}`} aria-label={`${row.date} ${reviewLabel}`}><span aria-hidden="true">{row.reviewed ? '✓' : '●'}</span>{reviewLabel}</span></td></tr>;
+  })}</tbody></table></div>;
+}
