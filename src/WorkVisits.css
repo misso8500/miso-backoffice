@@ -1,0 +1,14 @@
+.work-visit-controls { display:flex;gap:14px;flex-wrap:wrap;margin:20px 0; }
+.work-visit-controls label { display:grid;gap:6px;font-size:12px;color:#796a87; }
+.work-visit-guidance { background:#f3edf9;border:1px solid #e4dced;border-radius:10px;padding:14px;font-size:12px;line-height:1.8;color:#796a87; }
+.work-visit-summary { display:flex;gap:20px;flex-wrap:wrap;margin:20px 0;color:#796a87;font-size:13px; }
+.work-visit-summary strong { color:#6f5a9f; }
+.work-visit-list { background:#fff;border:1px solid #e4dced;border-radius:12px;overflow:hidden; }
+.work-visit-row { display:grid;grid-template-columns:minmax(0,1fr) minmax(210px,.8fr) auto;align-items:center;gap:18px;padding:18px;border-bottom:1px solid #eee7f5; }
+.work-visit-row:last-child { border-bottom:0; }
+.work-visit-row small { display:block;color:#93849e;font-size:11px;margin-top:7px; }
+.work-visit-state { display:block;font-size:12px;color:#796a87;margin-bottom:8px; }
+.work-visit-state.is-done { color:#39734d; }
+.work-visit-deadline { background:#fff7e8;color:#8a6a36;border:1px solid #f0dfbc;border-radius:10px;padding:14px;font-size:13px; }
+.work-visit-row small.work-visit-attention { color:#a34b53; }
+@media(max-width:760px) { .work-visit-row { grid-template-columns:minmax(0,1fr);gap:12px; }.work-visit-controls label { flex:1;min-width:140px; } }

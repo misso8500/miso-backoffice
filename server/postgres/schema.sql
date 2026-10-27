@@ -280,6 +280,13 @@ CREATE TABLE IF NOT EXISTS staff_leave_plans (id TEXT PRIMARY KEY, owner_id TEXT
 CREATE INDEX IF NOT EXISTS idx_staff_leave_owner ON staff_leave_plans(owner_id,year);
 CREATE TABLE IF NOT EXISTS staff_record_events (id TEXT PRIMARY KEY, actor_id TEXT REFERENCES work_members(id), owner_id TEXT NOT NULL REFERENCES work_members(id), kind TEXT NOT NULL, record_key TEXT NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL);
 
+CREATE TABLE IF NOT EXISTS work_visit_tasks (
+  month TEXT NOT NULL,
+  recipient_id TEXT NOT NULL REFERENCES recipients(id),
+  task_id TEXT NOT NULL UNIQUE REFERENCES work_tasks(id),
+  PRIMARY KEY(month,recipient_id)
+);
+
 ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS roster_assignee_id TEXT REFERENCES work_assignees(id);
 ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS completed_at TEXT;
 CREATE TABLE IF NOT EXISTS work_plans (
@@ -368,3 +375,6 @@ REVOKE ALL ON TABLE staff_record_events FROM anon, authenticated;
 
 ALTER TABLE staff_record_events ADD COLUMN IF NOT EXISTS actor_id TEXT REFERENCES work_members(id);
 UPDATE staff_record_events SET actor_id=owner_id WHERE actor_id IS NULL;
+
+ALTER TABLE work_visit_tasks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON work_visit_tasks FROM anon, authenticated;

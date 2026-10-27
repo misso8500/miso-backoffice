@@ -1,3 +1,4 @@
+import WorkVisits from './WorkVisits';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ClipboardList, Plus, RefreshCw, Search, X } from 'lucide-react';
 import DateInput from './DateInput';
@@ -43,6 +44,7 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const [detailDate, setDetailDate] = useState(workToday);
   const [view, setView] = useState<WorkCalendarMode>('day');
   const [systemOpen, setSystemOpen] = useState(false);
+  const [visitOpen,setVisitOpen]=useState(false);
   const [systemDirty, setSystemDirty] = useState(false);
   const [calendarRevision, setCalendarRevision] = useState(0);
   const [activity, setActivity] = useState<WorkDay | null>(null);
@@ -204,10 +206,12 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
       </form>
   );
 
+  const workspaceNavigation=<nav className="work-view-tabs" aria-label="업무 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" aria-current={!visitOpen && !systemOpen && view === mode ? 'page' : undefined} disabled={detailEditing || journalBusy || saving || quickBusy || Boolean(busyId)} onClick={() => { if (systemOpen && systemDirty && !window.confirm('작성 중인 설정을 닫고 이동할까요?')) return; if(visitOpen)void reload();setVisitOpen(false);setSystemOpen(false); setView(mode); }}>{({ day: '일간', week: '주간', month: '월간' })[mode]}</button>)}<button type="button" aria-current={!visitOpen && systemOpen ? 'page' : undefined} disabled={detailEditing || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => {setVisitOpen(false);setSystemOpen(true);}}>반복 업무</button><button type="button" aria-current={visitOpen?'page':undefined} disabled={detailEditing || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={()=>{if(systemOpen&&systemDirty&&!window.confirm('작성 중인 설정을 닫고 이동할까요?'))return;setVisitOpen(true);}}>라운딩</button></nav>;
+  if(visitOpen)return <section className="work-hub is-system"><WorkOperationStatus/><div className="work-day-navigation">{workspaceNavigation}</div><WorkVisits onBusy={setQuickBusy}/></section>;
   return <section className={`work-hub ${systemOpen ? 'is-system' : ''}`} aria-label="공동 업무">
     <WorkOperationStatus/>
     <div className="work-day-navigation" role="region" aria-label="업무 기간 탐색">
-      <nav className="work-view-tabs" aria-label="업무 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" aria-current={!systemOpen && view === mode ? 'page' : undefined} disabled={detailEditing || journalBusy || saving || quickBusy || Boolean(busyId)} onClick={() => { if (systemOpen && systemDirty && !window.confirm('작성 중인 설정을 닫고 이동할까요?')) return; setSystemOpen(false); setView(mode); }}>{({ day: '일간', week: '주간', month: '월간' })[mode]}</button>)}<button type="button" aria-current={systemOpen ? 'page' : undefined} disabled={detailEditing || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => setSystemOpen(true)}>반복 업무</button></nav>
+      {workspaceNavigation}
       <div className="work-period-controls" style={systemOpen ? { display: 'none' } : undefined}><div className="work-date-step"><button type="button" disabled={journalBusy || date === '1000-01-01'} onClick={() => setDate(moveWorkCalendar(date,view,-1))} aria-label={`이전 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>←</button><strong>{view === 'week' ? `${workCalendarRange(date,view).from} ~ ${workCalendarRange(date,view).to}` : view === 'month' ? date.slice(0,7).replace('-', '년 ')+'월' : date.replaceAll('-', '.')}<small>{view === 'day' ? '할 일을 확인하고 바로 완료하세요' : view === 'week' ? '월요일부터 일요일까지' : '한 달의 계획과 실제 수행'}</small></strong><button type="button" disabled={journalBusy || date === '9999-12-31'} onClick={() => setDate(moveWorkCalendar(date,view,1))} aria-label={`다음 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>→</button></div><div className="work-date-picker"><label className="sr-only" htmlFor="work-date">기준 날짜</label><DateInput id="work-date" required disabled={journalBusy} value={date} onChange={event => { if(event.target.value >= '1000-01-01' && event.target.value <= '9999-12-31') setDate(event.target.value); }}/><button type="button" disabled={journalBusy} onClick={() => setDate(workToday())}>오늘로</button></div></div>
     </div>
     <header className="page-heading"><div><span className="eyebrow">Shared workspace</span><h1>공동 업무</h1><p>요청을 한곳에 모으고, 담당자와 기한을 함께 확인합니다.</p></div><button type="button" className="secondary-button" disabled={loading || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void reload()}><RefreshCw size={16} className={loading ? 'spin' : ''}/>목록 새로고침</button></header>
