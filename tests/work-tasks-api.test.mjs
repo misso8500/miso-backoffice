@@ -24,7 +24,7 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
   t.after(async () => { await stop(); await new Promise(resolve => auth.close(resolve)); await rm(dir, { recursive: true, force: true }); });
   const start = async () => {
     child = spawn(process.execPath, ['server/api.mjs'], { cwd: new URL('..', import.meta.url), env: { ...process.env, PORT: String(port), MISO_BACKOFFICE_DB_PATH: dbPath,
-      SUPABASE_URL: `http://127.0.0.1:${auth.address().port}`, SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test', AUTH_ALLOWED_EMAILS: 'a@example.com,b@example.com,c@example.com' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      SUPABASE_URL: `http://127.0.0.1:${auth.address().port}`, SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test', AUTH_ALLOWED_EMAILS: 'a@example.com,b@example.com,c@example.com', WORK_CATEGORY_ADMIN_EMAILS: 'a@example.com' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = '';
     child.stderr.on('data', chunk => { stderr += chunk; });
     await new Promise((resolve, reject) => {
@@ -100,6 +100,27 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     const restored = (await call('work/tasks?status=all')).data.find(row => row.id === task.id);
     for (const key of ['title', 'description', 'category', 'dueDate', 'assigneeId']) assert.equal(restored[key], changed[key]);
     assert.deepEqual(restored.related.map(r => r.id), [recipientId, workerId]);
+  });
+
+  await t.test('recurrence HTTP routes enforce developer permissions and private rules', async () => {
+    assert.equal((await call('work/categories', 'POST', { name: '금지' }, 'b')).status, 403);
+    const category = await call('work/categories', 'POST', { name: '반복 관리' }); assert.equal(category.status, 200);
+    const currentContext = (await call('work/context')).data;
+    assert.equal(currentContext.categoryLabels[category.data.id], '반복 관리'); assert.equal(currentContext.canManageCategories, true);
+    const input = { requestId: randomUUID(), title: '월간 테스트', description: '', assigneeId: a.assignees[0].id, category: category.data.id, kind: 'monthly', dueDay: 31, includeSaturday: false, includeSunday: false, includeLeave: true, active: true, month: '2099-12' };
+    const created = await call('work/recurrences', 'POST', input); assert.equal(created.status, 200, JSON.stringify(created.data)); assert.equal(created.data.created, 1);
+    assert.equal((await call('work/recurrences', 'POST', input)).data.created, 0);
+    assert.equal((await call(`work/recurrences/${created.data.rule.id}`, 'PUT', { ...created.data.rule, title: '다른 사람의 수정' }, 'b')).status, 404);
+    assert.equal((await call('work/recurrences', 'GET', undefined, 'b')).data.rules.length, 0);
+    const month = (await call('work/recurrences')).data.month;
+    const tasks = (await call('work/tasks?status=all')).data.filter(row => row.title === input.title);
+    assert.equal(tasks.length, 1); assert.equal(tasks[0].dueDate.slice(0, 7), month); assert.notEqual(month, input.month);
+    const manual = await call('work/tasks', 'POST', { ...body, requestId: randomUUID(), category: category.data.id }); assert.equal(manual.status, 201);
+    const paused = await call(`work/recurrences/${created.data.rule.id}`, 'PUT', { ...created.data.rule, active: false }); assert.equal(paused.status, 200);
+    assert.equal((await call('work/categories/'+category.data.id, 'DELETE', { version: category.data.version }, 'b')).status, 403);
+    assert.equal((await call('work/categories/'+category.data.id, 'DELETE', { version: category.data.version })).status, 200);
+    assert.equal((await call('work/tasks', 'POST', { ...body, requestId: randomUUID(), category: category.data.id })).status, 400);
+    assert.equal((await call('work/recurrences', 'POST', { ...input, requestId: randomUUID(), kind: 'daily', includeLeave: false, category: 'unclassified' })).status, 400);
   });
 
   await t.test('daily journal routes persist plans/executions, deduplicate quick actions and keep completion separate', async () => {

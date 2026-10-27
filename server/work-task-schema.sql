@@ -38,3 +38,35 @@ CREATE TABLE IF NOT EXISTS work_task_events (
   created_at TEXT NOT NULL,
   UNIQUE(task_id, version)
 );
+
+CREATE TABLE IF NOT EXISTS work_categories (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS work_recurrence_rules (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL REFERENCES work_members(id),
+  assignee_id TEXT NOT NULL REFERENCES work_assignees(id),
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('monthly','daily')),
+  due_day INTEGER NOT NULL,
+  include_saturday INTEGER NOT NULL,
+  include_sunday INTEGER NOT NULL,
+  include_leave INTEGER NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  start_month TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS work_recurrence_instances (
+  rule_id TEXT NOT NULL REFERENCES work_recurrence_rules(id),
+  occurrence TEXT NOT NULL,
+  task_id TEXT NOT NULL REFERENCES work_tasks(id),
+  PRIMARY KEY(rule_id, occurrence),
+  UNIQUE(task_id)
+);

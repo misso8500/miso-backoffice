@@ -379,6 +379,51 @@
 }
 
 /* Period views use compact rows and the same single-detail interaction as the day list. */
+.work-system { min-width: 0; }
+.work-hub.is-system { padding-top: 78px; }
+@media(max-width:620px) { .work-hub.is-system { padding-top: 0; } }
+.work-system-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.work-system-heading h2 { margin: 0; font-size: 20px; }
+.work-system-heading p { color: #807587; font-size: 12px; line-height: 1.8; margin: 8px 0 0; }
+.work-system-tabs { display: flex; gap: 8px; margin: 0 0 18px; }
+.work-system-tabs button { border: 1px solid #e4dced; border-radius: 8px; padding: 9px 13px; background: #fff; color: #796a87; cursor: pointer; }
+.work-system-tabs button[aria-pressed="true"] { color: #fff; background: #6f5a9f; border-color: #6f5a9f; }
+.work-system-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(280px,.8fr); align-items: start; gap: 20px; }
+.work-system-form,.work-system-rules,.work-system-categories { min-width: 0; background: #fff; border: 1px solid #e4dced; border-radius: 13px; padding: 20px; }
+.work-system h3 { font-size: 15px; margin: 0 0 16px; }
+.work-system-form fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.work-system-form label { display: grid; gap: 6px; margin-bottom: 14px; color: #796a87; font-size: 12px; }
+.work-system-form :is(input:not([type="checkbox"]),select,textarea) { width: 100%; min-width: 0; }
+.work-system-form textarea { min-height: 74px; resize: vertical; }
+.work-system-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.work-system-form small { display: block; color: #93849e; font-size: 11px; line-height: 1.8; margin: 4px 0 12px; }
+.work-system-day { display: flex; align-items: center; gap: 8px; }
+.work-system-day input { max-width: 100px; }
+.work-system-checks { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 10px; }
+.work-system-checks label,.work-system-form .work-system-pending { display: flex; align-items: center; gap: 6px; }
+.work-system-pending { color: #93849e; }
+.work-system-preview { background: #faf7fe; border: 1px solid #e4d9f0; border-radius: 9px; padding: 12px; font-size: 12px; }
+.work-system-preview > strong { display: block; margin-bottom: 8px; color: #72588e; }
+.work-system-preview > div { display: grid; grid-template-columns: 80px minmax(0,1fr); gap: 10px; padding: 5px 0; color: #796a87; font-size: 11px; }
+.work-system-preview span { overflow-wrap: anywhere; }
+.work-system-rules article { border-top: 1px solid #eee7f5; padding: 14px 0; }
+.work-system-rules article strong { font-size: 13px; overflow-wrap: anywhere; }
+.work-system-rules article small { display: block; margin-top: 7px; color: #93849e; font-size: 11px; line-height: 1.7; }
+.work-system-categories > form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.work-system-category { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid #eee7f5; font-size: 13px; }
+.work-system-category > div { display: flex; gap: 6px; }
+.work-system-category button { padding: 6px 10px; font-size: 11px; }
+@media(max-width:900px) { .work-system-layout { grid-template-columns: minmax(0,1fr); } }
+@media(max-width:620px) { .work-system-heading { align-items: start; } .work-system-fields { grid-template-columns: minmax(0,1fr); gap: 0; } .work-system-form,.work-system-rules,.work-system-categories { padding: 14px; } }
+.work-plan-execute { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.work-plan-execute .work-day-actions { margin: 0; }
+.work-day-panel .work-plan > .work-day-actions:has(.work-plan-execute) { grid-column: 1 / -1; grid-row: auto; margin-top: 5px; }
+.work-plan-date-entry { flex-basis: 100%; padding: 9px; margin-top: 4px; background: #fff; border: 1px solid #e4dced; border-radius: 7px; }
+.work-plan-date-entry label { display: flex; align-items: center; gap: 8px; font-size: 11px; margin-bottom: 8px; }
+.work-hub .work-plan-date-entry input { min-height: 34px; padding: 5px; font-size: 12px; }
+.work-day-actions .work-today-execute { background: #6f5a9f; color: #fff; }
+.work-recorded-date { color: #46745a; }
+.work-day-notice > button { margin-left: 8px; font-size: 11px; padding: 5px 8px; }
 .work-day-panel .work-day-heading { padding: 13px 16px; }
 .work-day-panel .work-day-heading h2 { font-size: 16px; }
 .work-day-panel .work-day-legend { padding: 9px 16px; gap: 12px; font-size: 11px; }

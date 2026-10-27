@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ClipboardList, Plus, RefreshCw, Search, X } from 'lucide-react';
 import DateInput from './DateInput';
 import WorkCalendar from './WorkCalendar';
+import WorkRecurrenceSettings from './WorkRecurrenceSettings';
 import WorkTaskDetails from './WorkTaskDetails';
 import WorkOperationStatus from './WorkOperationStatus';
 import { groupDayTasks } from '../shared/work-day-tasks.mjs';
@@ -41,6 +42,8 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const [date, setDate] = useState(workToday);
   const [detailDate, setDetailDate] = useState(workToday);
   const [view, setView] = useState<WorkCalendarMode>('day');
+  const [systemOpen, setSystemOpen] = useState(false);
+  const [systemDirty, setSystemDirty] = useState(false);
   const [calendarRevision, setCalendarRevision] = useState(0);
   const [activity, setActivity] = useState<WorkDay | null>(null);
   useEffect(() => { if (activity) setCalendarRevision(value => value + 1); }, [activity]);
@@ -182,7 +185,7 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
           <div className="work-capture-fields">
             <input ref={titleInput} aria-label="업무 제목" required maxLength={500} placeholder="예: 이번 주까지 10월 급여계산" value={form.title} onChange={event => updateForm('title', event.target.value)}/>
             <select aria-label="업무 담당자" value={form.assigneeId} onChange={event => updateForm('assigneeId', event.target.value)}><option value="">담당자 미정</option>{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
-            <select aria-label="센터 업무 분류" value={form.category} onChange={event => updateForm('category', event.target.value as WorkCategory)}>{Object.entries(workCategoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            <select aria-label="센터 업무 분류" value={form.category} onChange={event => updateForm('category', event.target.value as WorkCategory)}>{Object.entries(workCategoryLabels).filter(([id]) => !context.categories || context.categories.includes(id)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
             <DateInput aria-label="기한 (선택)" title="기한 (선택)" value={form.dueDate} onChange={event => updateForm('dueDate', event.target.value)}/>
           </div>
           <div className="work-capture-actions">
@@ -201,16 +204,17 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
       </form>
   );
 
-  return <section className="work-hub" aria-label="공동 업무">
+  return <section className={`work-hub ${systemOpen ? 'is-system' : ''}`} aria-label="공동 업무">
     <WorkOperationStatus/>
     <div className="work-day-navigation" role="region" aria-label="업무 기간 탐색">
-      <nav className="work-view-tabs" aria-label="업무 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" aria-current={view === mode ? 'page' : undefined} disabled={detailEditing || journalBusy || saving || quickBusy || Boolean(busyId)} onClick={() => setView(mode)}>{({ day: '일간', week: '주간', month: '월간' })[mode]}</button>)}</nav>
-      <div className="work-period-controls"><div className="work-date-step"><button type="button" disabled={journalBusy || date === '1000-01-01'} onClick={() => setDate(moveWorkCalendar(date,view,-1))} aria-label={`이전 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>←</button><strong>{view === 'week' ? `${workCalendarRange(date,view).from} ~ ${workCalendarRange(date,view).to}` : view === 'month' ? date.slice(0,7).replace('-', '년 ')+'월' : date.replaceAll('-', '.')}<small>{view === 'day' ? '할 일을 확인하고 바로 완료하세요' : view === 'week' ? '월요일부터 일요일까지' : '한 달의 계획과 실제 수행'}</small></strong><button type="button" disabled={journalBusy || date === '9999-12-31'} onClick={() => setDate(moveWorkCalendar(date,view,1))} aria-label={`다음 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>→</button></div><div className="work-date-picker"><label className="sr-only" htmlFor="work-date">기준 날짜</label><DateInput id="work-date" required disabled={journalBusy} value={date} onChange={event => { if(event.target.value >= '1000-01-01' && event.target.value <= '9999-12-31') setDate(event.target.value); }}/><button type="button" disabled={journalBusy} onClick={() => setDate(workToday())}>오늘로</button></div></div>
+      <nav className="work-view-tabs" aria-label="업무 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" aria-current={!systemOpen && view === mode ? 'page' : undefined} disabled={detailEditing || journalBusy || saving || quickBusy || Boolean(busyId)} onClick={() => { if (systemOpen && systemDirty && !window.confirm('작성 중인 설정을 닫고 이동할까요?')) return; setSystemOpen(false); setView(mode); }}>{({ day: '일간', week: '주간', month: '월간' })[mode]}</button>)}<button type="button" aria-current={systemOpen ? 'page' : undefined} disabled={detailEditing || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => setSystemOpen(true)}>반복 업무</button></nav>
+      <div className="work-period-controls" style={systemOpen ? { display: 'none' } : undefined}><div className="work-date-step"><button type="button" disabled={journalBusy || date === '1000-01-01'} onClick={() => setDate(moveWorkCalendar(date,view,-1))} aria-label={`이전 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>←</button><strong>{view === 'week' ? `${workCalendarRange(date,view).from} ~ ${workCalendarRange(date,view).to}` : view === 'month' ? date.slice(0,7).replace('-', '년 ')+'월' : date.replaceAll('-', '.')}<small>{view === 'day' ? '할 일을 확인하고 바로 완료하세요' : view === 'week' ? '월요일부터 일요일까지' : '한 달의 계획과 실제 수행'}</small></strong><button type="button" disabled={journalBusy || date === '9999-12-31'} onClick={() => setDate(moveWorkCalendar(date,view,1))} aria-label={`다음 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>→</button></div><div className="work-date-picker"><label className="sr-only" htmlFor="work-date">기준 날짜</label><DateInput id="work-date" required disabled={journalBusy} value={date} onChange={event => { if(event.target.value >= '1000-01-01' && event.target.value <= '9999-12-31') setDate(event.target.value); }}/><button type="button" disabled={journalBusy} onClick={() => setDate(workToday())}>오늘로</button></div></div>
     </div>
     <header className="page-heading"><div><span className="eyebrow">Shared workspace</span><h1>공동 업무</h1><p>요청을 한곳에 모으고, 담당자와 기한을 함께 확인합니다.</p></div><button type="button" className="secondary-button" disabled={loading || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void reload()}><RefreshCw size={16} className={loading ? 'spin' : ''}/>목록 새로고침</button></header>
     {error && <div className="error-banner" role="alert">{error}<button type="button" className="secondary-button" onClick={() => void reload()} disabled={loading}>다시 불러오기</button></div>}
     {notice && <div className="work-notice" role="status">{notice}{lastResolved && <button type="button" className="secondary-button" disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void resolveTask(lastResolved)}>{lastResolved.status === 'done' ? '완료 되돌리기' : '다시 완료'}</button>}</div>}
     {!context ? <div className="empty-state"><ClipboardList size={28}/><p>{loading ? '업무 공간을 준비하고 있습니다.' : '구성원을 불러온 뒤 업무를 등록할 수 있습니다.'}</p></div> : <>
+      {systemOpen ? <WorkRecurrenceSettings context={context} onChanged={() => void reload()} onBusy={setSaving} onDirty={setSystemDirty}/> : <>
       {capture}
 
       {<div className={`work-day-columns ${view !== 'day' ? 'is-period' : ''} ${selectedTask ? 'has-detail' : ''}`}><section className="work-task-section">{view === 'day' ? <><div className="work-list-heading"><div><h2>하루 할 일 <small>{visible.length}건</small></h2><p>체크하면 완료, 업무를 선택하면 상세 보기</p></div><div className="work-filters"><label className="search-box"><Search size={16}/><input type="search" aria-label="업무 검색" placeholder="업무·관련자 검색" value={query} onChange={event => setQuery(event.target.value)}/></label><select className="filter-select" aria-label="담당자 필터" value={assignee} disabled={journalBusy} onChange={event => setAssignee(event.target.value)}><option value="all">전체 구성원</option><option value="unassigned">담당자 미정</option>{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select><select className="filter-select" aria-label="업무 상태 필터" value={status} onChange={event => setStatus(event.target.value)}><option value="open">진행할 업무</option><option value="done">완료됨</option><option value="cancelled">취소됨</option><option value="all">전체 상태</option></select></div></div>
@@ -229,6 +233,7 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
         </div> : <div className="work-detail-empty"><ClipboardList size={26}/><p>업무를 선택하면<br/>담당자·일정·상세 내용을 볼 수 있어요.</p></div>}
       </aside></div></div>}
       <div className="work-records-section"><WorkDayPanel ref={dayPanel} context={context} date={focusDate} assignee={assignee} onActivity={setActivity} onBusy={setJournalBusy} onReady={setJournalReady}/></div>
+      </>}
     </>}
   </section>;
 }

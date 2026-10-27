@@ -32,6 +32,29 @@ async function setup(t, mode) {
 }
 
 for (const mode of ['sqlite','postgres-adapter']) {
+  test(`${mode}: actual work can occur after the plan, remains linked, and can be corrected without duplicates`, async t => {
+    const { store, current, other, colleague, createTask, plan } = await setup(t, mode);
+    const task = await createTask(), p = await store.createPlan(plan(task), current);
+    const request = { requestId: randomUUID(), period: 'afternoon', date: '2000-10-20', executionVersion: 0 };
+    let e = await store.recordPlan(p.id, request, current);
+    assert.equal(e.date, '2000-10-20'); assert.equal(e.planId, p.id);
+    const original = await store.day(p.date, 'all', current);
+    assert.equal(original.plans[0].date, p.date); assert.equal(original.executions.length, 0); assert.equal(original.linkedExecutions[0].id, e.id);
+    assert.equal((await store.recordPlan(p.id, request, current)).id, e.id);
+    await assert.rejects(store.recordPlan(p.id, { ...request, requestId: randomUUID(), date: p.date }, other), { status: 409 });
+    e = await store.updateExecution(e.id, { version: e.version, date: '2000-10-21', period: 'morning', content: '실제 처리일 정정', assigneeId: colleague }, other);
+    assert.equal(e.date, '2000-10-21'); assert.equal(e.assigneeId, colleague); assert.equal(e.createdBy, current.me.id); assert.equal(e.updatedBy, other.me.id);
+    assert.equal((await store.day('2000-10-20', 'all', current)).executions.length, 0);
+    assert.equal((await store.day('2000-10-21', colleague, current)).executions[0].id, e.id);
+    assert.equal((await store.day(p.date, 'all', current)).linkedExecutions[0].date, e.date);
+    await assert.rejects(store.updateExecution(e.id, { version: e.version, date: '9999-01-01', period: 'morning', content: '미래 기록', assigneeId: colleague }, current), { status: 400 });
+    await assert.rejects(store.recordPlan(p.id, { ...request, requestId: randomUUID(), date: '2000-02-30', executionVersion: e.version }, current), { status: 400 });
+    e = await store.recordPlan(p.id, { ...request, requestId: randomUUID(), date: p.date, executionVersion: e.version }, current);
+    assert.equal(e.date, p.date); assert.equal(e.assigneeId, colleague);
+    assert.equal((await store.calendar('2000-10-19', '2000-10-22', 'all', current)).executions.length, 1);
+    await store.cancelExecution(e.id, e.version, current);
+    assert.equal((await store.day(p.date, 'all', current)).linkedExecutions.length, 0);
+  });
   test(`${mode}: actual performer can change without changing the plan or duplicating execution`, async t => {
     const { db, store, current, other, actor, colleague, createTask, plan } = await setup(t, mode);
     const task = await createTask();
