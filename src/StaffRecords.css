@@ -85,3 +85,14 @@
 
 .staff-calendar button.is-reviewed { background:#edf8ee;border-color:#b9dbbe; }
 .staff-calendar button.is-reviewed[aria-pressed="true"] { background:#e1f2e4;border-color:#87629d; }
+
+.staff-unplanned-section summary { display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;cursor:pointer;color:#45394e;font-size:14px;font-weight:700;list-style:none; }
+.staff-unplanned-section summary::-webkit-details-marker { display:none; }
+.staff-unplanned-section summary:focus-visible { outline:3px solid #b593d1;outline-offset:4px;border-radius:6px; }
+.staff-unplanned-count { margin-left:6px;color:#93849e;font-size:12px;font-weight:400; }
+.staff-unplanned-toggle { flex-shrink:0;padding:7px 12px;background:#f0e8f6;border-radius:8px;color:#79509a;font-size:12px; }
+.staff-unplanned-section .when-open,.staff-unplanned-section details[open] .when-closed { display:none; }
+.staff-unplanned-section details[open] .when-open { display:inline; }
+.staff-unplanned-list { margin-top:12px;border-top:1px solid #e4dced;padding-top:12px;max-height:320px;overflow:auto;overflow-wrap:anywhere; }
+.staff-unplanned-list ul { margin:0;padding-left:22px; }
+.staff-unplanned-list li { padding:8px 0;color:#796a87;font-size:13px;line-height:1.6; }
