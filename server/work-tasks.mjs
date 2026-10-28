@@ -53,11 +53,13 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const current = await store.members(user, emails);
     if (path.startsWith('/api/work/records/')) {
       const recordCurrent = await store.staffRecordContext(new URL(request.url, 'http://localhost').searchParams.get('staffId'), current);
+      const workspaceRoute = /^\/api\/work\/records\/workspace\/(\d{4}-\d{2})$/.exec(path);
       const monthRoute = /^\/api\/work\/records\/(attendance|journal)\/(\d{4}-\d{2})$/.exec(path);
       const accountRoute = /^\/api\/work\/records\/leave\/(\d{4})(\/account)?$/.exec(path);
       const leaveRoute = /^\/api\/work\/records\/leave-plans(?:\/([^/]+))?$/.exec(path);
       if (path === '/api/work/records/profile' && request.method === 'GET') sendJson(response, 200, await store.recordProfile(recordCurrent));
       else if (path === '/api/work/records/profile' && request.method === 'PUT') sendJson(response, 200, await store.saveRecordProfile(await readWorkBody(request), recordCurrent));
+      else if (workspaceRoute && request.method === 'PUT') sendJson(response, 200, await store.saveRecordWorkspace(workspaceRoute[1], await readWorkBody(request, 4000000), recordCurrent));
       else if (monthRoute && request.method === 'GET') sendJson(response, 200, await store.recordMonth(monthRoute[1], monthRoute[2], recordCurrent));
       else if (monthRoute && request.method === 'PUT') sendJson(response, 200, await store.saveRecordMonth(monthRoute[1], monthRoute[2], await readWorkBody(request, 4000000), recordCurrent));
       else if (accountRoute && !accountRoute[2] && request.method === 'GET') sendJson(response, 200, await store.leaveLedger(accountRoute[1], recordCurrent));
