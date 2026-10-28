@@ -67,3 +67,21 @@
 .staff-paper-preview .att .day{width:5%}.staff-paper-preview .att .time{width:9%}.staff-paper-preview .att .hours{width:6%}.staff-paper-preview .att .sign{width:7%}.staff-paper-preview .att .note{width:14%}.staff-paper-preview .journal .label{width:9%}.staff-paper-preview .journal .remarks{width:22%}.staff-paper-preview .leave th{width:24%}
 @media(max-width:1000px) { .staff-workspace { grid-template-columns:minmax(0,1fr); }.staff-day-editor { position:static;max-height:none; } }
 @media(max-width:620px) { .staff-card { padding:13px; }.staff-metrics { grid-template-columns:repeat(3,minmax(0,1fr)); }.staff-metrics strong { font-size:16px; }.staff-toolbar { gap:7px; }.staff-profile-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+.staff-calendar { display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px; }
+.staff-calendar > strong { text-align:center;font-size:12px;padding:8px 0; }
+.staff-calendar button { display:flex;flex-direction:column;gap:6px;min-height:110px;padding:8px 4px;background:#faf8fc;border:1px solid #e4dced;border-radius:8px;color:#45394e;text-align:left;cursor:pointer; }
+.staff-calendar button[aria-pressed="true"] { border:2px solid #87629d;background:#f0e8f6; }
+.staff-calendar button span,.staff-calendar button small { font-size:11px; }
+@media(max-width:620px) { .staff-calendar { gap:2px; }.staff-calendar button { padding:5px 2px; }.staff-calendar button small { font-size:9px; } }
+
+.staff-detail-heading { display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px; }
+.staff-detail-heading h2 { margin:0; }
+.staff-review-button { display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:10px 16px;border:2px solid #79509a;border-radius:10px;background:#79509a;color:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer; }
+.staff-review-button:hover:not(:disabled) { background:#643c85;border-color:#643c85; }
+.staff-review-button[aria-pressed="true"] { background:#ede3f5;color:#643c85; }
+.staff-review-button:focus-visible { outline:3px solid #b593d1;outline-offset:3px; }
+.staff-review-button:disabled { opacity:.55;cursor:default; }
+
+.staff-calendar button.is-reviewed { background:#edf8ee;border-color:#b9dbbe; }
+.staff-calendar button.is-reviewed[aria-pressed="true"] { background:#e1f2e4;border-color:#87629d; }
