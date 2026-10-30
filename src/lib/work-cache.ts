@@ -57,6 +57,8 @@ export function applyWorkMutation(path:string,value:any) {
     workCache.invalidate(key=>key.includes('/calendar?')||key.includes('/history'));
     return;
   }
+  // Copay data has its own monthly snapshot and does not change task/calendar data.
+  if(base.startsWith('/api/work/copay'))return;
   // Related records are revalidated; never fabricate a successful write.
   workCache.invalidate(key=>base.includes('/recurrences')?key.includes('/recurrences')||key.includes('/tasks?')||key.includes('/calendar?'):base.includes('/categories')?key.includes('/categories')||key.includes('/context'):key.includes('/day?')||key.includes('/calendar?')||key.includes('/history')||key.startsWith(base));
 }

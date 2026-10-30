@@ -9,6 +9,7 @@ import { fixedWorkAssignees } from '../shared/work-assignees.mjs';
 import { createWorkJournalStore, lockTask, cancelTaskPlans } from './work-journal.mjs';
 import { createRecurrenceStore, validateWorkCategory } from './work-recurrence.mjs';
 import { createStaffRecordStore } from './staff-records.mjs';
+import { createCopayStore } from './copay-store.mjs';
 
 const member = row => ({ id: row.id, name: row.name, email: row.email, linked: Boolean(row.auth_id) });
 const task = row => ({ id: row.id, requesterId: row.requester_id, assigneeId: row.roster_assignee_id ?? row.assignee_id,
@@ -49,6 +50,7 @@ function createWorkStore(transaction, canEdit) {
       [newWorkId(), row.id, row.version, actor, kind, JSON.stringify(task(row)), row.updated_at]);
   };
   return {
+    ...createCopayStore(transaction),
     ...createRecipientServiceMonthStore(transaction),
     ...createServiceRoundingStore(transaction,task,event),
     ...createServicePauseStore(transaction,event),
@@ -153,6 +155,7 @@ function createWorkStore(transaction, canEdit) {
 }
 
 export function createSqliteWorkStore(db, canEdit) {
+  db.exec(readFileSync(new URL('./copay-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./work-task-schema.sql', import.meta.url), 'utf8'));
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'roster_assignee_id')) db.exec('ALTER TABLE work_tasks ADD COLUMN roster_assignee_id TEXT REFERENCES work_assignees(id)');
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'completed_at')) db.exec('ALTER TABLE work_tasks ADD COLUMN completed_at TEXT');

@@ -1,0 +1,12 @@
+.copay-management-frame {
+  display: block;
+  width: 100%;
+  height: calc(100dvh - 100px);
+  min-height: 640px;
+  border: 0;
+  background: #f7f6f9;
+}
+
+.copay-management-panel[hidden] {
+  display: none;
+}

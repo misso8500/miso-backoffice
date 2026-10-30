@@ -51,6 +51,17 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
+    if(path==='/api/work/copay/import') {
+      if(request.method!=='POST')throw workError(405,'지원하지 않는 요청입니다.');
+      sendJson(response,200,await store.importCopay(await readWorkBody(request,3000000),current));return true;
+    }
+    if(path==='/api/work/copay') {
+      const month=new URL(request.url,'http://localhost').searchParams.get('month');
+      if(request.method==='GET')sendJson(response,200,await store.copayMonth(month));
+      else if(request.method==='PUT')sendJson(response,200,await store.saveCopay(month,await readWorkBody(request,1500000),current));
+      else throw workError(405,'지원하지 않는 요청입니다.');
+      return true;
+    }
     if(path==='/api/work/service-rounding') {
       if(request.method!=='PUT')throw workError(405,'지원하지 않는 요청입니다.');
       const body=await readWorkBody(request);
