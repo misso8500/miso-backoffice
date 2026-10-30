@@ -1,3 +1,4 @@
+import { createTaskMapStore } from './work-task-map.mjs';
 import { readFileSync } from 'node:fs';
 import { newWorkId, workError } from './work-tasks.mjs';
 import { fixedWorkAssignees } from '../shared/work-assignees.mjs';
@@ -44,6 +45,7 @@ function createWorkStore(transaction, canEdit) {
       [newWorkId(), row.id, row.version, actor, kind, JSON.stringify(task(row)), row.updated_at]);
   };
   return {
+    ...createTaskMapStore(transaction, related),
     ...createStaffRecordStore(transaction),
     ...createRecurrenceStore(transaction),
     ...createWorkJournalStore(transaction, related),
