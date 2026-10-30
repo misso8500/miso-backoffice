@@ -1,5 +1,7 @@
 import {createServicePauseStore, heldTaskSql, assertVisitAvailable} from './service-pauses.mjs';
 import { createVisitStore } from './work-visits.mjs';
+import { createRecipientServiceMonthStore } from './recipient-service-months.mjs';
+import { createServiceRoundingStore } from './recipient-service-rounding.mjs';
 import { createTaskMapStore } from './work-task-map.mjs';
 import { readFileSync } from 'node:fs';
 import { newWorkId, workError } from './work-tasks.mjs';
@@ -47,6 +49,8 @@ function createWorkStore(transaction, canEdit) {
       [newWorkId(), row.id, row.version, actor, kind, JSON.stringify(task(row)), row.updated_at]);
   };
   return {
+    ...createRecipientServiceMonthStore(transaction),
+    ...createServiceRoundingStore(transaction,task,event),
     ...createServicePauseStore(transaction,event),
     ...createVisitStore(transaction, task, event),
     ...createTaskMapStore(transaction, related),

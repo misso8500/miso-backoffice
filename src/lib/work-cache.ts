@@ -6,6 +6,15 @@ export function useWorkCacheIdentity(next: string) { if(identity !== next) { ide
 export function invalidateWorkData() { workCache.invalidate(()=>true); }
 export function applyWorkMutation(path:string,value:any) {
   const base=path.split('?')[0];
+  if(base==='/api/work/service-rounding' && value?.rounding) {
+    workCache.update(key=>key===`/api/work/service-month?month=${value.month}`,data=>({...data,rows:data.rows.map((r:any)=>r.id===value.recipientId?{...r,rounding:value.rounding}:r)}));
+    if(value.task)applyWorkMutation(`/api/work/tasks/${value.task.id}`,value.task);
+    return;
+  }
+  if(base==='/api/work/service-month' && value?.month) {
+    workCache.update(key=>key===`/api/work/service-month?month=${value.month}`,()=>value);
+    return;
+  }
   if(base.includes('/recurrences') && value?.rule?.id) {
     workCache.update(key=>key==='/api/work/recurrences',data=>({...data,rules:[...data.rules.filter((r:any)=>r.id!==value.rule.id),value.rule]}));
     workCache.invalidate(key=>key.includes('/tasks?')||key.includes('/calendar?'));
@@ -27,6 +36,7 @@ export function applyWorkMutation(path:string,value:any) {
     return;
   }
   if(base.startsWith('/api/work/tasks') && value?.id && value?.status) {
+    workCache.update(key=>key.startsWith('/api/work/service-month?'),data=>({...data,rows:data.rows.map((row:any)=>row.rounding?.taskId===value.id?{...row,rounding:{...row.rounding,taskVersion:value.version,assigneeId:value.assigneeId||'',status:value.status==='done'?'visited':row.rounding.status==='visited'?'coordinating':row.rounding.status}}:row)}));
     workCache.update(key=>key.startsWith('/api/work/tasks?'),(rows,key)=>{
       const params=new URLSearchParams(key.split('?')[1]);const status=params.get('status'),owner=params.get('assignee');
       const matches=(!status||status==='all'||status===value.status)&&(!owner||owner==='all'||(owner==='unassigned'?!value.assigneeId:owner===value.assigneeId));

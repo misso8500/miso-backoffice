@@ -101,3 +101,17 @@ CREATE TABLE IF NOT EXISTS recipient_service_pause_events (
 );
 CREATE TABLE IF NOT EXISTS work_map_templates (id TEXT PRIMARY KEY, payload TEXT NOT NULL, version INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS work_map_runs (id TEXT PRIMARY KEY, run_key TEXT NOT NULL UNIQUE, work_date TEXT NOT NULL, payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS recipient_service_months (
+  month TEXT PRIMARY KEY,
+  recipient_ids TEXT NOT NULL DEFAULT '[]',
+  version INTEGER NOT NULL DEFAULT 0,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS recipient_service_rounding (
+  month TEXT NOT NULL,
+  recipient_id TEXT NOT NULL REFERENCES recipients(id),
+  payload TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  PRIMARY KEY(month,recipient_id)
+);
