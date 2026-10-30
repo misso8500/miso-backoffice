@@ -1,5 +1,6 @@
 import {createServicePauseStore, heldTaskSql, assertVisitAvailable} from './service-pauses.mjs';
 import { createVisitStore } from './work-visits.mjs';
+import { createTaskMapStore } from './work-task-map.mjs';
 import { readFileSync } from 'node:fs';
 import { newWorkId, workError } from './work-tasks.mjs';
 import { fixedWorkAssignees } from '../shared/work-assignees.mjs';
@@ -48,6 +49,7 @@ function createWorkStore(transaction, canEdit) {
   return {
     ...createServicePauseStore(transaction,event),
     ...createVisitStore(transaction, task, event),
+    ...createTaskMapStore(transaction, related),
     ...createStaffRecordStore(transaction),
     ...createRecurrenceStore(transaction),
     ...createWorkJournalStore(transaction, related),

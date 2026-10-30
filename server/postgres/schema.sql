@@ -301,6 +301,8 @@ CREATE TABLE IF NOT EXISTS recipient_service_pause_events (
  id TEXT PRIMARY KEY,pause_id TEXT NOT NULL REFERENCES recipient_service_pauses(id),actor_id TEXT NOT NULL REFERENCES work_members(id),
  action TEXT NOT NULL,payload TEXT NOT NULL,created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS work_map_templates (id TEXT PRIMARY KEY, payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS work_map_runs (id TEXT PRIMARY KEY, run_key TEXT NOT NULL UNIQUE, work_date TEXT NOT NULL, payload TEXT NOT NULL, version INTEGER NOT NULL);
 
 ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS roster_assignee_id TEXT REFERENCES work_assignees(id);
 ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS completed_at TEXT;
@@ -402,3 +404,7 @@ REVOKE ALL ON work_visit_holds FROM anon, authenticated;
 
 ALTER TABLE recipient_service_pause_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON recipient_service_pause_events FROM anon, authenticated;
+ALTER TABLE work_map_templates ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_map_templates FROM anon, authenticated;
+ALTER TABLE work_map_runs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_map_runs FROM anon, authenticated;

@@ -99,3 +99,5 @@ CREATE TABLE IF NOT EXISTS recipient_service_pause_events (
  id TEXT PRIMARY KEY,pause_id TEXT NOT NULL REFERENCES recipient_service_pauses(id),actor_id TEXT NOT NULL REFERENCES work_members(id),
  action TEXT NOT NULL,payload TEXT NOT NULL,created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS work_map_templates (id TEXT PRIMARY KEY, payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS work_map_runs (id TEXT PRIMARY KEY, run_key TEXT NOT NULL UNIQUE, work_date TEXT NOT NULL, payload TEXT NOT NULL, version INTEGER NOT NULL);

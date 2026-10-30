@@ -109,7 +109,39 @@ export function createStaffRecordStore(transaction) {
         if (confirming && kind === 'attendance') payload.leaveHash = inputs.leaveHash;
         if (confirming && kind === 'journal') payload.attendance = inputs.attendance.payload.rows.map(row => ({ date: row.date, kind: row.kind, hours: row.hours, leaveDays: row.leaveDays }));
         const row = (await q(`INSERT INTO staff_record_documents(owner_id,kind,period,payload,status,source_hash,version,confirmed_at) VALUES($1,$2,$3,$4,$5,$6,1,$7) ON CONFLICT(owner_id,kind,period) DO UPDATE SET payload=excluded.payload,status=excluded.status,source_hash=excluded.source_hash,version=staff_record_documents.version+1,confirmed_at=excluded.confirmed_at RETURNING *`, [current.me.id, kind, month, JSON.stringify(payload), confirming ? 'confirmed' : 'draft', inputs.sourceHash, confirming ? new Date().toISOString() : null])).rows[0];
+        if (kind === 'attendance' && body.action !== 'reopen') {
+          const plans = (await q('SELECT * FROM staff_leave_plans WHERE owner_id=$1 AND year=$2', [current.me.id, month.slice(0,4)])).rows;
+          for (const day of payload.rows) {
+            const autoId = `attendance:${current.me.id}:${day.date}`;
+            const auto = plans.find(plan => plan.id === autoId);
+            const covered = plans.some(plan => plan.id !== autoId && plan.status !== 'cancelled' && JSON.parse(plan.payload).dates.some(date => date.date === day.date));
+            if (auto && auto.status !== 'draft') continue;
+            if (day.kind !== 'leave' || covered) {
+              if (auto) {
+                await q('DELETE FROM staff_leave_plans WHERE id=$1 AND owner_id=$2', [autoId, current.me.id]);
+                await audit(q, current.me.id, 'leave-plan', autoId, 'auto-removed', {}, current.actorId ?? current.me.id);
+              }
+              continue;
+            }
+            const value = {dates:[{date:day.date,days:day.leaveDays}],leaveReason:day.note,contact:'',substitute:'',applicationDate:recurrenceToday(),profile:payload.profile};
+            if (auto && auto.payload === JSON.stringify(value)) continue;
+            await q(`INSERT INTO staff_leave_plans(id,owner_id,year,payload,status,version) VALUES($1,$2,$3,$4,'draft',1) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,version=staff_leave_plans.version+1 RETURNING *`, [autoId,current.me.id,month.slice(0,4),JSON.stringify(value)]);
+            await audit(q, current.me.id, 'leave-plan', autoId, 'auto-draft', value, current.actorId ?? current.me.id);
+          }
+        }
         await audit(q, current.me.id, kind, month, body.action, { before: docFrom(old), after: docFrom(row), reason: body.reason ?? '' }, current.actorId ?? current.me.id); return docFrom(row);
+      });
+    },
+    saveRecordWorkspace(month, body, current) {
+      return transaction(async q => {
+        const store = createStaffRecordStore(fn => fn(q));
+        // Check both snapshots before either document changes.
+        const before = await store.recordMonth('journal', month, current);
+        if (body.journal.sourceHash !== before.sourceHash) throw workError(409, '업무 근거가 변경되었습니다. 다시 불러와 비교해 주세요.');
+        const attendance = await store.saveRecordMonth('attendance', month, body.attendance, current);
+        const latest = await store.recordMonth('journal', month, current);
+        const journal = await store.saveRecordMonth('journal', month, {...body.journal, sourceHash: latest.sourceHash}, current);
+        return { attendance, journal };
       });
     },
     leaveLedger(year, current) {

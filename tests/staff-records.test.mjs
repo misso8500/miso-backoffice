@@ -53,6 +53,24 @@ for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: staff documents, 
  assert.equal(reopened.status,'draft');assert.equal((await store.recordMonth('journal','2026-09',a)).sourceChanged,true);
  await assert.rejects(store.saveRecordMonth('attendance','2026-09',{action:'save',version:confirmed.version,payload,sourceHash:frozen.sourceHash},a),{status:409});
  assert(db.prepare('SELECT COUNT(*) AS n FROM staff_record_events').get().n>5);
+ // Unified writes must roll back attendance and generated leave drafts when journal validation fails.
+ let unifiedAttendance=await store.recordMonth('attendance','2026-08',a),unifiedJournal=await store.recordMonth('journal','2026-08',a);
+ const combined=structuredClone(unifiedJournal.document.payload);
+ combined.rows.forEach(row=>{row.kind='off';row.reviewed=true;});
+ Object.assign(combined.rows[0],{kind:'leave',leaveDays:0.5,note:'달력 연차'});
+ const unifiedBody=action=>({attendance:{action,version:unifiedAttendance.document.version,payload:combined,sourceHash:unifiedAttendance.sourceHash},journal:{action,version:unifiedJournal.document.version,payload:combined,sourceHash:unifiedJournal.sourceHash}});
+ await store.saveRecordWorkspace('2026-08',unifiedBody('save'),a);
+ let generatedPlans=(await store.leaveLedger('2026',a)).plans.filter(plan=>plan.id.startsWith('attendance:'));
+ assert.equal(generatedPlans.length,1);assert.equal(generatedPlans[0].status,'draft');assert.equal(generatedPlans[0].dates[0].days,0.5);
+ unifiedAttendance=await store.recordMonth('attendance','2026-08',a);unifiedJournal=await store.recordMonth('journal','2026-08',a);
+ combined.rows[1].unknown='검토가 필요한 업무';
+ await assert.rejects(store.saveRecordWorkspace('2026-08',unifiedBody('confirm'),a),{status:400});
+ assert.equal((await store.recordMonth('attendance','2026-08',a)).document.status,'draft');
+ assert.equal((await store.recordMonth('attendance','2026-08',a)).document.version,1);
+ combined.rows[1].unknown='';
+ await store.saveRecordWorkspace('2026-08',unifiedBody('confirm'),a);
+ assert.equal((await store.recordMonth('journal','2026-08',a)).document.status,'confirmed');
+ assert.equal((await store.leaveLedger('2026',a)).plans.filter(plan=>plan.id.startsWith('attendance:')).length,1);
  const month=recurrenceToday().slice(0,7),date=month+'-01';
  await store.saveLeavePlan(null,{...planInput,dates:[{date,days:1}],applicationDate:date},a);
  const rule=await store.saveRecurrence(null,{requestId:randomUUID(),title:'RFID <YYMMDD>',description:'',assigneeId:profile.staffId,category:'unclassified',kind:'daily',dueDay:1,includeSaturday:true,includeSunday:true,includeLeave:false,active:true},a);
