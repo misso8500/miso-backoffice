@@ -19,6 +19,7 @@ try {
     await page.route('**/src/auth.ts', route => route.fulfill({ contentType: 'application/javascript', body: 'export const getAuthHeaders=async()=>({}); export const authFailureEvent="test";' }));
     await page.route('**/api/work/**', async route => {
       const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/task-maps')) return route.fulfill({ json: { templates: [], runs: [], nodes: [], today: '2026-10-30' } });
       if (url.pathname.endsWith('/context')) return route.fulfill({ json: { me: { id: 'a', name: '직원 A' }, assignees: [{ id: 'a', name: '직원 A' }, { id: 'b', name: '직원 B' }], members: [], references: [] } });
       if (url.pathname.endsWith('/day')) return route.fulfill({ json: { date: url.searchParams.get('date'), assignee: url.searchParams.get('assignee'), plans: [], executions: [] } });
       if (url.pathname.endsWith('/tasks')) return route.fulfill({ json: tasks });
@@ -34,6 +35,7 @@ try {
       throw new Error(`Unexpected request: ${url.pathname}`);
     });
     await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/work-detail-ui.html`);
+    await page.locator('.work-primary-tabs button').nth(2).click();
     await page.getByRole('button', { name: 'sample 업무', exact: true }).click();
     assert.equal(await page.getByRole('complementary', { name: '선택한 업무 상세' }).count(), 1);
     assert.equal(await page.getByRole('dialog').count(), 0);

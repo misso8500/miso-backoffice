@@ -7,7 +7,22 @@ import { normalizeTaskMap } from '../server/work-task-map.mjs';
 test('task map validates bounded procedures', () => {
   for (const body of [null, {}, { title: '절차', kind: 'daily', category: 'service', steps: [] }, { title: '절차', kind: 'daily', category: 'service', steps: [{ title: '', guide: '' }] }]) assert.throws(() => normalizeTaskMap(body), { status: 400 });
 });
-test('bundle claims deduplicate, enforce order and stale versions, and atomically write journal', async () => {
+test('later steps can complete first and write an execution', async () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec('CREATE TABLE recipients(id TEXT PRIMARY KEY,name TEXT,operational_name TEXT,is_draft INTEGER,enabled INTEGER); CREATE TABLE employment_contracts(id TEXT PRIMARY KEY,worker_name TEXT,contract_start_date TEXT,contract_end_date TEXT,is_draft INTEGER,enabled INTEGER);');
+    const store = createSqliteWorkStore(db, () => true);
+    const current = await store.members({ id: 'u', email: 'a@example.com', name: 'A' }, ['a@example.com']);
+    const template = await store.saveTaskMap({ title: 'Parallel', kind: 'event', category: 'service', steps: [{ title: 'First', guide: '' }, { title: 'Second', guide: '' }] });
+    const run = await store.startTaskMap({ templateId: template.id, date: '2026-01-01', assigneeId: current.assignees[0].id, related: [] }, current);
+    const saved = await store.checkTaskMap(run.id, { version: 1, step: 1 }, current);
+    assert.equal(saved.steps[0].completedAt, null);
+    assert.ok(saved.steps[1].completedAt);
+    assert.equal((await store.day('2026-01-01', 'all', current)).executions.length, 1);
+  } finally { db.close(); }
+});
+
+test('bundle claims deduplicate, allow independent steps and enforce stale versions, and atomically write journal', async () => {
   const db = new DatabaseSync(':memory:');
   try {
     db.exec(`PRAGMA foreign_keys=ON; CREATE TABLE recipients(id TEXT PRIMARY KEY,name TEXT,operational_name TEXT,is_draft INTEGER,enabled INTEGER); CREATE TABLE employment_contracts(id TEXT PRIMARY KEY,worker_name TEXT,contract_start_date TEXT,contract_end_date TEXT,is_draft INTEGER,enabled INTEGER); INSERT INTO recipients VALUES('r1','김미소','',0,1);`);
@@ -18,7 +33,7 @@ test('bundle claims deduplicate, enforce order and stale versions, and atomicall
     const run = await store.startTaskMap(input, current);
     assert.equal((await store.startTaskMap(input, current)).id, run.id);
     assert.equal((await store.list(current, 'all', 'all')).length, 0);
-    await assert.rejects(store.checkTaskMap(run.id, { version: 1, step: 1 }, current), { status: 409 });
+    await assert.rejects(store.checkTaskMap(run.id, { version: 1, step: 9 }, current), { status: 409 });
     const first = await store.checkTaskMap(run.id, { version: 1, step: 0 }, current);
     assert.equal(first.steps[0].completedBy, '완료자');
     await assert.rejects(store.checkTaskMap(run.id, { version: 1, step: 1 }, current), { status: 409 });

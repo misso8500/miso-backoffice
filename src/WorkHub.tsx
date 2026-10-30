@@ -1,5 +1,6 @@
 import WorkVisits from './WorkVisits';
 import WorkTaskMap from './WorkTaskMap';
+import WorkBauChecklist from './WorkBauChecklist';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ClipboardList, Plus, RefreshCw, Search, X } from 'lucide-react';
 import DateInput from './DateInput';
@@ -16,6 +17,7 @@ import {
   type WorkCategory, type WorkContext, type WorkReference, type WorkTask, type WorkTaskInput, type WorkTaskEvent, type WorkDay
 } from './lib/work-tasks';
 import './WorkHub.css';
+import './CenterWork.css';
 
 const emptyForm = (): WorkTaskInput => ({ title: '', description: '', assigneeId: '', category: 'unclassified', dueDate: '', related: [] });
 const message = (error: unknown) => error instanceof Error ? error.message : '요청을 처리하지 못했습니다.';
@@ -46,7 +48,8 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const [view, setView] = useState<WorkCalendarMode>('day');
   const [systemOpen, setSystemOpen] = useState(false);
   const [visitOpen,setVisitOpen]=useState(false);
-  const [mapOpen, setMapOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(true);
+  const [designSection, setDesignSection] = useState<'map' | 'repeat' | 'legacy'>('map');
   const [systemDirty, setSystemDirty] = useState(false);
   const [calendarRevision, setCalendarRevision] = useState(0);
   const [activity, setActivity] = useState<WorkDay | null>(null);
@@ -67,7 +70,7 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const [formError, setFormError] = useState('');
   const [notice, setNotice] = useState('');
   const [assignee, setAssignee] = useState('all');
-  const [status, setStatus] = useState('open');
+  const [status, setStatus] = useState('all');
   const [query, setQuery] = useState('');
   const [referenceType, setReferenceType] = useState<'recipient' | 'worker'>('recipient');
   const [referenceQuery, setReferenceQuery] = useState('');
@@ -108,6 +111,7 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const visible = tasks.filter(t => (status === 'all' || t.status === status)
     && (assignee === 'all' || (assignee === 'unassigned' ? !t.assigneeId : t.assigneeId === assignee))
     && `${t.title} ${t.description} ${t.related.map(r => r.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
+  const dayGroups = groupDayTasks(visible, date, selectedActivity);
   const updateForm = <K extends keyof WorkTaskInput>(key: K, value: WorkTaskInput[K]) => setForm(previous => ({ ...previous, [key]: value }));
   function selectTask(task: WorkTask, day = date) {
     if (detailEditing && selectedId !== task.id && !window.confirm('수정 중인 내용을 닫고 다른 업무를 볼까요?')) return;
@@ -188,9 +192,11 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
         <fieldset disabled={detailEditing || saving || quickBusy || journalBusy}>
           <div className="work-capture-fields">
             <input ref={titleInput} aria-label="업무 제목" required maxLength={500} placeholder="예: 이번 주까지 10월 급여계산" value={form.title} onChange={event => updateForm('title', event.target.value)}/>
+            <details className="work-capture-options"><summary>담당자·분류·기한</summary><div className="work-capture-options-fields">
             <select aria-label="업무 담당자" value={form.assigneeId} onChange={event => updateForm('assigneeId', event.target.value)}><option value="">담당자 미정</option>{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
             <select aria-label="센터 업무 분류" value={form.category} onChange={event => updateForm('category', event.target.value as WorkCategory)}>{Object.entries(workCategoryLabels).filter(([id]) => !context.categories || context.categories.includes(id)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
             <DateInput aria-label="기한 (선택)" title="기한 (선택)" value={form.dueDate} onChange={event => updateForm('dueDate', event.target.value)}/>
+            </div></details>
           </div>
           <div className="work-capture-actions">
             <button type="button" className="secondary-button work-expand-button" aria-expanded={descriptionOpen} aria-controls="work-description-panel" onClick={() => setDescriptionOpen(open => !open)}><span aria-hidden="true">⌄</span>내용 추가{form.description && ' · 작성됨'}</button>
@@ -208,28 +214,37 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
       </form>
   );
 
-  const workspaceNavigation=<nav className="work-view-tabs" aria-label="업무 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" aria-current={!visitOpen && !mapOpen && !systemOpen && view === mode ? 'page' : undefined} disabled={detailEditing || journalBusy || saving || quickBusy || Boolean(busyId)} onClick={() => { if (systemOpen && systemDirty && !window.confirm('작성 중인 설정을 닫고 이동할까요?')) return; if(visitOpen)void reload();setVisitOpen(false);setMapOpen(false);setSystemOpen(false); setView(mode); }}>{({ day: '일간', week: '주간', month: '월간' })[mode]}</button>)}<button type="button" aria-current={!visitOpen && systemOpen ? 'page' : undefined} disabled={detailEditing || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => {if(visitOpen)void reload();setVisitOpen(false);setMapOpen(false);setSystemOpen(true);}}>반복 업무</button><button type="button" aria-current={visitOpen?'page':undefined} disabled={detailEditing || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={()=>{if(systemOpen&&systemDirty&&!window.confirm('작성 중인 설정을 닫고 이동할까요?'))return;setSystemOpen(false);setMapOpen(false);setVisitOpen(true);}}>라운딩</button><button type="button" aria-current={mapOpen ? 'page' : undefined} disabled={detailEditing || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => { if (systemOpen && systemDirty && !window.confirm('수정 중인 내용을 닫고 다른 업무를 볼까요?')) return; if (visitOpen) void reload(); setVisitOpen(false); setSystemOpen(false); setMapOpen(true); }}>업무 신호등</button></nav>;
-  if(visitOpen)return <section className="work-hub is-system"><WorkOperationStatus/><div className="work-day-navigation">{workspaceNavigation}</div><WorkVisits onBusy={setQuickBusy}/></section>;
+  const navigationBusy = detailEditing || journalBusy || saving || quickBusy || Boolean(busyId);
+  const designWorkspace = context && <><nav className="work-secondary-tabs" aria-label="설계 종류"><button type="button" disabled={navigationBusy || systemDirty} aria-current={designSection === 'map' ? 'page' : undefined} onClick={() => setDesignSection('map')}>월간·사건형 업무 설계</button><button type="button" disabled={navigationBusy || systemDirty} aria-current={designSection === 'repeat' ? 'page' : undefined} onClick={() => setDesignSection('repeat')}>매일 반복업무</button><button type="button" disabled={navigationBusy || systemDirty} aria-current={designSection === 'legacy' ? 'page' : undefined} onClick={() => setDesignSection('legacy')}>기존 반복 규칙</button></nav>{designSection !== 'legacy' ? <WorkTaskMap key={designSection} initialKind={designSection === 'repeat' ? 'daily' : 'monthly'} mode="design" onBusy={setSaving} onDirty={setSystemDirty} context={context} date={date} onChanged={() => void reload()}/> : <WorkRecurrenceSettings context={context} onChanged={() => void reload()} onBusy={setSaving} onDirty={setSystemDirty}/>}</>;
+  function switchSection(section: 'map' | 'design' | 'todo') {
+    if (systemDirty && !window.confirm('작성 중인 설정을 닫고 이동할까요?')) return;
+    if (visitOpen) void reload();
+    setVisitOpen(false); setMapOpen(section === 'map'); setSystemOpen(section === 'design');
+  }
+  const workspaceNavigation = <nav className="work-view-tabs work-primary-tabs" aria-label="센터 업무">{([['map','업무전체지도'],['design','업무연관설계(태스크맵)'],['todo','일일 업무 관리(투두)']] as const).map(([key,label]) => <button key={key} type="button" disabled={navigationBusy} aria-current={(key === 'map' ? mapOpen : key === 'design' ? systemOpen : !mapOpen && !systemOpen) ? 'page' : undefined} onClick={() => switchSection(key)}>{label}</button>)}</nav>;
+  const todoNavigation = <nav className="work-secondary-tabs" aria-label="투두 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" disabled={navigationBusy} aria-current={!visitOpen && view === mode ? 'page' : undefined} onClick={() => { if(visitOpen) void reload(); setVisitOpen(false); setView(mode); }}>{({day:'일간',week:'주간',month:'월간'})[mode]}</button>)}<button type="button" disabled={navigationBusy} aria-current={visitOpen ? 'page' : undefined} onClick={() => setVisitOpen(true)}>라운딩</button></nav>;
+  if(visitOpen)return <section className="work-hub is-system"><WorkOperationStatus/><div className="work-day-navigation">{workspaceNavigation}{todoNavigation}</div><WorkVisits onBusy={setQuickBusy}/></section>;
   return <section className={`work-hub ${systemOpen ? 'is-system' : ''}`} aria-label="공동 업무">
     <WorkOperationStatus/>
     <div className="work-day-navigation" role="region" aria-label="업무 기간 탐색">
       {workspaceNavigation}
-      <div className="work-period-controls" style={systemOpen ? { display: 'none' } : undefined}><div className="work-date-step"><button type="button" disabled={journalBusy || date === '1000-01-01'} onClick={() => setDate(moveWorkCalendar(date,view,-1))} aria-label={`이전 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>←</button><strong>{view === 'week' ? `${workCalendarRange(date,view).from} ~ ${workCalendarRange(date,view).to}` : view === 'month' ? date.slice(0,7).replace('-', '년 ')+'월' : date.replaceAll('-', '.')}<small>{view === 'day' ? '할 일을 확인하고 바로 완료하세요' : view === 'week' ? '월요일부터 일요일까지' : '한 달의 계획과 실제 수행'}</small></strong><button type="button" disabled={journalBusy || date === '9999-12-31'} onClick={() => setDate(moveWorkCalendar(date,view,1))} aria-label={`다음 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>→</button></div><div className="work-date-picker"><label className="sr-only" htmlFor="work-date">기준 날짜</label><DateInput id="work-date" required disabled={journalBusy} value={date} onChange={event => { if(event.target.value >= '1000-01-01' && event.target.value <= '9999-12-31') setDate(event.target.value); }}/><button type="button" disabled={journalBusy} onClick={() => setDate(workToday())}>오늘로</button></div></div>
+      {!mapOpen && !systemOpen && todoNavigation}
+      <div className="work-period-controls" style={systemOpen || mapOpen ? { display: 'none' } : undefined}><div className="work-date-step"><button type="button" disabled={journalBusy || date === '1000-01-01'} onClick={() => setDate(moveWorkCalendar(date,view,-1))} aria-label={`이전 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>←</button><strong>{view === 'week' ? `${workCalendarRange(date,view).from} ~ ${workCalendarRange(date,view).to}` : view === 'month' ? date.slice(0,7).replace('-', '년 ')+'월' : date.replaceAll('-', '.')}<small>{view === 'day' ? '할 일을 확인하고 바로 완료하세요' : view === 'week' ? '월요일부터 일요일까지' : '한 달의 계획과 실제 수행'}</small></strong><button type="button" disabled={journalBusy || date === '9999-12-31'} onClick={() => setDate(moveWorkCalendar(date,view,1))} aria-label={`다음 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>→</button></div><div className="work-date-picker"><label className="sr-only" htmlFor="work-date">기준 날짜</label><DateInput id="work-date" required disabled={journalBusy} value={date} onChange={event => { if(event.target.value >= '1000-01-01' && event.target.value <= '9999-12-31') setDate(event.target.value); }}/><button type="button" disabled={journalBusy} onClick={() => setDate(workToday())}>오늘로</button></div></div>
     </div>
-    <header className="page-heading"><div><span className="eyebrow">Shared workspace</span><h1>공동 업무</h1><p>요청을 한곳에 모으고, 담당자와 기한을 함께 확인합니다.</p></div><button type="button" className="secondary-button" disabled={loading || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void reload()}><RefreshCw size={16} className={loading ? 'spin' : ''}/>목록 새로고침</button></header>
+    <header className="page-heading"><div><span className="eyebrow">Center workspace</span><h1>센터 업무</h1><p>업무의 흐름을 확인하고, 필요한 일을 차근차근 처리합니다.</p></div><button type="button" className="secondary-button" disabled={loading || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void reload()}><RefreshCw size={16} className={loading ? 'spin' : ''}/>목록 새로고침</button></header>
     {error && <div className="error-banner" role="alert">{error}<button type="button" className="secondary-button" onClick={() => void reload()} disabled={loading}>다시 불러오기</button></div>}
     {notice && <div className="work-notice" role="status">{notice}{lastResolved && <button type="button" className="secondary-button" disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void resolveTask(lastResolved)}>{lastResolved.status === 'done' ? '완료 되돌리기' : '다시 완료'}</button>}</div>}
     {!context ? <div className="empty-state"><ClipboardList size={28}/><p>{loading ? '업무 공간을 준비하고 있습니다.' : '구성원을 불러온 뒤 업무를 등록할 수 있습니다.'}</p></div> : <>
-      {mapOpen ? <WorkTaskMap context={context} date={date} onChanged={() => void reload()}/> : systemOpen ? <WorkRecurrenceSettings context={context} onChanged={() => void reload()} onBusy={setSaving} onDirty={setSystemDirty}/> : <>
+      {mapOpen ? <WorkTaskMap onBusy={setSaving} context={context} date={date} onChanged={() => void reload()}/> : systemOpen ? designWorkspace : <>
       {capture}
 
       {<div className={`work-day-columns ${view !== 'day' ? 'is-period' : ''} ${selectedTask ? 'has-detail' : ''}`}><section className="work-task-section">{view === 'day' ? <><div className="work-list-heading"><div><h2>하루 할 일 <small>{visible.length}건</small></h2><p>체크하면 완료, 업무를 선택하면 상세 보기</p></div><div className="work-filters"><label className="search-box"><Search size={16}/><input type="search" aria-label="업무 검색" placeholder="업무·관련자 검색" value={query} onChange={event => setQuery(event.target.value)}/></label><select className="filter-select" aria-label="담당자 필터" value={assignee} disabled={journalBusy} onChange={event => setAssignee(event.target.value)}><option value="all">전체 구성원</option><option value="unassigned">담당자 미정</option>{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select><select className="filter-select" aria-label="업무 상태 필터" value={status} onChange={event => setStatus(event.target.value)}><option value="open">진행할 업무</option><option value="done">완료됨</option><option value="cancelled">취소됨</option><option value="all">전체 상태</option></select></div></div>
       {loading && <p role="status">최신 목록을 불러오는 중입니다.</p>}
-      <div className="work-task-list work-compact-list">{groupDayTasks(visible, date, selectedActivity).map(group => <section key={group.title} className="work-task-group" aria-label={group.title}><h3>{group.title} <small>{group.rows.length}</small></h3>{group.rows.map(t => <article key={t.id} className={`work-task-row ${selectedId === t.id ? 'is-selected' : ''} ${t.status === 'cancelled' ? 'is-cancelled' : ''}`}>
+      <div className="work-todo-totals">{dayGroups.map(group => <span key={group.title}>{group.title} <strong>{group.rows.length}</strong></span>)}</div><WorkBauChecklist refresh={calendarRevision} status={status} query={query} date={date} assignee={assignee} context={context} onChanged={() => void reload()}/><div className="work-task-list work-compact-list">{dayGroups.map((group, index) => <details open={index < 2 && !group.rows.every(t => t.status !== 'open')} key={group.title} className="work-task-group" aria-label={group.title}><summary>{group.title} <small>{group.rows.length}</small></summary>{group.rows.map(t => <article key={t.id} className={`work-task-row ${selectedId === t.id ? 'is-selected' : ''} ${t.status === 'cancelled' ? 'is-cancelled' : ''}`}>
         <input type="checkbox" checked={t.status === 'done'} aria-label={`${t.title} ${t.status === 'done' ? '완료 되돌리기' : '완료하기'}`} disabled={Boolean(t.onHold) || detailEditing || !t.canEdit || t.status === 'cancelled' || saving || quickBusy || journalBusy || Boolean(busyId)} onChange={() => void resolveTask(t)}/>
         <button type="button" className="work-row-title" aria-pressed={selectedId === t.id} disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => selectTask(t)}><span className={`work-task-title ${selectedActivity?.executions.some(e => e.taskId === t.id && e.status === 'recorded') ? 'has-execution' : selectedActivity?.plans.some(p => p.taskId === t.id && p.status === 'planned') ? 'has-plan' : ''}`}>{t.title}</span><small>{t.onHold ? '서비스 일시정지 · 라운딩 보류' : t.status === 'cancelled' ? '취소됨' : t.status === 'done' ? '완료됨' : selectedActivity?.executions.some(e => e.taskId === t.id && e.status === 'recorded') ? '선택일 수행 기록 있음' : selectedActivity?.plans.some(p => p.taskId === t.id && p.status === 'planned') ? '선택일 계획됨' : ''}{t.related.length > 0 && ` · ${t.related.map(r => r.name).join(', ')}`}</small></button>
         <span className="work-row-assignee">{memberName(t.assigneeId)}</span><span className="work-row-due">{t.dueDate ? t.dueDate === date ? '선택일 마감' : t.dueDate : '기한 미정'}</span>
-      </article>)}</section>)}</div>
+      </article>)}</details>)}</div>
       {!loading && !visible.length && <div className="empty-state"><ClipboardList size={28}/><p>{tasks.length ? '조건에 맞는 업무가 없습니다.' : '아직 등록된 업무가 없습니다. 첫 업무를 남겨보세요.'}</p></div>}</> : <><div className="work-calendar-filters"><label htmlFor="work-calendar-assignee">담당자</label><select id="work-calendar-assignee" className="filter-select" value={assignee} onChange={event => setAssignee(event.target.value)}><option value="all">전체 구성원</option><option value="unassigned">담당자 미정</option>{context.assignees.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div><WorkCalendar onSelectDate={setDetailDate} tasks={tasks} selectedId={selectedId} editing={detailEditing} busy={saving || quickBusy || journalBusy || Boolean(busyId)} onOpenTask={(task, day) => selectTask(task, day)} onComplete={task => void resolveTask(task)} context={context} date={date} view={view} assignee={assignee} revision={calendarRevision} onOpenDay={(day, owner) => { setDate(day); setAssignee(owner); setView('day'); setStatus('all'); setQuery(''); void reload(); }}/></>}</section>
       <div className="work-detail-slot" inert={!selectedTask}><aside ref={detailPanel} className="work-task-detail work-detail-sidebar" aria-label="선택한 업무 상세"><header className="work-detail-heading"><h2>업무 상세</h2>{selectedTask && <button type="button" className="icon-button" aria-label="업무 상세 닫기" disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => { if (detailEditing && !window.confirm('수정 중인 내용을 닫을까요?')) return; setSelectedId(''); }}><X size={18}/></button>}</header>
         {selectedTask ? <div className="work-detail-content"><span className="work-category">{selectedTask.onHold ? '라운딩 보류' : selectedTask.status === 'done' ? '완료됨' : selectedTask.status === 'cancelled' ? '취소됨' : '미완료'}</span>

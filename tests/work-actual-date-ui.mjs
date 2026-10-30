@@ -15,6 +15,7 @@ try {
     await page.route('**/src/auth.ts', r => r.fulfill({ contentType: 'application/javascript', body: 'export const getAuthHeaders=async()=>({});export const authFailureEvent="test";' }));
     await page.route('**/api/work/**', async route => {
       const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/task-maps')) return route.fulfill({ json: { templates: [], runs: [], nodes: [], today: '2026-10-30' } });
       if (url.pathname.endsWith('/context')) return route.fulfill({ json: { me: { id: 'a', name: '기록자' }, assignees: [{ id: 'a', name: '직원 A' }, { id: 'b', name: '직원 B' }], members: [], references: [] } });
       if (url.pathname.endsWith('/tasks')) return route.fulfill({ json: [task] });
       if (url.pathname.endsWith('/day')) { const date = url.searchParams.get('date'); return route.fulfill({ json: { date, assignee: 'all', plans: date === plan.date ? [plan] : [], executions: execution?.date === date ? [execution] : [], linkedExecutions: execution?.status === 'recorded' ? [execution] : [] } }); }
@@ -32,6 +33,7 @@ try {
       throw Error(`Unexpected ${url.pathname}`);
     });
     await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/work-detail-ui.html`);
+    await page.locator('.work-primary-tabs button').nth(2).click();
     await page.getByLabel('기준 날짜', { exact: true }).fill(plan.date);
     await page.getByRole('button', { name: '오늘 수행', exact: true }).click();
     await page.getByRole('button', { name: '오후 수행 저장', exact: true }).click();

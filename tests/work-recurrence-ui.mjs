@@ -13,6 +13,7 @@ try {
     await page.route('**/src/auth.ts', r => r.fulfill({ contentType: 'application/javascript', body: 'export const getAuthHeaders=async()=>({});export const authFailureEvent="test";' }));
     await page.route('**/api/work/**', async route => {
       const url = new URL(route.request().url()), method = route.request().method();
+      if (url.pathname.endsWith('/task-maps')) return route.fulfill({ json: { templates: [], runs: [], nodes: [], today: '2026-10-30' } });
       if (url.pathname.endsWith('/context')) return route.fulfill({ json: { me: { id: 'a', name: '기록자' }, assignees: [{ id: 'staff', name: '직원 A' }], members: [], references: [], categories: categories.filter(row => row.active).map(row => row.id), categoryLabels: Object.fromEntries(categories.map(row => [row.id, row.name])), canManageCategories: canManage } });
       if (url.pathname.endsWith('/tasks')) return route.fulfill({ json: [] });
       if (url.pathname.endsWith('/day')) return route.fulfill({ json: { date: url.searchParams.get('date'), assignee: 'all', plans: [], executions: [] } });
@@ -28,7 +29,8 @@ try {
       throw Error(`Unexpected ${method} ${url.pathname}`);
     });
     await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/work-detail-ui.html`);
-    await page.getByRole('button', { name: '반복 업무', exact: true }).click();
+    await page.locator('.work-primary-tabs button').nth(1).click();
+    await page.getByRole('button', { name: '기존 반복 규칙', exact: true }).click();
     await page.getByLabel('업무 제목', { exact: true }).fill('월간 정산');
     await page.getByLabel('업무 담당자', { exact: true }).selectOption('staff');
     await page.getByRole('spinbutton').fill('31');
@@ -53,7 +55,7 @@ try {
       await page.getByRole('button', { name: '카테고리 추가', exact: true }).click();
       await page.getByText('카테고리를 저장했습니다.').waitFor(); assert.equal(categories.length, 2);
     } else assert.equal(await page.getByRole('button', { name: '카테고리 추가', exact: true }).count(), 0);
-    await page.getByRole('button', { name: '일간', exact: true }).click();
+    await page.locator('.work-primary-tabs button').nth(2).click();
     await page.getByRole('heading', { name: /하루 할 일/ }).waitFor();
     assert.deepEqual(errors, []);
     console.log(`PASS ${viewport.width}px admin=${canManage}: monthly/daily preview, save, pause, category permissions, return to day`);

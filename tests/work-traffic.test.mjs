@@ -9,7 +9,7 @@ test('monthly traffic counts expected weekdays, including unclaimed missing days
   assert.equal(node.expected, 22); assert.equal(node.due, 2); assert.equal(node.completed, 1); assert.equal(node.state, 'yellow');
   assert.equal(board(template, [run('2026-10-01')], '2026-10-05').state, 'red');
   assert.equal(board(template, [run('2026-10-01'), run('2026-10-02')]).state, 'green');
-  assert.equal(board(template, [run('2026-10-01', true, { assigneeId: 'b' })]).completed, 0);
+  assert.equal(board(template, [run('2026-10-01', true, { assigneeId: 'b' })]).completed, 1);
   assert.equal(board(template, [run('2026-10-01', true, { related: [{ id: 'r' }] })]).completed, 0);
 });
 test('start date and future month never fabricate missed checks', () => {
