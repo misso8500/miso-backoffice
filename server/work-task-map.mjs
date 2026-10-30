@@ -32,26 +32,34 @@ export function normalizeTaskMap(body) {
 }
 export function createTaskMapStore(transaction, resolveRelated) {
   async function generateDaily(q, templates, today) {
+    if (!templates.some(t=>t.kind==='daily' && t.schedule)) return;
+    const existing = new Set((await q('SELECT * FROM work_map_runs WHERE work_date LIKE $1',[today.slice(0,7)+'%'])).rows.filter(row=>!decode(row).related.length).map(row=>{const run=decode(row);return `${run.templateId ?? JSON.parse(row.run_key)[0]}:${run.date}`;}));
+    const pending = [];
     for (const map of templates.filter(t=>t.kind==='daily' && t.schedule)) {
       for (const date of monthDates(today.slice(0,7)).filter(d=>d<=today)) {
         const config = [...(map.scheduleHistory ?? []),{schedule:map.schedule}].filter(c=>c.schedule && c.schedule.startDate<=date).sort((a,b)=>a.schedule.startDate.localeCompare(b.schedule.startDate)).at(-1)?.schedule;
         if (!config || config.enabled===false || !config.weekdays.includes(new Date(date+'T12:00:00Z').getUTCDay())) continue;
         const key = JSON.stringify([map.id,date,[]]);
-        const existing = (await q('SELECT * FROM work_map_runs WHERE work_date=$1',[date])).rows.some(row=>{const run=decode(row);return (run.templateId ?? JSON.parse(row.run_key)[0])===map.id && !run.related.length;});
-        if(existing) continue;
+        if(existing.has(`${map.id}:${date}`)) continue;
         const steps = datedSteps(map,date,config.assigneeId);
-        const payload = { templateId:map.id,templateVersion:map.version,title:map.title,kind:map.kind,category:map.category,date,dueDate:steps.reduce((due,s)=>s.dueDate>due?s.dueDate:due,date),assigneeId:config.assigneeId,related:[],steps };
-        await q('INSERT INTO work_map_runs(id,run_key,work_date,payload,version) VALUES($1,$2,$3,$4,1) ON CONFLICT(run_key) DO NOTHING RETURNING id',[newWorkId(),key,date,JSON.stringify(payload)]);
+        const payload = { templateId:map.id,templateVersion:map.version,createdAt:new Date().toISOString(),title:map.title,kind:map.kind,category:map.category,date,dueDate:steps.reduce((due,s)=>s.dueDate>due?s.dueDate:due,date),assigneeId:config.assigneeId,related:[],steps };
+        pending.push([newWorkId(),key,date,JSON.stringify(payload)]);
       }
+    }
+    for(let offset=0;offset<pending.length;offset+=200) {
+      const values=[];
+      const rows=pending.slice(offset,offset+200).map(row=>'('+row.map(value=>{values.push(value);return '$'+values.length;}).join(',')+',1)');
+      await q('INSERT INTO work_map_runs(id,run_key,work_date,payload,version) VALUES '+rows.join(',')+' ON CONFLICT(run_key) DO NOTHING RETURNING id',values);
     }
   }
   return {
     ensureDailyTaskMaps(today = todayInSeoul()) { workDate(today); return transaction(async q=>generateDaily(q,(await q(`SELECT * FROM work_map_templates ORDER BY id${q.forUpdate ?? ''}`,[])).rows.map(decode),today)); },
-    taskMaps(month) { return transaction(async q => {
-      const templates = (await q('SELECT * FROM work_map_templates ORDER BY id', [])).rows.map(decode).sort((a,b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
-      const runs = (await q('SELECT * FROM work_map_runs ORDER BY work_date DESC,id', [])).rows.map(row => { const run = decode(row); return { ...run, templateId: run.templateId ?? JSON.parse(row.run_key)[0] }; });
-      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    taskMaps(month, ensureDaily = false) { return transaction(async q => {
+      const today = todayInSeoul();
       month ??= today.slice(0,7); workDate(month+'-01');
+      const templates = (await q(`SELECT * FROM work_map_templates ORDER BY id${ensureDaily ? q.forUpdate ?? '' : ''}`, [])).rows.map(decode).sort((a,b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
+      if(ensureDaily) await generateDaily(q,templates,today);
+      const runs = (await q('SELECT * FROM work_map_runs ORDER BY work_date DESC,id', [])).rows.map(row => { const run = decode(row); return { ...run, templateId: run.templateId ?? JSON.parse(row.run_key)[0] }; });
       return { templates, runs, month, today, nodes: trafficBoard(templates, runs, month, today) };
     }); },
     saveTaskMap(body, current) {
@@ -89,15 +97,18 @@ export function createTaskMapStore(transaction, resolveRelated) {
         const map = decode(template);
         if (!Array.isArray(body.related) || body.related.length > 30 || body.related.some(r => !r || !['recipient','worker'].includes(r.type) || !text(r.id, 100))) throw workError(400, '연결 대상을 확인해 주세요.');
         const links = [...new Map(body.related.map(r=>[`${r.type}:${r.id}`,r])).values()].sort((a,b)=>`${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
-        const related = await resolveRelated(q, links);
+        const related = links.length ? await resolveRelated(q, links) : [];
         const relatedKeys = related.map(r => `${r.type}:${r.id}`);
-        const key = JSON.stringify([map.id, date, relatedKeys]);
-        const previous = (await q('SELECT * FROM work_map_runs WHERE work_date=$1',[date])).rows.find(row=>{ const run=decode(row);return (run.templateId ?? JSON.parse(row.run_key)[0])===map.id && JSON.stringify(run.related.map(r=>`${r.type}:${r.id}`).sort())===JSON.stringify([...relatedKeys].sort()); });
+        const key = JSON.stringify([map.id, map.kind === 'monthly' ? date.slice(0,7) : date, map.kind === 'monthly' ? [] : relatedKeys]);
+        const candidates = map.kind === 'monthly'
+          ? (await q('SELECT * FROM work_map_runs WHERE work_date LIKE $1 ORDER BY work_date,id',[date.slice(0,7)+'%'])).rows
+          : (await q('SELECT * FROM work_map_runs WHERE work_date=$1',[date])).rows;
+        const previous = candidates.find(row=>{ const run=decode(row);return (run.templateId ?? JSON.parse(row.run_key)[0])===map.id && (map.kind === 'monthly' || JSON.stringify(run.related.map(r=>`${r.type}:${r.id}`).sort())===JSON.stringify([...relatedKeys].sort())); });
         if(previous) return decode(previous);
         const dueDate = workDate(body.dueDate || date);
         if (dueDate < date) throw workError(400, '기한은 시작일 이후로 지정해 주세요.');
         const steps = datedSteps(map,date,body.assigneeId);
-        const payload = { templateId: map.id, templateVersion: map.version, dueDate: steps.reduce((due,s)=>s.dueDate>due?s.dueDate:due,dueDate), title: map.title, kind: map.kind, category: map.category, date, assigneeId: body.assigneeId, related, steps };
+        const payload = { templateId: map.id, templateVersion: map.version, createdAt: new Date().toISOString(), dueDate: steps.reduce((due,s)=>s.dueDate>due?s.dueDate:due,dueDate), title: map.title, kind: map.kind, category: map.category, date, assigneeId: body.assigneeId, related, steps };
         const inserted = (await q('INSERT INTO work_map_runs(id,run_key,work_date,payload,version) VALUES($1,$2,$3,$4,1) ON CONFLICT(run_key) DO NOTHING RETURNING *', [newWorkId(), key, date, JSON.stringify(payload)])).rows[0];
         return decode(inserted ?? (await q('SELECT * FROM work_map_runs WHERE run_key=$1', [key])).rows[0]);
       });

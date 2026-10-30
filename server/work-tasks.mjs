@@ -84,7 +84,7 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     }
     const mapCheck = /^\/api\/work\/task-maps\/runs\/([^/]+)\/check$/.exec(path);
     if (path === '/api/work/task-maps' || path === '/api/work/task-maps/start' || mapCheck) {
-      if (path === '/api/work/task-maps' && request.method === 'GET') { await store.ensureDailyTaskMaps(); sendJson(response, 200, await store.taskMaps(new URL(request.url, 'http://localhost').searchParams.get('month') ?? undefined)); }
+      if (path === '/api/work/task-maps' && request.method === 'GET') sendJson(response, 200, await store.taskMaps(new URL(request.url, 'http://localhost').searchParams.get('month') ?? undefined, true));
       else if (request.method === 'POST') {
         const body = await readWorkBody(request, 120000);
         sendJson(response, 200, mapCheck ? await store.checkTaskMap(mapCheck[1], body, current) : path.endsWith('/start') ? await store.startTaskMap(body, current) : await store.saveTaskMap(body, current));

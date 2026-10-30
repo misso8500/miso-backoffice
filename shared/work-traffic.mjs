@@ -21,7 +21,7 @@ export function trafficBoard(templates, runs, month, today) {
     const cells = dates.map(date => {
       const actual = linked.filter(r => r.date === date);
       const required = expected.includes(date);
-      const primaryDone = actual.some(r => !r.related.length && complete(r));
+      const primaryDone = (template.kind === 'monthly' ? linked.filter(r=>r.date.slice(0,7)===month) : actual).some(r => !r.related.length && complete(r));
       const missing = required && !primaryDone;
       const pending = actual.some(r => !complete(r));
       const missingOverdue = missing && date < today && !actual.some(r => (r.dueDate ?? r.date) >= today);

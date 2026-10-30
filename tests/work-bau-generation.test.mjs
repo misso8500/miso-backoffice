@@ -3,7 +3,15 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {createSqliteWorkStore,createPostgresWorkStore} from '../server/work-task-stores.mjs';
-import {normalizeTaskMap} from '../server/work-task-map.mjs';
+import {normalizeTaskMap,createTaskMapStore} from '../server/work-task-map.mjs';
+test('daily generation batches reads and inserts instead of querying every occurrence',async()=>{
+ const queries=[];
+ const templates=Array.from({length:10},(_,i)=>({id:`t${i}`,version:1,payload:JSON.stringify({kind:'daily',title:'Daily',category:'service',schedule:{assigneeId:'a',startDate:'2026-10-01',weekdays:[1,2,3,4,5]},steps:[{title:'Check',guide:''}]})}));
+ const store=createTaskMapStore(async action=>action(async(sql,values)=>{queries.push({sql,values});return {rows:sql.includes('FROM work_map_templates')?templates:[]};}),async()=>[]);
+ await store.ensureDailyTaskMaps('2026-10-30');
+ assert.equal(queries.filter(q=>q.sql.startsWith('SELECT')).length,2);
+ assert.equal(queries.filter(q=>q.sql.startsWith('INSERT')).length,2);
+});
 for(const mode of ['sqlite','postgres-adapter']) test(`${mode}: daily bundles, step assignment/deadline, multiple targets and retry identity`,async t=>{
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());
  db.exec(`CREATE TABLE recipients(id TEXT PRIMARY KEY,name TEXT,operational_name TEXT,is_draft INTEGER,enabled INTEGER); CREATE TABLE employment_contracts(id TEXT PRIMARY KEY,worker_name TEXT,contract_start_date TEXT,contract_end_date TEXT,is_draft INTEGER,enabled INTEGER); INSERT INTO recipients VALUES('r','Recipient','',0,1); INSERT INTO employment_contracts VALUES('w','Worker','','',0,1);`);
@@ -32,4 +40,7 @@ for(const mode of ['sqlite','postgres-adapter']) test(`${mode}: daily bundles, s
  const end=new Date(currentMonth+'-01T12:00:00Z');end.setUTCMonth(end.getUTCMonth()+1);end.setUTCDate(0);
  const early=await store.startTaskMap({templateId:monthly.id,date:end.toISOString().slice(0,10),assigneeId:a.id,related:[]},current);
  assert.ok((await store.checkTaskMap(early.id,{version:1,step:0},current)).steps[0].completedAt);
+ const again=await store.startTaskMap({templateId:monthly.id,date:currentMonth+'-01',assigneeId:b.id,related:[{type:'recipient',id:'r'}]},current);
+ assert.equal(again.id,early.id,'monthly identity ignores day, assignee and targets');
+ assert.equal((await store.taskMaps(currentMonth)).runs.filter(r=>r.templateId===monthly.id).length,1);
 });
