@@ -18,6 +18,8 @@ import {
 } from './lib/work-tasks';
 import './WorkHub.css';
 import './CenterWork.css';
+import { useWorkCacheUpdates } from './lib/use-work-cache';
+import { invalidateWorkData } from './lib/work-cache';
 
 const emptyForm = (): WorkTaskInput => ({ title: '', description: '', assigneeId: '', category: 'unclassified', dueDate: '', related: [] });
 const message = (error: unknown) => error instanceof Error ? error.message : '요청을 처리하지 못했습니다.';
@@ -29,6 +31,7 @@ function WorkHistory({ task, memberName }: { task: WorkTask; memberName: (id: st
   const [events, setEvents] = useState<WorkTaskEvent[] | null>(null);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  useWorkCacheUpdates<WorkTaskEvent[]>(`/api/work/tasks/${encodeURIComponent(task.id)}/history`,value=>{if(open)setEvents(value);});
   useEffect(() => {
     if (!open) return;
     let active = true; setError(''); setEvents(null);
@@ -87,17 +90,25 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const quickId = useRef(crypto.randomUUID());
   const createRequestId = useRef(crypto.randomUUID());
 
-  async function reload() {
+  useWorkCacheUpdates<WorkContext>('/api/work/context',value=>{if(value.categoryLabels)Object.assign(workCategoryLabels,value.categoryLabels);setContext(value);});
+  useWorkCacheUpdates<WorkTask[]>('/api/work/tasks?assignee=all&status=all',setTasks);
+  async function reload(force = false) {
     const current = ++generation.current;
-    setLoading(true); setError('');
+    if(!context || force) setLoading(true); setError('');
+    if(force) invalidateWorkData();
     try {
-      const [nextContext, nextTasks] = await Promise.all([loadWorkContext(), loadWorkTasks('all', 'all')]);
+      const [nextContext, nextTasks] = await Promise.all([loadWorkContext(force), loadWorkTasks('all', 'all',force)]);
       if (current !== generation.current) return;
       setContext(nextContext); setTasks(nextTasks); setBauRevision(n=>n+1); dayPanel.current?.refresh(); setCalendarRevision(value => value + 1);
     } catch (cause) { if (current === generation.current) setError(message(cause)); }
     finally { if (current === generation.current) setLoading(false); }
   }
   useEffect(() => { void reload(); return () => { generation.current++; }; }, []);
+  useEffect(()=>{
+    const changed=()=>{setContext(null);setTasks([]);void reload(true);};
+    window.addEventListener('miso-work-session-change',changed);
+    return ()=>window.removeEventListener('miso-work-session-change',changed);
+  },[]);
   useEffect(() => { if (formError) errorBox.current?.focus(); }, [formError]);
 
   const memberName = (id: string | null) => !id ? '담당자 미정' : context?.assignees.find(m => m.id === id)?.name ?? context?.members.find(m => m.id === id)?.name ?? '이전 구성원';
@@ -232,8 +243,8 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
       {!mapOpen && !systemOpen && todoNavigation}
       <div className="work-period-controls" style={systemOpen || mapOpen ? { display: 'none' } : undefined}><div className="work-date-step"><button type="button" disabled={journalBusy || date === '1000-01-01'} onClick={() => setDate(moveWorkCalendar(date,view,-1))} aria-label={`이전 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>←</button><strong>{view === 'week' ? `${workCalendarRange(date,view).from} ~ ${workCalendarRange(date,view).to}` : view === 'month' ? date.slice(0,7).replace('-', '년 ')+'월' : date.replaceAll('-', '.')}<small>{view === 'day' ? '할 일을 확인하고 바로 완료하세요' : view === 'week' ? '월요일부터 일요일까지' : '한 달의 계획과 실제 수행'}</small></strong><button type="button" disabled={journalBusy || date === '9999-12-31'} onClick={() => setDate(moveWorkCalendar(date,view,1))} aria-label={`다음 ${view === 'day' ? '날' : view === 'week' ? '주' : '달'}`}>→</button></div><div className="work-date-picker"><label className="sr-only" htmlFor="work-date">기준 날짜</label><DateInput id="work-date" required disabled={journalBusy} value={date} onChange={event => { if(event.target.value >= '1000-01-01' && event.target.value <= '9999-12-31') setDate(event.target.value); }}/><button type="button" disabled={journalBusy} onClick={() => setDate(workToday())}>오늘로</button></div></div>
     </div>
-    <header className="page-heading"><div><span className="eyebrow">Center workspace</span><h1>센터 업무</h1><p>업무의 흐름을 확인하고, 필요한 일을 차근차근 처리합니다.</p></div><button type="button" className="secondary-button" disabled={loading || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void reload()}><RefreshCw size={16} className={loading ? 'spin' : ''}/>목록 새로고침</button></header>
-    {error && <div className="error-banner" role="alert">{error}<button type="button" className="secondary-button" onClick={() => void reload()} disabled={loading}>다시 불러오기</button></div>}
+    <header className="page-heading"><div><span className="eyebrow">Center workspace</span><h1>센터 업무</h1><p>업무의 흐름을 확인하고, 필요한 일을 차근차근 처리합니다.</p></div><button type="button" className="secondary-button" disabled={loading || saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void reload(true)}><RefreshCw size={16} className={loading ? 'spin' : ''}/>목록 새로고침</button></header>
+    {error && <div className="error-banner" role="alert">{error}<button type="button" className="secondary-button" onClick={() => void reload(true)} disabled={loading}>다시 불러오기</button></div>}
     {notice && <div className="work-notice" role="status">{notice}{lastResolved && <button type="button" className="secondary-button" disabled={saving || quickBusy || journalBusy || Boolean(busyId)} onClick={() => void resolveTask(lastResolved)}>{lastResolved.status === 'done' ? '완료 되돌리기' : '다시 완료'}</button>}</div>}
     {!context ? <div className="empty-state"><ClipboardList size={28}/><p>{loading ? '업무 공간을 준비하고 있습니다.' : '구성원을 불러온 뒤 업무를 등록할 수 있습니다.'}</p></div> : <>
       {mapOpen ? <WorkTaskMap onBusy={setSaving} context={context} date={date} onChanged={() => setCalendarRevision(n=>n+1)}/> : systemOpen ? designWorkspace : <>

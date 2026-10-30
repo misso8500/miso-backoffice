@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { workCache } from './lib/work-cache';
+import { useWorkCacheUpdates } from './lib/use-work-cache';
 import { workCalendarRange } from '../shared/work-calendar.mjs';
 import { calendarDayEntries, type CalendarEntry } from '../shared/work-calendar-entries.mjs';
 import { loadWorkCalendar, workToday, type WorkCalendarData, type WorkContext, type WorkTask } from './lib/work-tasks';
@@ -12,6 +14,7 @@ const labels = { plan: '계획', execution: '수행', deadline: '마감' };
 const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
 export default function WorkCalendar({ context, tasks, date, view, assignee, revision, busy, editing, selectedId, onOpenTask, onComplete, onOpenDay, onSelectDate }: Props) {
   const { from, to, dates } = workCalendarRange(date, view);
+  const cachePath=`/api/work/calendar?${new URLSearchParams({from,to,assignee})}`;
   const [result, setResult] = useState<WorkCalendarData | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -19,11 +22,13 @@ export default function WorkCalendar({ context, tasks, date, view, assignee, rev
   const [expandedDay, setExpandedDay] = useState('');
   const [query, setQuery] = useState('');
   const agenda = useRef<HTMLElement>(null);
+  useWorkCacheUpdates<WorkCalendarData>(cachePath,setResult);
   useEffect(() => {
     if (expandedDay) requestAnimationFrame(() => agenda.current?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
   }, [expandedDay]);
   useEffect(() => {
-    let active = true; setLoading(true); setError(''); setResult(null);
+    const cached=workCache.peek<WorkCalendarData>(cachePath);
+    let active = true; setLoading(!cached); setError(''); setResult(cached ?? null);
     void loadWorkCalendar(from, to, assignee).then(data => { if (active) setResult(data); }).catch(cause => { if (active) setError(cause instanceof Error ? cause.message : '업무를 불러오지 못했습니다.'); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [from, to, assignee, revision, attempt]);

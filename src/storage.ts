@@ -1,6 +1,7 @@
 import {validatePlanResponse} from '../shared/validate-plan-response.mjs';
 import { getAuthHeaders, authFailureEvent } from "./auth";
 import { workOperationEvent } from './WorkOperationStatus';
+import { workCache, useWorkCacheIdentity, applyWorkMutation } from './lib/work-cache';
 import type {
   EmploymentContract,
   EmploymentContractInput,
@@ -17,13 +18,34 @@ export const API_UNAVAILABLE_MESSAGE =
   "API 서버에 연결할 수 없습니다. 터미널에서 `npm run api`를 실행한 뒤 다시 시도하세요.";
 
 export const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> => {
-  const tracked = path.startsWith('/api/work/') || path === '/api/recipients/bulk-drafts' || path === '/api/employment-contracts/bulk-drafts';
+  const method=(options?.method ?? 'GET').toUpperCase();
+  const cached=/^\/api\/work\/(?:context|tasks|task-maps|day|calendar|recurrences|categories)(?:[/?]|$)/.test(path) && method==='GET';
+  if(path.startsWith('/api/work/')) {
+    try { useWorkCacheIdentity(JSON.stringify(await getAuthHeaders())); }
+    catch(error) { workCache.clear(); throw error; }
+  }
+  const tracked = path.startsWith('/api/work/') && method!=='GET' || path === '/api/recipients/bulk-drafts' || path === '/api/employment-contracts/bulk-drafts';
   const id = crypto.randomUUID();
   const notify = (phase: 'start' | 'success' | 'error') => { if (tracked) window.dispatchEvent(new CustomEvent(workOperationEvent, { detail: { id, phase } })); };
   notify('start');
-  try { const result = await requestJsonImpl<T>(path, options); notify('success'); return result; }
-  catch (error) { notify('error'); throw error; }
+  try {
+    const result = cached ? await workCache.get<T>(path,()=>requestJsonImpl<T>(path,options),{force:options?.cache==='reload'||options?.cache==='no-store'}) : await requestJsonImpl<T>(path, options);
+    if(path.startsWith('/api/work/') && method!=='GET') applyWorkMutation(path,result);
+    notify('success'); return result;
+  }
+  catch (error) {
+    if(path.startsWith('/api/work/') && method!=='GET') workCache.invalidate(()=>true);
+    notify('error'); throw error;
+  }
 };
+
+if(typeof window!=='undefined') {
+  window.addEventListener(authFailureEvent,()=>workCache.clear());
+  window.addEventListener('miso-work-session-change',()=>workCache.clear());
+  const revalidate=async()=>{try {useWorkCacheIdentity(JSON.stringify(await getAuthHeaders()));await workCache.revalidate();}catch{workCache.clear();}};
+  window.addEventListener('focus',()=>{void revalidate();});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void revalidate();});
+}
 
 const requestJsonImpl = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   let response: Response;

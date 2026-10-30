@@ -4,6 +4,8 @@ import { workCategoryLabels, type WorkContext } from './lib/work-tasks';
 
 import { trafficBoard, trafficLabels, type TrafficState, type TrafficStep as Step, type TrafficTemplate as Template, type TrafficRun as Run, type TrafficNode } from '../shared/work-traffic.mjs';
 import DateInput from './DateInput';
+import { workCache } from './lib/work-cache';
+import { useWorkCacheUpdates } from './lib/use-work-cache';
 function Signal({ state }: { state: TrafficState }) {
   return <span className="traffic-signal" role="img" aria-label={trafficLabels[state]}>{(['red','yellow','green'] as const).map(color => <i key={color} className={state === color ? `lit ${color}` : ''}/>)}</span>;
 }
@@ -12,10 +14,10 @@ const presets = {
   event: { title: '신규 수급자 서비스 시작', category: 'recipient', steps: [{ title: '수급자 기본 정보·인정서 확인', guide: '수급자 관리에서 기본 정보와 인정 유효기간을 확인합니다.' }, { title: '계약·필수 서류 확인', guide: '수급자 문서에서 필요한 서식과 계약 서류를 확인합니다.' }, { title: '서비스 계획·담당자 연결', guide: '서비스 관리에서 제공 계획과 요양보호사 배정을 확인합니다.' }, { title: '첫 서비스 일정 안내', guide: '수급자와 담당자에게 시작 일정과 유의사항을 안내합니다.' }] }
 };
 export default function WorkTaskMap({ context, date, onChanged, mode = 'map', onBusy, onDirty, initialKind = 'monthly' }: { context: WorkContext; date: string; onChanged: () => void; mode?: 'map' | 'design'; onBusy?: (busy: boolean) => void; onDirty?: (dirty: boolean) => void; initialKind?: 'daily' | 'monthly' }) {
-  const [data, setData] = useState<{ templates: Template[]; runs: Run[]; nodes: TrafficNode[]; today: string }>({ templates: [], runs: [], nodes: [], today: '' });
+  const [data, setData] = useState<{ templates: Template[]; runs: Run[]; nodes: TrafficNode[]; today: string }>(() => workCache.peek(`/api/work/task-maps?month=${date.slice(0,7)}`) ?? { templates: [], runs: [], nodes: [], today: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(Boolean(workCache.peek(`/api/work/task-maps?month=${date.slice(0,7)}`)));
   const [design, setDesign] = useState(mode === 'design');
   const [folded, setFolded] = useState<Set<string>>(new Set());
   function toggleBranch(key: string) { setFolded(previous => { const next = new Set(previous); if(next.has(key)) next.delete(key); else next.add(key); return next; }); }
@@ -36,12 +38,13 @@ export default function WorkTaskMap({ context, date, onChanged, mode = 'map', on
   const [startDate, setStartDate] = useState(date);
   const [expanded, setExpanded] = useState('');
   const [actionTemplateId, setActionTemplateId] = useState('');
+  useWorkCacheUpdates<typeof data>(`/api/work/task-maps?month=${month}`,value=>{setData(value);setReady(true);});
   const actionLock = useRef(false);
   function applyRun(run: Run) { setData(previous=>{const runs=[run,...previous.runs.filter(r=>r.id!==run.id)];return {...previous,runs,nodes:trafficBoard(previous.templates,runs,month,previous.today)};}); }
   function applyTemplate(template: Template) { setData(previous=>{const templates=[...previous.templates.filter(t=>t.id!==template.id),template];return {...previous,templates,nodes:trafficBoard(templates,previous.runs,month,previous.today)};}); }
   useEffect(() => { onBusy?.(busy); return () => onBusy?.(false); }, [busy, onBusy]);
   useEffect(() => { onDirty?.(design && Boolean(title || editing)); return () => onDirty?.(false); }, [design, title, editing, onDirty]);
-  async function reload() { setData(await requestJson(`/api/work/task-maps?month=${month}`)); setReady(true); }
+  async function reload() { setData(await requestJson(`/api/work/task-maps?month=${month}`,{cache:'reload'})); setReady(true); }
   useEffect(() => { let active = true; void requestJson<typeof data>(`/api/work/task-maps?month=${month}`).then(value => { if (active) { setData(value); setReady(true); } }).catch(e => { if (active) setError(e.message); }); return () => { active = false; }; }, [month]);
   async function act(action: () => Promise<void>) { if(actionLock.current) return; actionLock.current=true; setBusy(true); setError(''); try { await action(); } catch (e) { setError(e instanceof Error ? e.message : '저장하지 못했습니다.'); } finally { actionLock.current=false; setBusy(false); } }
   const post = <T,>(path: string, body: unknown) => requestJson<T>(`/api/work/task-maps${path}`, { method: 'POST', body: JSON.stringify(body) });

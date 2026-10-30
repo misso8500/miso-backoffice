@@ -2,16 +2,19 @@ import { useEffect, useState } from 'react';
 import { requestJson } from './storage';
 import type { TrafficRun } from '../shared/work-traffic.mjs';
 import type { WorkContext } from './lib/work-tasks';
+import { useWorkCacheUpdates } from './lib/use-work-cache';
+import { workCache } from './lib/work-cache';
 
 export default function WorkBauChecklist({ date, assignee, context, onChanged, refresh = 0, status = 'all', query = '' }: { date: string; assignee: string; context: WorkContext; onChanged: () => void; refresh?: number; status?: string; query?: string }) {
-  const [runs, setRuns] = useState<TrafficRun[]>([]);
+  const [runs, setRuns] = useState<TrafficRun[]>(()=>workCache.peek<{runs:TrafficRun[]}>(`/api/work/task-maps?month=${date.slice(0,7)}`)?.runs ?? []);
+  useWorkCacheUpdates<{runs:TrafficRun[]}>(`/api/work/task-maps?month=${date.slice(0,7)}`,data=>setRuns(data.runs));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     let active = true;
     setError('');
-    setRuns([]);
+    setRuns(workCache.peek<{runs:TrafficRun[]}>(`/api/work/task-maps?month=${date.slice(0,7)}`)?.runs ?? []);
     void requestJson<{ runs: TrafficRun[] }>(`/api/work/task-maps?month=${date.slice(0,7)}`).then(data => { if(active) setRuns(data.runs); }).catch(error => { if(active) setError(error.message); });
     return () => { active = false; };
   }, [date, revision, refresh]);

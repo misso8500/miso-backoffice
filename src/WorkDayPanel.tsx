@@ -1,5 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type FormEvent } from 'react';
 import { RefreshCw, X } from 'lucide-react';
+import { workCache } from './lib/work-cache';
+import { useWorkCacheUpdates } from './lib/use-work-cache';
 import DateInput from './DateInput';
 import PlanExecutionActions from './PlanExecutionActions';
 import {
@@ -28,10 +30,13 @@ const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ co
   const dialog = useRef<HTMLDialogElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const scope = assignee === 'unassigned' ? 'all' : assignee;
+  const cachePath=`/api/work/day?${new URLSearchParams({date,assignee:scope})}`;
+  useWorkCacheUpdates<WorkDay>(cachePath,setDay);
   const performer = (id: string) => context.assignees.find(p => p.id === id)?.name ?? '이전 담당자';
   useEffect(() => {
     const current = ++generation.current;
-    setLoading(true); setError(''); setNotice(''); setUndo(null); setDay(null); quickRequests.current.clear();
+    const cached=workCache.peek<WorkDay>(cachePath);
+    setLoading(!cached); setError(''); setNotice(''); setUndo(null); setDay(cached ?? null); quickRequests.current.clear();
     void loadWorkDay(date, scope).then(value => { if (generation.current === current) setDay(value); }).catch(cause => { if (generation.current === current) setError(errorText(cause)); }).finally(() => { if (generation.current === current) setLoading(false); });
     return () => { generation.current++; };
   }, [date, scope, attempt]);
@@ -104,9 +109,9 @@ const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ co
   }
 
   return <section className="work-day-panel" aria-label="선택일 계획과 실제 수행">
-    <header className="work-day-heading"><div><h2>계획과 실제 수행</h2><p>{date} · {scope === 'all' ? '전체 담당자' : performer(scope)}</p></div><button type="button" className="secondary-button" disabled={busy || loading} onClick={() => setAttempt(v => v+1)} aria-label="일간 기록 새로고침"><RefreshCw size={16}/></button></header>
+    <header className="work-day-heading"><div><h2>계획과 실제 수행</h2><p>{date} · {scope === 'all' ? '전체 담당자' : performer(scope)}</p></div><button type="button" className="secondary-button" disabled={busy || loading} onClick={() => { workCache.invalidate(key=>key===cachePath); setAttempt(v => v+1); }} aria-label="일간 기록 새로고침"><RefreshCw size={16}/></button></header>
     {assignee === 'unassigned' && <p className="work-help">담당자 미정 업무 보기입니다. 오른쪽 계획·수행은 전체 담당자를 표시합니다.</p>}
-    {error && <p className="work-day-error" role="alert">{error} <button type="button" disabled={busy || loading} onClick={() => setAttempt(v => v+1)}>최신 기록 불러오기</button></p>}
+    {error && <p className="work-day-error" role="alert">{error} <button type="button" disabled={busy || loading} onClick={() => { workCache.invalidate(key=>key===cachePath); setAttempt(v => v+1); }}>최신 기록 불러오기</button></p>}
     {notice && <div className="work-day-notice" role="status">{notice}{undo && <button type="button" className="secondary-button" disabled={busy} onClick={() => void undoExecution()}>수행 기록 되돌리기</button>}</div>}
     {loading ? <p role="status" className="work-day-empty">일간 기록을 불러오는 중입니다.</p> : !scopedDay ? <p className="work-day-empty">일간 기록을 확인할 수 없어 계획·수행 입력을 잠시 사용할 수 없습니다. 위 오류 원인을 해결한 뒤 최신 기록을 불러와 주세요.</p> : <>
       <div className="work-day-legend"><span>보라 · 계획</span><span>초록 · 실제 수행</span></div>

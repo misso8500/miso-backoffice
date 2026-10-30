@@ -54,9 +54,11 @@ try {
     await page.locator('.bau-designer').waitFor({state:'hidden'});
     assert.equal(savedDesign.steps[0].assigneeId,'a');assert.equal(savedDesign.steps[0].dueOffsetDays,2);
     await page.locator('.work-primary-tabs button').nth(2).click();await page.locator('.work-capture').waitFor();
-    await page.locator('.work-bau-bundle summary').click();
-    await page.locator('.work-bau-step input').click();
-    await page.waitForFunction(()=>document.querySelector('.work-bau-step input')?.checked);
+    const contractBundle=page.locator('.work-bau-bundle').filter({hasText:'Contract'});
+    await contractBundle.locator('summary').click();
+    assert.equal(reads,initialReads,'map, design and todo share the same month query');
+    await contractBundle.locator('input').click();
+    await page.waitForFunction(()=>document.querySelector('.work-bau-bundle[open] input')?.checked);
     assert.equal(run.version,2);
     const group=page.locator('.work-task-group').filter({hasText:'Simple task'});await group.locator('summary').click();
     // A collapsed group stays accessible without removing its task.
@@ -65,6 +67,12 @@ try {
     assert.equal(await page.locator('.work-secondary-tabs button').count(),4);
     await page.waitForFunction(()=>document.documentElement.scrollWidth<=innerWidth+2);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false);
+    const beforeFocus=reads;
+    run={...run,title:'Remote contract'};
+    await page.clock.fastForward(61000);
+    await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+    await page.locator('.work-bau-bundle summary').filter({hasText:'Remote contract'}).waitFor();
+    assert.equal(reads,beforeFocus+1,'focus refreshes one stale month request without blanking the list');
     assert.deepEqual(errors,[]);
     if(process.env.WORK_UI_SCREENSHOTS) await page.screenshot({path:`tmp/center-work-${viewport.width}.png`,fullPage:true});
     await page.close();
