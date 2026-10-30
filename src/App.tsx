@@ -2,6 +2,8 @@ import {summarizePlan} from './lib/recipient-plan-summary';
 import './dev-sidebar.css';
 import './dev-workspace.css';
 import WorkHub from './WorkHub';
+import RecipientServiceMonth from './RecipientServiceMonth';
+import CopayManagement from './CopayManagement';
 import StaffRecords from './StaffRecords';
 import SidebarGroup from './SidebarGroup';
 import RecipientPlanPanel from "./RecipientPlanPanel";
@@ -458,9 +460,31 @@ const dateInputLimits = { min: "1000-01-01", max: "9999-12-31" } as const;
 
 function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Promise<void> }) {
   const [recordsDirty, setRecordsDirty] = useState(false);
-  const [activeView, setActiveView] = useState<"recipients" | "employmentContracts" | "work" | "records">(
+  const [serviceDirty,setServiceDirty]=useState(false),[serviceBusy,setServiceBusy]=useState(false);
+  const [copayOpened, setCopayOpened] = useState(false);
+  const [copayDirty,setCopayDirty]=useState(false),[copayBusy,setCopayBusy]=useState(false);
+  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay">(
     "recipients"
   );
+  function setActiveView(next: typeof activeView) {
+    if(next!==activeView&&activeView==='copay'&&copayBusy)return;
+    if(next!==activeView && activeView==='recipientServices') {
+      if(serviceBusy)return;
+      if(serviceDirty&&!window.confirm('적용하지 않은 체크 변경을 버리고 이동할까요?'))return;
+    }
+    if(next==='copay')setCopayOpened(true);
+    setActiveViewState(next);
+  }
+  useEffect(()=>{
+    const warn=(event:BeforeUnloadEvent)=>{if(copayDirty||copayBusy){event.preventDefault();event.returnValue='';}};
+    window.addEventListener('beforeunload',warn);
+    return()=>window.removeEventListener('beforeunload',warn);
+  },[copayDirty,copayBusy]);
+  useEffect(()=>{
+    if(activeView==='copay'&&window.matchMedia('(max-width:720px)').matches){
+      document.querySelector('.copay-management-panel')?.scrollIntoView({block:'start'});
+    }
+  },[activeView]);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(null);
   const [operationalNameDraft, setOperationalNameDraft] = useState("");
@@ -1440,7 +1464,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           </div>
           <span className="sidebar-section-label">센터 운영</span>
           <nav className="view-tabs sidebar-group-navigation" aria-label="관리 메뉴">
-            <SidebarGroup title="수급자" active={activeView === "recipients"}>
+            <SidebarGroup title="수급자" active={activeView === "recipients" || activeView === "recipientServices" || activeView === "copay"}>
             <button
               type="button"
               className={activeView === "recipients" ? "is-active" : ""}
@@ -1454,7 +1478,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <Users size={16} />
               수급자 기초정보
             </button>
-</SidebarGroup>
+            <button type="button" className={activeView==='recipientServices'?'is-active':''} aria-current={activeView==='recipientServices'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('recipientServices');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>방문요양 서비스 관리</button>
+            <button type="button" className={activeView==='copay'?'is-active':''} aria-current={activeView==='copay'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('copay');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>본인부담금 관리</button>
+            </SidebarGroup>
             <SidebarGroup title="요양보호사, 사회복지사" active={activeView === "employmentContracts"}>
             <button
               type="button"
@@ -1496,7 +1522,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       {import.meta.env.DEV && <div className="development-indicator" role="note" aria-label="개발 환경">DEV · 개발 환경</div>}
 
       <main className="main-content">
-        {activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
+        {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy}/></section>}
+        {activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
           <>
         <section className="page-heading">
           <div>

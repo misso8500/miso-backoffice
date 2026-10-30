@@ -77,3 +77,41 @@ CREATE TABLE IF NOT EXISTS staff_leave_accounts (owner_id TEXT NOT NULL REFERENC
 CREATE TABLE IF NOT EXISTS staff_leave_plans (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES work_members(id), year TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','confirmed','used','cancelled')), version INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_staff_leave_owner ON staff_leave_plans(owner_id,year);
 CREATE TABLE IF NOT EXISTS staff_record_events (id TEXT PRIMARY KEY, actor_id TEXT REFERENCES work_members(id), owner_id TEXT NOT NULL REFERENCES work_members(id), kind TEXT NOT NULL, record_key TEXT NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS work_visit_tasks (
+  month TEXT NOT NULL,
+  recipient_id TEXT NOT NULL REFERENCES recipients(id),
+  task_id TEXT NOT NULL UNIQUE REFERENCES work_tasks(id),
+  PRIMARY KEY(month,recipient_id)
+);
+
+CREATE TABLE IF NOT EXISTS recipient_service_pauses (
+ id TEXT PRIMARY KEY,recipient_id TEXT NOT NULL REFERENCES recipients(id),start_date TEXT NOT NULL,
+ expected_return_date TEXT,reason TEXT NOT NULL,returned_date TEXT,version INTEGER NOT NULL,
+ created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recipient_active_pause ON recipient_service_pauses(recipient_id) WHERE returned_date IS NULL;
+CREATE TABLE IF NOT EXISTS work_visit_holds (
+ task_id TEXT NOT NULL REFERENCES work_tasks(id),pause_id TEXT NOT NULL REFERENCES recipient_service_pauses(id),released_at TEXT,
+ PRIMARY KEY(task_id,pause_id)
+);
+CREATE TABLE IF NOT EXISTS recipient_service_pause_events (
+ id TEXT PRIMARY KEY,pause_id TEXT NOT NULL REFERENCES recipient_service_pauses(id),actor_id TEXT NOT NULL REFERENCES work_members(id),
+ action TEXT NOT NULL,payload TEXT NOT NULL,created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS work_map_templates (id TEXT PRIMARY KEY, payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS work_map_runs (id TEXT PRIMARY KEY, run_key TEXT NOT NULL UNIQUE, work_date TEXT NOT NULL, payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS recipient_service_months (
+  month TEXT PRIMARY KEY,
+  recipient_ids TEXT NOT NULL DEFAULT '[]',
+  version INTEGER NOT NULL DEFAULT 0,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS recipient_service_rounding (
+  month TEXT NOT NULL,
+  recipient_id TEXT NOT NULL REFERENCES recipients(id),
+  payload TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  PRIMARY KEY(month,recipient_id)
+);

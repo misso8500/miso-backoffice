@@ -280,6 +280,44 @@ CREATE TABLE IF NOT EXISTS staff_leave_plans (id TEXT PRIMARY KEY, owner_id TEXT
 CREATE INDEX IF NOT EXISTS idx_staff_leave_owner ON staff_leave_plans(owner_id,year);
 CREATE TABLE IF NOT EXISTS staff_record_events (id TEXT PRIMARY KEY, actor_id TEXT REFERENCES work_members(id), owner_id TEXT NOT NULL REFERENCES work_members(id), kind TEXT NOT NULL, record_key TEXT NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL);
 
+CREATE TABLE IF NOT EXISTS work_visit_tasks (
+  month TEXT NOT NULL,
+  recipient_id TEXT NOT NULL REFERENCES recipients(id),
+  task_id TEXT NOT NULL UNIQUE REFERENCES work_tasks(id),
+  PRIMARY KEY(month,recipient_id)
+);
+
+CREATE TABLE IF NOT EXISTS recipient_service_pauses (
+ id TEXT PRIMARY KEY,recipient_id TEXT NOT NULL REFERENCES recipients(id),start_date TEXT NOT NULL,
+ expected_return_date TEXT,reason TEXT NOT NULL,returned_date TEXT,version INTEGER NOT NULL,
+ created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recipient_active_pause ON recipient_service_pauses(recipient_id) WHERE returned_date IS NULL;
+CREATE TABLE IF NOT EXISTS work_visit_holds (
+ task_id TEXT NOT NULL REFERENCES work_tasks(id),pause_id TEXT NOT NULL REFERENCES recipient_service_pauses(id),released_at TEXT,
+ PRIMARY KEY(task_id,pause_id)
+);
+CREATE TABLE IF NOT EXISTS recipient_service_pause_events (
+ id TEXT PRIMARY KEY,pause_id TEXT NOT NULL REFERENCES recipient_service_pauses(id),actor_id TEXT NOT NULL REFERENCES work_members(id),
+ action TEXT NOT NULL,payload TEXT NOT NULL,created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS work_map_templates (id TEXT PRIMARY KEY, payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS work_map_runs (id TEXT PRIMARY KEY, run_key TEXT NOT NULL UNIQUE, work_date TEXT NOT NULL, payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS recipient_service_months (
+  month TEXT PRIMARY KEY,
+  recipient_ids TEXT NOT NULL DEFAULT '[]',
+  version INTEGER NOT NULL DEFAULT 0,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS recipient_service_rounding (
+  month TEXT NOT NULL,
+  recipient_id TEXT NOT NULL REFERENCES recipients(id),
+  payload TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  PRIMARY KEY(month,recipient_id)
+);
+
 ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS roster_assignee_id TEXT REFERENCES work_assignees(id);
 ALTER TABLE work_tasks ADD COLUMN IF NOT EXISTS completed_at TEXT;
 CREATE TABLE IF NOT EXISTS work_plans (
@@ -368,3 +406,42 @@ REVOKE ALL ON TABLE staff_record_events FROM anon, authenticated;
 
 ALTER TABLE staff_record_events ADD COLUMN IF NOT EXISTS actor_id TEXT REFERENCES work_members(id);
 UPDATE staff_record_events SET actor_id=owner_id WHERE actor_id IS NULL;
+
+ALTER TABLE work_visit_tasks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON work_visit_tasks FROM anon, authenticated;
+
+ALTER TABLE recipient_service_pauses ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON recipient_service_pauses FROM anon, authenticated;
+
+ALTER TABLE work_visit_holds ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON work_visit_holds FROM anon, authenticated;
+
+ALTER TABLE recipient_service_pause_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON recipient_service_pause_events FROM anon, authenticated;
+ALTER TABLE work_map_templates ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_map_templates FROM anon, authenticated;
+ALTER TABLE work_map_runs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_map_runs FROM anon, authenticated;
+ALTER TABLE recipient_service_months ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON recipient_service_months FROM anon, authenticated;
+
+ALTER TABLE recipient_service_rounding ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON recipient_service_rounding FROM anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS copay_months (
+  month TEXT PRIMARY KEY,
+  version INTEGER NOT NULL DEFAULT 0,
+  payload TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS copay_events (
+  id TEXT PRIMARY KEY,
+  month TEXT NOT NULL REFERENCES copay_months(month),
+  version INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(month,version)
+);

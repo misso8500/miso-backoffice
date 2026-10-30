@@ -11,7 +11,7 @@ export type WorkReference = { id: string; type: 'recipient' | 'worker'; name: st
 export type WorkAssignee = { id: string; name: string };
 export type WorkContext = { me: WorkMember; members: WorkMember[]; assignees: WorkAssignee[]; references: WorkReference[]; categories: WorkCategory[]; categoryLabels?: Record<string, string>; canManageCategories?: boolean };
 export type WorkTask = {
-  id: string; requesterId: string; assigneeId: string | null; title: string; description: string;
+  onHold?: boolean; id: string; requesterId: string; assigneeId: string | null; title: string; description: string;
   category: WorkCategory; dueDate: string | null; related: WorkReference[]; status: 'open' | 'done' | 'cancelled'; completedAt: string | null;
   version: number; createdAt: string; updatedAt: string; updatedBy: string; canEdit: boolean;
 };
@@ -22,12 +22,12 @@ async function workRequest<T>(path: string, options?: RequestInit): Promise<T> {
     throw workApiError(error, import.meta.env.DEV);
   }
 }
-export const loadWorkContext = () => workRequest<WorkContext>('/api/work/context').then(context => {
+export const loadWorkContext = (force = false) => workRequest<WorkContext>('/api/work/context',force?{cache:'reload'}:undefined).then(context => {
   if (!Array.isArray(context.assignees)) throw new Error('담당자 목록을 갱신하려면 API 서버를 재시작해 주세요.');
   if (context.categoryLabels) Object.assign(workCategoryLabels, context.categoryLabels);
   return context;
 });
-export const loadWorkTasks = (assignee = 'all', status = 'open') => workRequest<WorkTask[]>(`/api/work/tasks?${new URLSearchParams({ assignee, status })}`);
+export const loadWorkTasks = (assignee = 'all', status = 'open', force = false) => workRequest<WorkTask[]>(`/api/work/tasks?${new URLSearchParams({ assignee, status })}`,force?{cache:'reload'}:undefined);
 export const createWorkTask = (input: WorkTaskInput) => workRequest<WorkTask>('/api/work/tasks', { method: 'POST', body: JSON.stringify(input) });
 export const updateWorkTask = (id: string, input: WorkTaskInput, version: number) => workRequest<WorkTask>(`/api/work/tasks/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ ...input, version }) });
 export const cancelWorkTask = (task: WorkTask) => workRequest<WorkTask>(`/api/work/tasks/${encodeURIComponent(task.id)}/cancel`, { method: 'POST', body: JSON.stringify({ version: task.version }) });

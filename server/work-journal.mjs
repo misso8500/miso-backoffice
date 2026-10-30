@@ -1,5 +1,6 @@
 import { workError, newWorkId } from './work-tasks.mjs';
 import { validateWorkCategory } from './work-recurrence.mjs';
+import { assertVisitAvailable } from './service-pauses.mjs';
 
 export function workDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value < '1000-01-01' || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) throw workError(400, '실제 달력 날짜를 지정해 주세요.');
@@ -96,6 +97,7 @@ export function createWorkJournalStore(transaction, resolveRelated) {
       const linkedTaskId = taskId(body?.taskId);
       return transaction(async q => {
         const task = await lockTask(q, linkedTaskId);
+        await assertVisitAvailable(q,linkedTaskId);
         if (!task) throw workError(404, '업무를 찾을 수 없습니다.');
         const retry = (await q('SELECT * FROM work_plans WHERE id=$1', [id])).rows[0];
         if (retry) {
@@ -140,6 +142,7 @@ export function createWorkJournalStore(transaction, resolveRelated) {
         }
         if (body.executionVersion !== 0) throw workError(409, '기존 수행이 변경되거나 취소되었습니다. 다시 확인해 주세요.');
         const task = await lockTask(q, plan.task_id);
+        await assertVisitAvailable(q,plan.task_id);
         if (task.status === 'cancelled') throw workError(409, '취소된 업무입니다.');
         const now = new Date().toISOString();
         const row = (await q(`INSERT INTO work_executions(id,task_id,plan_id,assignee_id,work_date,period,content,snapshot,status,version,created_by,updated_by,created_at,updated_at)
@@ -155,6 +158,7 @@ export function createWorkJournalStore(transaction, resolveRelated) {
         let metadata;
         if (linkedTaskId) {
           const task = await lockTask(q, linkedTaskId);
+          await assertVisitAvailable(q,linkedTaskId);
           if (!task) throw workError(404, '업무를 찾을 수 없습니다.');
           if (task.status === 'cancelled') throw workError(409, '취소된 업무입니다.');
           metadata = taskSnapshot(task);

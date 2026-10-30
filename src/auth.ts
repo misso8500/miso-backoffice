@@ -9,9 +9,16 @@ export const getAuthClient = () => {
       const response = await fetch("/api/auth/config", { cache: "no-store", signal: AbortSignal.timeout(15000) });
       if (!response.ok) throw new Error("로그인을 준비하지 못했습니다. 관리자에게 문의해 주세요.");
       const { url, publishableKey } = await response.json();
-      return createClient(url, publishableKey, {
+      const client = createClient(url, publishableKey, {
         auth: { flowType: "pkce", detectSessionInUrl: true, persistSession: true, autoRefreshToken: true }
       });
+      let previousUser: string | undefined;
+      client.auth.onAuthStateChange((_event,session)=>{
+        const next=session?.user.id;
+        if(previousUser!==next) window.dispatchEvent(new Event('miso-work-session-change'));
+        previousUser=next;
+      });
+      return client;
     })().catch((error) => {
       clientPromise = undefined;
       throw error;

@@ -75,7 +75,7 @@ export default function WorkTaskDetails({ task, context, date, activity, disable
   const requestKey = useRef('');
   const editor = useRef<HTMLFormElement>(null);
   const errorBox = useRef<HTMLParagraphElement>(null);
-  const editable = task.canEdit && task.status !== 'cancelled';
+  const editable = task.canEdit && !task.onHold && task.status !== 'cancelled';
   const blocked = disabled || busy;
   const name = (id: string | null) => context.assignees.find(p => p.id === id)?.name ?? context.members.find(p => p.id === id)?.name ?? (id ? '이전 담당자' : '담당자 미정');
   useEffect(() => { onEditing(Boolean(field) || planDirty); return () => onEditing(false); }, [field, planDirty, onEditing]);
@@ -160,7 +160,7 @@ export default function WorkTaskDetails({ task, context, date, activity, disable
     <section className="work-detail-section" aria-label="할 날짜 지정"><h4>할 날짜</h4>
       {activePlans.map(row => <div className="work-inline-plan" key={row.id}><span>{row.date} · {name(row.assigneeId)}<small>{workPeriods[row.period]}</small></span>{editable && <button type="button" className="work-field-pencil" aria-label={`${row.date} ${name(row.assigneeId)} 계획 취소`} disabled={blocked || Boolean(field)} onClick={() => void removePlan(row)}><X size={13}/></button>}</div>)}
       {!activePlans.length && <p className="work-inline-description">선택일에 등록된 계획이 없습니다.</p>}
-      {editable && task.status === 'open' && <form className="work-inline-schedule" onSubmit={event => { event.preventDefault(); void plan(); }}><fieldset disabled={blocked || Boolean(field)}>
+      {editable && !task.onHold && task.status === 'open' && <form className="work-inline-schedule" onSubmit={event => { event.preventDefault(); void plan(); }}><fieldset disabled={blocked || Boolean(field)}>
         <label>할 날짜<DateInput required value={planDate} onChange={event => { setPlanDate(event.target.value); setPlanDirty(true); request.current = crypto.randomUUID(); }}/></label>
         <label>계획 담당자<select required value={planOwner} onChange={event => { setPlanOwner(event.target.value); setPlanDirty(true); request.current = crypto.randomUUID(); }}><option value="">담당자 선택</option>{context.assignees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
         <label>시간대<select value={planPeriod} onChange={event => { setPlanPeriod(event.target.value as WorkPeriod); setPlanDirty(true); request.current = crypto.randomUUID(); }}>{Object.entries(workPeriods).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>

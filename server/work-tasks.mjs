@@ -51,6 +51,43 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
+    if(path==='/api/work/copay/import') {
+      if(request.method!=='POST')throw workError(405,'지원하지 않는 요청입니다.');
+      sendJson(response,200,await store.importCopay(await readWorkBody(request,3000000),current));return true;
+    }
+    if(path==='/api/work/copay') {
+      const month=new URL(request.url,'http://localhost').searchParams.get('month');
+      if(request.method==='GET')sendJson(response,200,await store.copayMonth(month));
+      else if(request.method==='PUT')sendJson(response,200,await store.saveCopay(month,await readWorkBody(request,1500000),current));
+      else throw workError(405,'지원하지 않는 요청입니다.');
+      return true;
+    }
+    if(path==='/api/work/service-rounding') {
+      if(request.method!=='PUT')throw workError(405,'지원하지 않는 요청입니다.');
+      const body=await readWorkBody(request);
+      sendJson(response,200,await store.saveServiceRounding(new URL(request.url,'http://localhost').searchParams.get('month'),body.recipientId,body,current));return true;
+    }
+    if(path==='/api/work/service-month') {
+      const month=new URL(request.url,'http://localhost').searchParams.get('month');
+      if(request.method==='GET')sendJson(response,200,await store.recipientServiceMonth(month));
+      else if(request.method==='PUT')sendJson(response,200,await store.saveRecipientServiceMonth(month,await readWorkBody(request,400000),current));
+      else throw workError(405,'지원하지 않는 요청입니다.');
+      return true;
+    }
+    const pauseRoute=/^\/api\/work\/recipient-services\/([^/]+)\/(pause|resume)$/.exec(path);
+    if(pauseRoute){
+      if(request.method!=='POST')throw workError(405,'지원하지 않는 요청입니다.');
+      const body=await readWorkBody(request);
+      sendJson(response,200,await store[pauseRoute[2]==='pause'?'pauseService':'resumeService'](decodeURIComponent(pauseRoute[1]),body,current));
+      return true;
+    }
+    const visitRoute=/^\/api\/work\/visits\/(\d{4}-\d{2})$/.exec(path);
+    if(visitRoute){
+      if(request.method==='GET')sendJson(response,200,await store.visitMonth(visitRoute[1]));
+      else if(request.method==='POST')sendJson(response,200,await store.startVisit(visitRoute[1],await readWorkBody(request),current));
+      else throw workError(405,'지원하지 않는 요청입니다.');
+      return true;
+    }
     if (path.startsWith('/api/work/records/')) {
       const recordCurrent = await store.staffRecordContext(new URL(request.url, 'http://localhost').searchParams.get('staffId'), current);
       const workspaceRoute = /^\/api\/work\/records\/workspace\/(\d{4}-\d{2})$/.exec(path);
@@ -66,6 +103,15 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       else if (accountRoute?.[2] && request.method === 'PUT') sendJson(response, 200, await store.saveLeaveAccount(accountRoute[1], await readWorkBody(request), recordCurrent));
       else if (leaveRoute && (request.method === 'POST' && !leaveRoute[1] || request.method === 'PUT' && leaveRoute[1])) sendJson(response, 200, await store.saveLeavePlan(leaveRoute[1] ?? null, await readWorkBody(request), recordCurrent));
       else throw workError(404, '근무기록 API를 찾을 수 없습니다.');
+      return true;
+    }
+    const mapCheck = /^\/api\/work\/task-maps\/runs\/([^/]+)\/check$/.exec(path);
+    if (path === '/api/work/task-maps' || path === '/api/work/task-maps/start' || mapCheck) {
+      if (path === '/api/work/task-maps' && request.method === 'GET') sendJson(response, 200, await store.taskMaps(new URL(request.url, 'http://localhost').searchParams.get('month') ?? undefined, true));
+      else if (request.method === 'POST') {
+        const body = await readWorkBody(request, 120000);
+        sendJson(response, 200, mapCheck ? await store.checkTaskMap(mapCheck[1], body, current) : path.endsWith('/start') ? await store.startTaskMap(body, current) : await store.saveTaskMap(body, current));
+      } else throw workError(405, '지원하지 않는 요청입니다.');
       return true;
     }
     const categoryRoute = /^\/api\/work\/categories(?:\/([^/]+))?$/.exec(path);

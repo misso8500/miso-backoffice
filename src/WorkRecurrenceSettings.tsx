@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { requestJson } from './storage';
 import { recurrenceDates, recurrenceTitle, recurrenceToday } from '../shared/work-recurrence.mjs';
 import { workCategoryLabels, type WorkContext } from './lib/work-tasks';
+import { useWorkCacheUpdates } from './lib/use-work-cache';
 
 type Rule = { id?: string; ownerId?: string; assigneeId: string; title: string; description: string; category: string; kind: 'monthly' | 'daily'; dueDay: number; includeSaturday: boolean; includeSunday: boolean; includeLeave: boolean; active: boolean; startMonth?: string; version?: number; requestId?: string };
 type Category = { id: string; name: string; active: number; version: number };
@@ -17,12 +18,14 @@ export default function WorkRecurrenceSettings({ context, onChanged, onBusy, onD
   const [section, setSection] = useState<'rules' | 'categories'>('rules');
   const [leaveLinked, setLeaveLinked] = useState<string[]>([]);
   const lock = useRef(false), generation = useRef(0);
+  useWorkCacheUpdates<{rules:Rule[];month:string;leaveLinkedAssignees?:string[]}>('/api/work/recurrences',value=>{setRules(value.rules);setMonth(value.month);setLeaveLinked(value.leaveLinkedAssignees ?? []);});
+  useWorkCacheUpdates<{categories:Category[];canManage:boolean}>('/api/work/categories',value=>{setCategories(value.categories);setCanManage(value.canManage);});
   useEffect(() => { onBusy(busy); return () => onBusy(false); }, [busy, onBusy]);
   useEffect(() => { onDirty(Boolean(form.title || form.description || form.assigneeId || categoryName)); return () => onDirty(false); }, [form, categoryName, onDirty]);
-  async function reload() {
+  async function reload(force = false) {
     const run = ++generation.current; setLoading(true); setError('');
     try {
-      const [recurrence, catalog] = await Promise.all([requestJson<{rules: Rule[]; month: string; leaveLinkedAssignees?: string[]}>('/api/work/recurrences'), requestJson<{categories: Category[]; canManage: boolean}>('/api/work/categories')]);
+      const [recurrence, catalog] = await Promise.all([requestJson<{rules: Rule[]; month: string; leaveLinkedAssignees?: string[]}>('/api/work/recurrences',force?{cache:'reload'}:undefined), requestJson<{categories: Category[]; canManage: boolean}>('/api/work/categories',force?{cache:'reload'}:undefined)]);
       if (run !== generation.current) return;
       setRules(recurrence.rules); setMonth(recurrence.month); setCategories(catalog.categories); setCanManage(catalog.canManage); setLeaveLinked(recurrence.leaveLinkedAssignees ?? []);
     } catch (cause) { if (run === generation.current) setError(errorText(cause)); }
@@ -52,7 +55,7 @@ export default function WorkRecurrenceSettings({ context, onChanged, onBusy, onD
   }); }
   const dates = form.title.trim() && Number.isInteger(form.dueDay) && form.dueDay >= 1 && form.dueDay <= 31 ? recurrenceDates(form, month) : [];
   return <section className="work-system" aria-label="반복 업무">
-    <header className="work-system-heading"><div><h2>반복 업무</h2><p>이번 달 {month} · 규칙은 나만 관리하고, 생성된 업무는 공동업무에서 함께 처리합니다.</p></div><button type="button" className="secondary-button" disabled={busy || loading} onClick={() => void reload()}><RefreshCw size={15}/>새로고침</button></header>
+    <header className="work-system-heading"><div><h2>반복 업무</h2><p>이번 달 {month} · 규칙은 나만 관리하고, 생성된 업무는 공동업무에서 함께 처리합니다.</p></div><button type="button" className="secondary-button" disabled={busy || loading} onClick={() => void reload(true)}><RefreshCw size={15}/>새로고침</button></header>
     <nav className="work-system-tabs" aria-label="반복 업무 설정"><button type="button" aria-pressed={section === 'rules'} onClick={() => setSection('rules')}>나의 반복 업무</button><button type="button" aria-pressed={section === 'categories'} onClick={() => setSection('categories')}>카테고리 관리</button></nav>
     {error && <p className="work-day-error" role="alert">{error} 입력 내용은 유지됩니다.</p>}{notice && <p className="work-notice" role="status">{notice}</p>}
     {loading ? <p role="status">설정을 불러오는 중입니다.</p> : section === 'rules' ? <div className="work-system-layout"><form className="work-system-form" onSubmit={event => void save(event)}><h3>{form.id ? '반복 규칙 수정' : '반복 업무 만들기'}</h3><fieldset disabled={busy}>
