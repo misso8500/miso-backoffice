@@ -1,0 +1,61 @@
+/* Shared by React screens and the isolated copay frame. */
+.page-heading.workspace-page-heading {
+  --page-title-color: #39333f;
+  --page-description-color: #78717f;
+  --page-heading-border: #e5dfed;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin: 0 0 24px;
+  padding: 0 0 20px;
+  border: 0;
+  border-bottom: 1px solid var(--page-heading-border);
+  background: transparent;
+  box-shadow: none;
+  color: var(--page-title-color);
+}
+.workspace-page-heading > div:first-child { min-width: 0; flex: 1 1 320px; }
+.page-heading.workspace-page-heading h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.7px;
+  color: var(--page-title-color);
+  overflow-wrap: anywhere;
+}
+.page-heading.workspace-page-heading p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.7;
+  letter-spacing: 0;
+  color: var(--page-description-color);
+  overflow-wrap: anywhere;
+}
+.workspace-page-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.page-heading.workspace-page-heading :is(button, .primary-button, .secondary-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 9px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+.page-heading.workspace-page-heading :is(.primary-button, .primary) { border: 1px solid #6f5a9f; background: #6f5a9f; color: #fff; box-shadow: none; }
+.page-heading.workspace-page-heading :is(.secondary-button, button:not(.primary-button, .primary)) { border: 1px solid #e1d9eb; background: #fff; color: #6f5a9f; box-shadow: none; }
+.page-heading.workspace-page-heading :is(.primary-button, .primary):hover:not(:disabled) { background: #604b8d; border-color: #604b8d; }
+.page-heading.workspace-page-heading :is(.secondary-button, button:not(.primary-button, .primary)):hover:not(:disabled) { background: #f0eaf8; }
+@media(max-width:620px) {
+  .page-heading.workspace-page-heading { flex-direction: column; align-items: stretch; gap: 16px; padding-bottom: 18px; margin-bottom: 20px; }
+  .workspace-page-heading > div:first-child { flex: 0 1 auto; }
+  .page-heading.workspace-page-heading h1 { font-size: 24px; letter-spacing: -0.5px; }
+  .workspace-page-heading-actions { justify-content: flex-start; }
+  .workspace-page-heading-actions > .heading-actions { width: 100%; }
+}

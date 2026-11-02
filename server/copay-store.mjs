@@ -2,6 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {workError} from './work-tasks.mjs';
 import {parseCopayWorkbook} from './copay-import.mjs';
 import {visibleCareNumber} from './recipient-drafts.mjs';
+import {recipientNotDeleted} from './recipient-deletions.mjs';
 
 const monthKey=v=>{if(typeof v!=='string'||!/^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(v))throw workError(400,'조회 연월을 확인해 주세요.');return v;};
 const empty=()=>({rows:[],filename:'',warnings:[],hash:'',meta:{provider:'미소 노인재가복지센터',code:'',business:'',address:'',bank:'',representative:''}});
@@ -19,7 +20,17 @@ export function validateCopayPayment(input,due){
 export function createCopayStore(transaction){
   const select=async(q,month,lock=false)=>(await q(`SELECT * FROM copay_months WHERE month=$1${lock?(q.forUpdate||''):''}`,[month])).rows[0];
   const list=async q=>(await q('SELECT month,version FROM copay_months ORDER BY month DESC',[])).rows.map(r=>({month:r.month,version:Number(r.version)}));
-  const people=async q=>(await q('SELECT id,name,long_term_care_number FROM recipients ORDER BY name,id',[])).rows;
+  const people=async q=>(await q(`SELECT id,name,long_term_care_number,operational_name FROM recipients WHERE ${recipientNotDeleted()} ORDER BY name,id`,[])).rows;
+  async function withRecipientLinks(q,data){
+    const recipients=await people(q);
+    const deleted=new Set((await q('SELECT recipient_id FROM recipient_deletions',[])).rows.map(r=>r.recipient_id));
+    return {...data,rows:data.rows.map(row=>{
+      if(deleted.has(row.recipientId))return {...row,recipientLink:{recipientId:null,operationalName:'',status:'deleted',candidateCount:0}};
+      const linked=recipients.find(p=>p.id===row.recipientId);
+      const candidates=linked?[]:recipients.filter(p=>Boolean(row.code&&p.long_term_care_number===row.code)||normalizeName(p.name)===normalizeName(row.name));
+      return {...row,...(linked?{code:visibleCareNumber(linked.long_term_care_number)}:{}),recipientLink:{recipientId:linked?.id||null,operationalName:linked?.operational_name?.trim()||'',status:linked?'linked':candidates.length?'unlinked':'unregistered',candidateCount:candidates.length}};
+    })};
+  }
   async function write(q,month,body,current,kind,mutate){
     if(!Number.isInteger(body.version)||body.version<0)throw workError(400,'조회 버전이 필요합니다. 새로고침해 주세요.');
     const now=new Date().toISOString();
@@ -31,10 +42,10 @@ export function createCopayStore(transaction){
     const saved=(await q('UPDATE copay_months SET payload=$1,version=version+1,updated_by=$2,updated_at=$3 WHERE month=$4 AND version=$5 RETURNING *',[JSON.stringify(payload),current.me.id,now,month,body.version])).rows[0];
     if(!saved)throw workError(409,'자료가 변경되었습니다. 새로고침해 주세요.');
     await q('INSERT INTO copay_events(id,month,version,kind,payload,actor_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[randomUUID(),month,saved.version,kind,JSON.stringify(payload),current.me.id,now]);
-    return {...unpack(month,saved),months:await list(q)};
+    return withRecipientLinks(q,{...unpack(month,saved),months:await list(q)});
   }
   return {
-    copayMonth(month){monthKey(month);return transaction(async q=>({...unpack(month,await select(q,month)),months:await list(q)}));},
+    copayMonth(month){monthKey(month);return transaction(async q=>withRecipientLinks(q,{...unpack(month,await select(q,month)),months:await list(q)}));},
     async importCopay(body,current){
       if(typeof body.file!=='string'||body.file.length>2800000||!/^[A-Za-z0-9+/]*={0,2}$/.test(body.file))throw workError(400,'2MB 이하의 엑셀 파일을 선택해 주세요.');
       const parsed=await parseCopayWorkbook(Buffer.from(body.file,'base64'),safeText(body.filename,200));
@@ -48,7 +59,7 @@ export function createCopayStore(transaction){
           if(chosen&&!p)throw workError(400,'연결할 수급자를 찾을 수 없습니다.');
           if(body.apply===true&&p&&used.has(p.id))throw workError(400,'한 수급자를 여러 행에 연결할 수 없습니다.');
           if(p)used.add(p.id);
-          Object.assign(r,{recipientId:p?.id||null,code:p?visibleCareNumber(p.long_term_care_number):(r.code||''),match:p?'linked':candidates.length>1?'ambiguous':'unmatched'});
+          Object.assign(r,{sourceCode:r.code||'',recipientId:p?.id||null,code:p?visibleCareNumber(p.long_term_care_number):(r.code||''),match:p?'linked':candidates.length>1?'ambiguous':'unmatched'});
         }
         const duplicates=new Set();for(const r of parsed.rows){const key=identity(r);if(body.apply===true&&duplicates.has(key))throw workError(400,'동명이인 행은 수급자 명부에 각각 연결해 주세요.');duplicates.add(key);}
         if(body.apply!==true)return {...parsed,version:Number((await select(q,parsed.month))?.version||0),recipients:recipients.map(p=>({id:p.id,name:p.name})),unmatched:parsed.rows.filter(r=>!r.recipientId).length};
@@ -63,10 +74,18 @@ export function createCopayStore(transaction){
     },
     saveCopay(month,body,current){
       monthKey(month);
-      if(body.changes===undefined&&!body.review&&!body.meta)throw workError(400,'저장할 변경 내용이 없습니다.');
-      return transaction(q=>write(q,month,body,current,'update',old=>{
+      if(body.changes===undefined&&!body.review&&!body.meta&&!body.link)throw workError(400,'저장할 변경 내용이 없습니다.');
+      return transaction(q=>write(q,month,body,current,body.link?'recipient_linked':'update',async old=>{
         if(!old.rows.length)throw workError(400,'먼저 종합현황 파일을 가져와 주세요.');
         const rows=old.rows.map(r=>({...r}));
+        if(body.link){
+          const r=rows.find(r=>r.id===body.link.id),recipients=await people(q),p=recipients.find(p=>p.id===body.link.recipientId);
+          if(!r||!p)throw workError(400,'연결할 종합현황 행과 수급자를 확인해 주세요.');
+          if(r.recipientId&&r.recipientId!==p.id&&recipients.some(p=>p.id===r.recipientId))throw workError(409,'이 행은 이미 다른 수급자와 연결되어 있습니다. 최신 연결을 확인해 주세요.');
+          if(rows.some(other=>other.id!==r.id&&other.recipientId===p.id))throw workError(400,'이 수급자는 이 달의 다른 행에 이미 연결되어 있습니다.');
+          const code=visibleCareNumber(p.long_term_care_number),changed=r.recipientId!==p.id||r.code!==code;
+          Object.assign(r,{sourceCode:r.sourceCode??r.code??'',recipientId:p.id,code,match:'linked',...(changed?{statementReviewed:false,receiptReviewed:false}:{})});
+        }
         if(body.changes!==undefined){
           if(!Array.isArray(body.changes)||!body.changes.length||body.changes.length>5000)throw workError(400,'저장할 수납 입력을 확인해 주세요.');
           const seen=new Set();

@@ -1,3 +1,4 @@
+import PageHeading from './PageHeading';
 import ServicePauseControls,{type ServicePause} from './ServicePauseControls';
 import { useEffect, useRef, useState } from 'react';
 import { requestJson } from './storage';
@@ -21,7 +22,7 @@ export default function WorkVisits({onBusy}:{onBusy:(busy:boolean)=>void}){
   const rows=data?.rows??[],unfinished=rows.filter(row=>row.task?.status==='open'&&!row.task.onHold&&!row.servicePause),done=rows.filter(row=>row.task?.status==='done');
   const urgency=visitUrgency(month,workToday());
   const visible=rows.filter(row=>row.name.includes(query.trim())&&(filter==='all'||filter==='paused'&&Boolean(row.servicePause||row.task?.onHold)||filter==='unassigned'&&!row.task&&!row.servicePause||filter==='open'&&row.task?.status==='open'&&!row.task.onHold&&!row.servicePause||filter!=='open'&&filter===row.task?.status));
-  return <section className="work-visits"><header className="page-heading"><div><span className="eyebrow">ROUNDING</span><h1>라운딩 관리</h1><p>계약 명단에서 라운딩 담당자를 지정하고, 연결된 할일로 라운딩 완료를 확인합니다.</p></div><button className="secondary-button" type="button" disabled={busy||loading} onClick={()=>setRevision(value=>value+1)}>새로고침</button></header>
+  return <section className="work-visits"><PageHeading title="라운딩 관리" description="계약 명단에서 라운딩 담당자를 지정하고, 연결된 할일로 라운딩 완료를 확인합니다."><button className="secondary-button" type="button" disabled={busy||loading} onClick={()=>setRevision(value=>value+1)}>새로고침</button></PageHeading>
     <div className="work-visit-controls"><label>조회 월<input aria-label="라운딩 조회 월" type="month" min="1000-01" max="9999-12" value={month} disabled={busy} onChange={event=>{if(event.target.value){setMonth(event.target.value);setNotice('');setOwners({});}}}/></label><label>이름 검색<input value={query} onChange={event=>setQuery(event.target.value)}/></label><label>진행 상태<select value={filter} onChange={event=>setFilter(event.target.value)}><option value="all">전체</option><option value="unassigned">할일 생성 전</option><option value="open">미완료</option><option value="paused">일시정지·보류</option><option value="done">완료</option><option value="cancelled">취소됨</option></select></label></div>
     {error&&<p role="alert" className="work-day-error">{error}<button type="button" disabled={busy} onClick={()=>setRevision(value=>value+1)}>다시 불러오기</button></p>}{notice&&<p role="status" className="work-notice">{notice}</p>}
     <p className="work-visit-guidance">계약·서비스 기간 기준 명단입니다. 일시정지를 등록하면 미완료 라운딩이 보류됩니다. 복귀 예정일은 알림이며 실제 복귀를 처리해야 재개됩니다. 서비스 상태 변경은 현재 월에서 입력해 주세요.</p>

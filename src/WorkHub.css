@@ -600,3 +600,19 @@
   .traffic-results .traffic-tree { border-left: 0; border-top: 2px solid var(--traffic-line); padding: 20px 0 0; margin-left: 0; }
   .traffic-results .traffic-branch::before { width: 2px; height: 20px; left: 50%; top: -20px; }
 }
+.work-day-summary { display: flex; flex-wrap: wrap; gap: 10px 24px; padding: 14px 18px; color: #4e3c72; background: #ece3fb; border-bottom: 1px solid #d8c8ef; }
+.work-day-summary span { font-size: 13px; }
+.work-hub .work-day-panel { border: 1px solid #c7b1e5; box-shadow: 0 3px 14px #5032700a; }
+.work-day-panel .work-day-heading { background: #f1eafa; }
+.work-day-panel .work-day-row > .work-day-cell:nth-child(2) { background: #f4effc; }
+.work-day-panel .work-day-row > .work-day-cell:nth-child(3) { background: #eaf5ee; }
+.work-day-panel .work-day-period { background: #f0edf4; color: #574565; }
+.work-hub .work-task-section .work-task-group { border: 1px solid #ddd5e7; border-radius: 10px; overflow: hidden; background: #f5f3f8; margin-bottom: 12px; }
+.work-hub .work-task-section .work-task-group > summary { padding: 12px 14px; background: #eae5f0; color: #51425f; }
+.work-hub .work-task-group[data-group="기한 지남"] > summary { background: #fbe4df; color: #8b3d2c; }
+.work-hub .work-task-group[data-group="선택일 할 일"] > summary { background: #e6dcf8; color: #55357d; }
+.work-hub .work-task-group[data-group="완료한 업무"] > summary { background: #deefe5; color: #32664a; }
+.work-hub .work-task-group[data-group="취소한 업무"] > summary { background: #e7e7eb; color: #62616b; }
+.work-hub .work-task-group .work-task-row { margin: 0 8px; background: #fff; }
+.work-hub form.work-capture { background: #f4f6fb; border-color: #d8deeb; }
+.work-hub .work-records-section { margin: 0 0 24px; }

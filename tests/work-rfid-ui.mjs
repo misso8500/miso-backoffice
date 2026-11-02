@@ -1,0 +1,91 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'vite';
+import { pathToFileURL } from 'node:url';
+import { emptyRfidSettings } from '../shared/work-rfid.mjs';
+const { chromium } = await import(process.env.WORK_UI_PLAYWRIGHT_MODULE ? pathToFileURL(process.env.WORK_UI_PLAYWRIGHT_MODULE).href : 'playwright-core');
+const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
+await server.listen();
+let browser;
+try {
+  browser = await chromium.launch({ executablePath: process.env.WORK_UI_CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
+  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+    const page = await browser.newPage({ viewport }), errors = [], documents = new Map();
+    let failNext = false, saves = 0;
+    await page.clock.install({ time: new Date('2026-11-02T03:00:00Z') });
+    page.on('pageerror', e => errors.push(e.message));
+    await page.route('**/src/auth.ts', r => r.fulfill({ contentType: 'application/javascript', body: 'export const getAuthHeaders=async()=>({});export const authFailureEvent="test";' }));
+    await page.route('**/api/work/**', async route => {
+      const url = new URL(route.request().url()), method = route.request().method();
+      if (url.pathname.endsWith('/rfid')) {
+        const month = url.searchParams.get('month');
+        const blank = () => ({ version: 0, settings: emptyRfidSettings(), records: {} });
+        if (method === 'GET') return route.fulfill({ json: { month, rows: [{ id: 'a', name: '김미소', operationalName: '오전 방문', enabled: true, selected: true, serviceStartDate: '2026-01-01', serviceEndDate: '2026-12-31', document: documents.get(month) ?? blank() }] } });
+        if (failNext) { failNext = false; return route.fulfill({ status: 409, json: { error: '다른 화면에서 내역이 변경되었습니다.' } }); }
+        const body = route.request().postDataJSON(), doc = structuredClone(documents.get(month) ?? blank());
+        assert.equal(body.version, doc.version); saves++;
+        if (body.kind === 'settings') doc.settings = body.settings;
+        else doc.records[body.date] = { checked: body.checked, note: body.note };
+        doc.version++; documents.set(month, doc);
+        return route.fulfill({ json: { month, recipientId: 'a', document: doc } });
+      }
+      if (url.pathname.endsWith('/context')) return route.fulfill({ json: { me: { id: 'u', name: '담당자' }, assignees: [], members: [], references: [] } });
+      if (url.pathname.endsWith('/tasks')) return route.fulfill({ json: [] });
+      if (url.pathname.endsWith('/task-maps')) return route.fulfill({ json: { templates: [], runs: [], nodes: [], today: '2026-11-02' } });
+      if (url.pathname.endsWith('/day')) return route.fulfill({ json: { date: url.searchParams.get('date'), assignee: 'all', plans: [], executions: [] } });
+      throw new Error(`Unexpected ${url.pathname}`);
+    });
+    await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/work-detail-ui.html`);
+    await page.locator('.work-primary-tabs button').nth(2).click();
+    await page.getByRole('button', { name: 'RFID', exact: true }).click();
+    await page.locator('.rfid-recipient-toggle').click();
+    await page.locator('.rfid-settings-toggle').click();
+    await page.getByLabel('총 근무일').fill('20');
+    await page.getByLabel('총 근무시간').fill('60');
+    await page.getByLabel('근무 유형').selectOption('custom');
+    await page.getByRole('group', { name: '지정 근무일 선택' }).getByRole('button', { name: '2', exact: true }).click();
+    await page.getByLabel('서비스 내용').fill('오전 세 시간 방문');
+    await page.getByRole('button', { name: '서비스 정보 저장', exact: true }).click();
+    await page.getByText('이 달의 서비스 정보를 저장했습니다.').waitFor();
+    assert.equal(documents.get('2026-11').settings.totalHours, 60);
+    await page.locator('.rfid-settings-toggle').click();
+    await page.getByRole('button', { name: '2026-11-02 확인 전', exact: true }).click();
+    const editor = page.getByRole('complementary', { name: 'RFID 업무내역 작성' });
+    await editor.getByRole('heading', { name: '2026-11-02' }).waitFor();
+    await editor.getByRole('checkbox').check();
+    await page.getByRole('button', { name: '2026-11-02 확인 완료', exact: true }).waitFor();
+    await editor.getByRole('textbox').fill('시간 차이 확인');
+    assert.equal(await page.getByRole('button', { name: 'RFID 다음 달' }).isDisabled(), true);
+    await editor.getByRole('textbox').press('Control+Enter');
+    await page.getByRole('button', { name: '2026-11-02 확인 완료 비고 있음', exact: true }).waitFor();
+    assert.equal(documents.get('2026-11').records['2026-11-02'].note, '시간 차이 확인');
+    failNext = true;
+    await editor.getByRole('checkbox').uncheck();
+    await page.getByRole('alert').filter({ hasText: '다른 화면' }).waitFor();
+    assert.equal(documents.get('2026-11').records['2026-11-02'].checked, true);
+    await editor.getByRole('button', { name: '비고·내역 저장' }).click();
+    await page.getByRole('button', { name: '2026-11-02 확인 전 비고 있음', exact: true }).waitFor();
+    await page.getByRole('button', { name: '2026-11-03 예정 없음', exact: true }).click();
+    assert.equal(await editor.getByRole('checkbox').isDisabled(), true);
+    await editor.getByRole('button', { name: 'RFID 업무내역 닫기' }).click();
+    await page.locator('.rfid-recipient-toggle').click();
+    assert.equal(await page.locator('.rfid-recipient-toggle').getAttribute('aria-expanded'), 'false');
+    await page.locator('.rfid-recipient-toggle').click();
+    await page.getByRole('button', { name: '2026-11-02 확인 전 비고 있음', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'RFID 다음 달' }).click();
+    await page.getByLabel('조회 월').evaluate(el => { if (el.value !== '2026-12') throw Error('Month did not change'); });
+    await page.locator('.rfid-recipient-toggle').click();
+    await page.getByText('확인 0일', { exact: true }).first().waitFor();
+    await page.getByRole('button', { name: 'RFID 이전 달' }).click();
+    await page.locator('.rfid-recipient-toggle').click();
+    await page.getByRole('button', { name: '2026-11-02 확인 전 비고 있음', exact: true }).waitFor();
+    await page.getByRole('button', { name: '2026-11-02 확인 전 비고 있음', exact: true }).click();
+    await page.clock.runFor(450);
+    await page.screenshot({ path: `tmp/rfid-${viewport.width}.png`, fullPage: true, animations: 'disabled' });
+    assert.equal(await page.locator('.rfid-calendar-grid').evaluate(el => [...el.querySelectorAll('button')].every(button => button.getBoundingClientRect().right <= el.getBoundingClientRect().right + 1)), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), true);
+    assert.deepEqual(errors, []);
+    assert.equal(saves, 4);
+    await page.close();
+  }
+  console.log('RFID desktop/mobile: tab, accordion, service settings, immediate checks, notes, retry, future dates and month isolation passed');
+} finally { await browser?.close(); await server.close(); }

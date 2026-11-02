@@ -102,6 +102,20 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     assert.deepEqual(restored.related.map(r => r.id), [recipientId, workerId]);
   });
 
+  await t.test('RFID HTTP routes share saved records across accounts and survive restart', async () => {
+    const path = 'work/rfid?month=2000-02';
+    assert.equal((await call(path, 'GET', undefined, '')).status, 401);
+    const initial = await call(path); assert.equal(initial.status, 200);
+    assert.equal(initial.data.rows.find(r => r.id === rId).document.version, 0);
+    const body = { recipientId: rId, kind: 'day', version: 0, date: '2000-02-01', checked: true, note: 'RFID 확인' };
+    assert.equal((await call(path, 'PUT', body)).status, 200);
+    assert.equal((await call(path, 'PUT', body, 'b')).status, 409);
+    assert.equal((await call(path, 'GET', undefined, 'b')).data.rows.find(r => r.id === rId).document.records[body.date].note, body.note);
+    assert.equal((await call('work/rfid?month=2000-13')).status, 400);
+    await stop(); await start();
+    const reloaded = await call(path);
+    assert.equal(reloaded.data.rows.find(r => r.id === rId).document.records[body.date].checked, true);
+  });
   await t.test('recurrence HTTP routes enforce developer permissions and private rules', async () => {
     assert.equal((await call('work/categories', 'POST', { name: '금지' }, 'b')).status, 403);
     const category = await call('work/categories', 'POST', { name: '반복 관리' }); assert.equal(category.status, 200);
@@ -171,6 +185,44 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     const restoredCalendar = (await call(range)).data;
     assert.equal(restoredCalendar.plans.length,0); assert.equal(restoredCalendar.executions.length,1);
     assert.equal(restoredCalendar.executions[0].id,manual.data.id);
+  });
+  await t.test('recipient deletion survives reload/restart, migrates legacy deletions and keeps terminated recipients', async () => {
+    const deleted=randomUUID(),ended=randomUUID(),legacy=randomUUID(),restored=randomUUID();
+    const drafts=[deleted,ended,legacy,restored].map((id,i)=>({id,name:`삭제 회귀 ${i}`,birthDate:'',longTermCareNumber:'',careGrade:'',phone:'',address:''}));
+    assert.equal((await call('recipients/bulk-drafts','POST',{rows:drafts})).status,200);
+    const endedRecipient=(await call(`recipients/${ended}`)).data;
+    assert.equal((await call(`recipients/${ended}`,'PUT',{...endedRecipient,enabled:false})).status,200);
+    assert.equal((await call('work/rfid?month=2000-02','PUT',{recipientId:deleted,version:0,kind:'day',date:'2000-02-01',checked:true,note:'보존할 수행 이력'})).status,200);
+    const selected=await call('work/service-month?month=2000-02');
+    assert.equal((await call('work/service-month?month=2000-02','PUT',{version:selected.data.version,recipientIds:[deleted,ended]})).status,200);
+    assert.equal((await call(`recipients/${deleted}`,'DELETE')).status,200);
+    assert.equal((await call(`recipients/${deleted}`,'DELETE')).status,200);
+    assert.equal((await call(`recipients/${deleted}`)).status,404);
+    assert.equal((await call(`recipients/${deleted}`,'PUT',{...endedRecipient,id:deleted,enabled:true})).status,404);
+    assert.equal((await call('recipients/bulk-drafts','POST',{rows:[drafts[0]]})).status,409);
+    assert.equal((await call(`recipients/${randomUUID()}`,'DELETE')).status,404);
+    assert.ok(!(await call('recipients')).data.some(r=>r.id===deleted));
+    assert.ok((await call('recipients')).data.some(r=>r.id===ended));
+    assert.ok(!(await call('work/service-month?month=2000-02')).data.rows.some(r=>r.id===deleted));
+    assert.ok(!(await call('work/rfid?month=2000-02')).data.rows.some(r=>r.id===deleted));
+    assert.ok(!(await call('work/context')).data.references.some(r=>r.id===deleted));
+    await stop();const db=new DatabaseSync(dbPath);
+    assert.equal(db.prepare('SELECT count(*) n FROM work_rfid_months WHERE recipient_id=?').get(deleted).n,1);
+    assert.equal(db.prepare("SELECT count(*) n FROM recipient_contract_events WHERE recipient_id=? AND type='deleted'").get(deleted).n,1);
+    for(const id of [legacy,restored]){
+      db.prepare('UPDATE recipients SET enabled=0 WHERE id=?').run(id);
+      db.prepare("INSERT INTO recipient_contract_events(id,recipient_id,type,created_at) VALUES(?,?,'deactivated','2000-01-01T00:00:00Z')").run(randomUUID(),id);
+    }
+    db.prepare("INSERT INTO recipient_contract_events(id,recipient_id,type,created_at) VALUES(?,?,'restored','2000-02-01T00:00:00Z')").run(randomUUID(),restored);
+    db.close();await start();
+    const after=(await call('recipients')).data;
+    assert.ok(!after.some(r=>r.id===deleted||r.id===legacy));
+    assert.ok(after.some(r=>r.id===ended));assert.ok(after.some(r=>r.id===restored));
+    const rollback=randomUUID();assert.equal((await call('recipients/bulk-drafts','POST',{rows:[{...drafts[0],id:rollback}]})).status,200);
+    await stop();const triggerDb=new DatabaseSync(dbPath);
+    triggerDb.exec("CREATE TRIGGER reject_recipient_delete BEFORE INSERT ON recipient_contract_events WHEN NEW.type='deleted' BEGIN SELECT RAISE(ABORT,'delete rollback'); END");triggerDb.close();await start();
+    assert.equal((await call(`recipients/${rollback}`,'DELETE')).status,400);
+    assert.equal((await call(`recipients/${rollback}`)).status,200);
   });
   await t.test('staff record HTTP endpoints share a selected employee across accounts and isolate other employees', async () => {
     const first=a.assignees[0].id,second=a.assignees[1].id;

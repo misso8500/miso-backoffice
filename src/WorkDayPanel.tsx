@@ -109,12 +109,13 @@ const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ co
   }
 
   return <section className="work-day-panel" aria-label="선택일 계획과 실제 수행">
-    <header className="work-day-heading"><div><h2>계획과 실제 수행</h2><p>{date} · {scope === 'all' ? '전체 담당자' : performer(scope)}</p></div><button type="button" className="secondary-button" disabled={busy || loading} onClick={() => { workCache.invalidate(key=>key===cachePath); setAttempt(v => v+1); }} aria-label="일간 기록 새로고침"><RefreshCw size={16}/></button></header>
+    <header className="work-day-heading"><div><h2>{date === workToday() ? '오늘 배치된 근무내역' : '선택일 배치된 근무내역'}</h2><p>{date} · {scope === 'all' ? '전체 담당자' : performer(scope)} · 계획과 실제 수행</p></div><button type="button" className="secondary-button" disabled={busy || loading} onClick={() => { workCache.invalidate(key=>key===cachePath); setAttempt(v => v+1); }} aria-label="일간 기록 새로고침"><RefreshCw size={16}/></button></header>
     {assignee === 'unassigned' && <p className="work-help">담당자 미정 업무 보기입니다. 오른쪽 계획·수행은 전체 담당자를 표시합니다.</p>}
     {error && <p className="work-day-error" role="alert">{error} <button type="button" disabled={busy || loading} onClick={() => { workCache.invalidate(key=>key===cachePath); setAttempt(v => v+1); }}>최신 기록 불러오기</button></p>}
     {notice && <div className="work-day-notice" role="status">{notice}{undo && <button type="button" className="secondary-button" disabled={busy} onClick={() => void undoExecution()}>수행 기록 되돌리기</button>}</div>}
     {loading ? <p role="status" className="work-day-empty">일간 기록을 불러오는 중입니다.</p> : !scopedDay ? <p className="work-day-empty">일간 기록을 확인할 수 없어 계획·수행 입력을 잠시 사용할 수 없습니다. 위 오류 원인을 해결한 뒤 최신 기록을 불러와 주세요.</p> : <>
-      <div className="work-day-legend"><span>보라 · 계획</span><span>초록 · 실제 수행</span></div>
+      <div className="work-day-summary" role="status"><strong>배치 {plans.length}건</strong><span>배치 중 미수행 {plans.filter(plan => ![...(scopedDay?.linkedExecutions ?? []), ...executions].some(e => e.planId === plan.id && e.status === 'recorded')).length}건</span><span>선택일 수행 {executions.length}건</span></div>
+      <div className="work-day-legend"><span>보라 · 계획</span><span>초록 · 실제 수행</span><span>수행 저장은 계획의 시간대로 즉시 저장됩니다. 수정·되돌리기 가능</span></div>
       <div className="work-day-column-head"><span/><strong>계획 {plans.length}건</strong><strong>실제 수행 {executions.length}건</strong></div>
       {(['morning', 'afternoon', 'unknown'] as const).map(period => <div className="work-day-row" key={period}><span className="work-day-period">{workPeriods[period]}</span><div className="work-day-cell">{plans.filter(p => p.period === period).map(plan => {
         const recorded = [...(scopedDay?.linkedExecutions ?? []), ...executions].find(e => e.planId === plan.id && e.status === 'recorded');

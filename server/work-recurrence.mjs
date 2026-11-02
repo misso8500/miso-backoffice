@@ -4,6 +4,7 @@ import { recurrenceDates, recurrenceTitle, recurrenceToday } from '../shared/wor
 export const defaultCategoryNames = { unclassified: '미분류 · 나중에 정리', recipient: '수급자 관리', service: '서비스 관리', staff: '인력 관리', operations: '기관 운영', rights: '권익·안전 관리' };
 export const canManageCategories = current => (process.env.WORK_CATEGORY_ADMIN_EMAILS ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean).includes(current.me.email.toLowerCase());
 const fromRow = row => ({ id: row.id, ownerId: row.owner_id, assigneeId: row.assignee_id, title: row.title, description: row.description, category: row.category, kind: row.kind, dueDay: row.due_day, includeSaturday: Boolean(row.include_saturday), includeSunday: Boolean(row.include_sunday), includeLeave: Boolean(row.include_leave), active: Boolean(row.active), startMonth: row.start_month, version: row.version });
+export const isLegacyRfidRule = title => /\brfid\b/i.test(title);
 export async function validateWorkCategory(q, id, previous) {
   for (const [key, name] of Object.entries(defaultCategoryNames)) await q('INSERT INTO work_categories(id,name,active,version) VALUES($1,$2,1,1) ON CONFLICT(id) DO NOTHING RETURNING id', [key, name]);
   const row = (await q('SELECT * FROM work_categories WHERE id=$1', [id])).rows[0];
@@ -12,6 +13,7 @@ export async function validateWorkCategory(q, id, previous) {
 export function normalizeRecurrence(body, current) {
   if (!body || !['monthly', 'daily'].includes(body.kind)) throw workError(400, '반복 주기를 선택해 주세요.');
   if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 450 || typeof body.description !== 'string' || body.description.length > 5000) throw workError(400, '업무 제목과 내용을 확인해 주세요.');
+  if (body.active && isLegacyRfidRule(body.title)) throw workError(400, 'RFID 업무는 방문요양 서비스 관리에서 연결해야 합니다. 반복 업무로 생성할 수 없습니다.');
   if (!current.assignees.some(person => person.id === body.assigneeId)) throw workError(400, '업무 담당자를 선택해 주세요.');
   if (!Number.isInteger(body.dueDay) || body.dueDay < 1 || body.dueDay > 31) throw workError(400, '마감일은 1~31일로 지정해 주세요.');
   for (const key of ['includeSaturday', 'includeSunday', 'includeLeave', 'active']) if (typeof body[key] !== 'boolean') throw workError(400, '반복 설정을 확인해 주세요.');
@@ -19,7 +21,7 @@ export function normalizeRecurrence(body, current) {
   if (body.requestId && (typeof body.requestId !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.requestId))) throw workError(400, '등록 요청을 확인해 주세요.');
   return { ...body, title: body.title.trim(), description: body.description.trim() };
 }
-export function createRecurrenceStore(transaction) {
+export function createRecurrenceStore(transaction, retireTask) {
   async function seed(q) {
     for (const [id, name] of Object.entries(defaultCategoryNames)) await q('INSERT INTO work_categories(id,name,active,version) VALUES($1,$2,1,1) ON CONFLICT(id) DO NOTHING RETURNING id', [id, name]);
   }
@@ -108,6 +110,15 @@ export function createRecurrenceStore(transaction) {
     ensureRecurring(today = recurrenceToday()) {
       return transaction(async q => {
         await seed(q); let created = 0;
+        // Retire the old source and its unfinished tasks atomically; retain history.
+        const legacy = (await q(`SELECT * FROM work_recurrence_rules ORDER BY id${q.forUpdate ?? ''}`, [])).rows.filter(rule => isLegacyRfidRule(rule.title));
+        for (const rule of legacy) {
+          if (rule.active) await q('UPDATE work_recurrence_rules SET active=0,version=version+1,updated_at=$1 WHERE id=$2 RETURNING id', [new Date().toISOString(), rule.id]);
+          if (retireTask) {
+            const tasks = (await q("SELECT t.* FROM work_tasks t JOIN work_recurrence_instances i ON i.task_id=t.id WHERE i.rule_id=$1 AND t.status='open' AND t.completed_at IS NULL", [rule.id])).rows;
+            for (const task of tasks) await retireTask(q, task, rule.owner_id);
+          }
+        }
         const rules = (await q(`SELECT * FROM work_recurrence_rules WHERE active=1 ORDER BY id${q.forUpdate ?? ''}`, [])).rows;
         for (const rule of rules) created += await generate(q, rule, today);
         return { month: today.slice(0, 7), created };

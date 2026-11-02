@@ -1,4 +1,5 @@
 import { handleWorkTasks } from "./work-tasks.mjs";
+import { recipientNotDeleted, backfillRecipientDeletions } from './recipient-deletions.mjs';
 import { createSqliteWorkStore } from "./work-task-stores.mjs";
 import { handleRecipientPlans, guardProfilePlanFields } from "./recipient-plans.mjs";
 import { createSqlitePlanStore } from "./recipient-plan-stores.mjs";
@@ -303,6 +304,7 @@ db.exec(`
 `);
 
 const recipientColumns = db.prepare("PRAGMA table_info(recipients)").all();
+db.exec(readFileSync(new URL('./recipient-deletions-schema.sql',import.meta.url),'utf8'));
 const hasEnabledColumn = recipientColumns.some((column) => column.name === "enabled");
 const hasOperationalNameColumn = recipientColumns.some((column) => column.name === "operational_name");
 
@@ -313,6 +315,7 @@ if (!hasEnabledColumn) {
 if (!hasOperationalNameColumn) {
   db.exec("ALTER TABLE recipients ADD COLUMN operational_name TEXT");
 }
+db.exec(backfillRecipientDeletions);
 
 const ensureRecipientColumn = (name, definition) => {
   const columns = db.prepare("PRAGMA table_info(recipients)").all();
@@ -592,7 +595,7 @@ const selectRecipientById = db.prepare(`
       WHERE recipient_id = recipients.id AND type IN ('restored', 'recontracted')
     ) AS recontract_count
   FROM recipients
-  WHERE id = ?
+  WHERE id = ? AND ${recipientNotDeleted()}
 `);
 
 const planStore = createSqlitePlanStore(db, recipientFromRow, (executor,id)=>{
@@ -1174,7 +1177,7 @@ const server = createServer(async (request, response) => {
     if (await handleRecipientPlans(request, response, sendJson, planStore, authentication.user)) return;
     if (await handleDriveRequest(request, response, sendJson)) return;
     if (await handleRecipientDocuments(request, response, sendJson, {
-      exists: id => Boolean(db.prepare('SELECT 1 FROM recipients WHERE id=?').get(id)),
+      exists: id => Boolean(db.prepare(`SELECT 1 FROM recipients WHERE id=? AND ${recipientNotDeleted()}`).get(id)),
       get: id => { const row = db.prepare('SELECT payload FROM recipient_documents WHERE recipient_id=?').get(id); return row ? JSON.parse(row.payload) : null; },
       save: (id, payload, version) => {
         const result = version === null
@@ -1239,6 +1242,7 @@ const server = createServer(async (request, response) => {
       db.exec("BEGIN");
       try {
         for (const [index, recipient] of rows.entries()) {
+          if(db.prepare('SELECT recipient_id FROM recipient_deletions WHERE recipient_id=?').get(recipient.id))throw Object.assign(new Error(`${index+1}행: 삭제된 수급자입니다. 목록을 새로 확인해 주세요.`),{status:409});
           const existing = readRecipient(recipient.id);
           if (existing) {
             if (!sameDraft(existing, recipient)) throw Object.assign(new Error(`${index + 1}행: 이미 저장된 행과 내용이 다릅니다. 목록을 확인해 주세요.`), { status: 409 });
@@ -1371,6 +1375,7 @@ const server = createServer(async (request, response) => {
               WHERE recipient_id = recipients.id AND type IN ('restored', 'recontracted')
             ) AS recontract_count
           FROM recipients
+          WHERE ${recipientNotDeleted()}
           ORDER BY contract_expired_date ASC, name ASC
         `)
         .all();
@@ -1551,21 +1556,19 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    if (parts[2] && request.method === "DELETE") {
-      const result = db
-        .prepare("UPDATE recipients SET enabled = 0, updated_at = ? WHERE id = ?")
-        .run(new Date().toISOString(), parts[2]);
-      if (result.changes > 0) {
-        insertEvent({
-          recipientId: parts[2],
-          type: "deactivated"
-        });
-      }
-      sendJson(
-        response,
-        result.changes > 0 ? 200 : 404,
-        result.changes > 0 ? { ok: true } : { error: "Recipient not found" }
-      );
+    if (parts[2] && !parts[3] && request.method === "DELETE") {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        if(!db.prepare('SELECT id FROM recipients WHERE id=?').get(parts[2]))throw Object.assign(new Error('수급자를 찾을 수 없습니다.'),{status:404});
+        if(!db.prepare('SELECT recipient_id FROM recipient_deletions WHERE recipient_id=?').get(parts[2])){
+          const now=new Date().toISOString();
+          db.prepare('UPDATE recipients SET enabled=0,updated_at=? WHERE id=?').run(now,parts[2]);
+          db.prepare('INSERT INTO recipient_deletions(recipient_id,deleted_at) VALUES(?,?)').run(parts[2],now);
+          insertEvent({recipientId:parts[2],type:'deleted'});
+        }
+        db.exec('COMMIT');
+      }catch(error){db.exec('ROLLBACK');throw error;}
+      sendJson(response,200,{ok:true});
       return;
     }
 

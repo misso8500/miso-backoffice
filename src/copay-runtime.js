@@ -3,6 +3,7 @@
 let copayApi, copayState, copayBusy=false, copayPreview=null, copayUpload=null, copayMetaDraft=null;
 const copayMonths=new Map();
 const copayBaseRender=render;
+const copayBaseOverview=overview;
 const copayBaseEdit=editLedger;
 const copayBaseFooter=updateLedgerFooter;
 const copayBasePrint=preparePrint;
@@ -49,6 +50,22 @@ function copayLeave(){
   ledgerDrafts.clear();copayMetaDraft=null;copayDirty();return true;
 }
 leaveLedger=copayLeave;
+function copayPerson(row){
+  const link=row.recipientLink||{},deleted=link.status==='deleted',registered=Boolean(link.recipientId),label=deleted?'삭제된 수급자':registered?(link.operationalName||'업무식별명 없음'):link.status==='unlinked'?'기초정보 미연결':'미등록자';
+  const action=deleted?'삭제된 기초정보 · 종합현황 원본 보관':registered?(link.operationalName?'수급자 기초정보 보기':'기존 수급자 정보 보완'):link.status==='unlinked'?'기존 수급자 연결 또는 신규 등록':'수급자 등록';
+  return `<span class="copay-person"><button type="button" class="copay-person-button" data-recipient-row="${row.id}" onclick="copayOpenRecipient(${row.id})" onmouseenter="copayPositionPersonTip(this)" onfocus="copayPositionPersonTip(this)" aria-label="${esc(row.name)} · ${esc(label)} · ${action}" aria-describedby="copay-person-tip-${row.id}"><strong>${esc(row.name)}</strong><small>${esc(label)}</small></button><span class="copay-person-tip" id="copay-person-tip-${row.id}" role="tooltip"><strong>${registered?'업무식별명: ':''}${esc(label)}</strong>${action}</span></span>`;
+}
+function copayPositionPersonTip(button){const rect=button.getBoundingClientRect(),tip=button.nextElementSibling;tip.style.left=Math.max(8,Math.min(rect.left,innerWidth-Math.min(300,innerWidth*.7)-8))+'px';tip.style.top=Math.max(8,Math.min(rect.bottom+5,innerHeight-tip.offsetHeight-8))+'px';}
+overview=function(){const rows=pageRows();let index=0;return copayBaseOverview().replace(/<th scope="row">([\s\S]*?)<\/th>/g,cell=>{
+  const row=rows[index++];return row?`<th scope="row">${copayPerson(row)}</th>`:cell;
+});};
+function copayOpenRecipient(id){
+  if(!copayLeave())return;
+  const row=source.find(row=>row.id===id);if(!row)return;
+  if(row.recipientLink?.status==='deleted'){notify('기초정보에서 삭제된 수급자입니다. 이 달의 청구·수납 원본은 이력으로 보관됩니다.');return;}
+  window.copayOnRecipient?.({month:period,version:copayState.version,id:row.id,name:row.name,grade:row.grade,rate:row.rate,code:row.sourceCode??row.code??'',recipientId:row.recipientLink?.recipientId||null});
+}
+window.copayRefreshRecipients=function(){copayMonths.clear();if(!copayBusy&&!ledgerDrafts.size&&!copayMetaDraft)void copayLoad(period,true);};
 changePeriod=async function(next){if(next===period||!copayLeave())return;selected.clear();query='';statusFilter='all';scope='month';page=1;await copayLoad(next);};
 changeTab=function(next){if(next===tab||!copayLeave())return;tab=next;render();};
 editLedger=function(id,key,value){copayBaseEdit(id,key,value);copayDirty();};
@@ -110,8 +127,8 @@ applyImport=async function(){
     selected.clear();query='';statusFilter='all';page=1;copayAccept(data);$('#import-dialog').close();notify('종합현황을 저장했습니다. 수납대장에서 이어서 입력하세요.');
   });
 };
-window.copayStart=function(api,onDirty,onBusy){
-  copayApi=api;window.copayOnDirty=onDirty;window.copayOnBusy=onBusy;
+window.copayStart=function(api,onDirty,onBusy,onRecipient){
+  copayApi=api;window.copayOnDirty=onDirty;window.copayOnBusy=onBusy;window.copayOnRecipient=onRecipient;
   const status=document.createElement('p');status.id='copay-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');$('.tabs').before(status);
   $('.pill').textContent='월별 수납 · 문서 관리';$('.footnote').textContent='수납 입력은 변경 전체 저장 후 반영됩니다. 기관 정보와 문서 확인 상태도 해당 월의 자료로 저장됩니다.';
   render();void copayLoad(period);

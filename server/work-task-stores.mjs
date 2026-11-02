@@ -1,4 +1,6 @@
 import {createServicePauseStore, heldTaskSql, assertVisitAvailable} from './service-pauses.mjs';
+import {recipientNotDeleted} from './recipient-deletions.mjs';
+import { createRfidStore } from './work-rfid.mjs';
 import { createVisitStore } from './work-visits.mjs';
 import { createRecipientServiceMonthStore } from './recipient-service-months.mjs';
 import { createServiceRoundingStore } from './recipient-service-rounding.mjs';
@@ -19,7 +21,7 @@ const task = row => ({ id: row.id, requesterId: row.requester_id, assigneeId: ro
 
 function createWorkStore(transaction, canEdit) {
   const refs = async q => {
-    const recipients = (await q('SELECT id,name,operational_name,is_draft FROM recipients WHERE enabled = TRUE ORDER BY name', [])).rows;
+    const recipients = (await q(`SELECT id,name,operational_name,is_draft FROM recipients WHERE enabled = TRUE AND ${recipientNotDeleted()} ORDER BY name`, [])).rows;
     const workers = (await q('SELECT id,worker_name,contract_start_date,contract_end_date,is_draft FROM employment_contracts WHERE enabled = TRUE ORDER BY worker_name,contract_start_date DESC', [])).rows;
     return [
       ...recipients.map(r => ({ id: r.id, type: 'recipient', name: r.name, info: r.operational_name || '', isDraft: Boolean(r.is_draft) })),
@@ -50,6 +52,7 @@ function createWorkStore(transaction, canEdit) {
       [newWorkId(), row.id, row.version, actor, kind, JSON.stringify(task(row)), row.updated_at]);
   };
   return {
+    ...createRfidStore(transaction),
     ...createCopayStore(transaction),
     ...createRecipientServiceMonthStore(transaction),
     ...createServiceRoundingStore(transaction,task,event),
@@ -57,7 +60,13 @@ function createWorkStore(transaction, canEdit) {
     ...createVisitStore(transaction, task, event),
     ...createTaskMapStore(transaction, related),
     ...createStaffRecordStore(transaction),
-    ...createRecurrenceStore(transaction),
+    ...createRecurrenceStore(transaction, async (q, row, actor) => {
+      const locked = await lockTask(q, row.id);
+      if (!locked || locked.status !== 'open' || locked.completed_at) return;
+      const saved = (await q("UPDATE work_tasks SET status='cancelled',version=version+1,updated_by=$1,updated_at=$2 WHERE id=$3 RETURNING *", [actor, new Date().toISOString(), row.id])).rows[0];
+      await cancelTaskPlans(q, row.id, actor);
+      await event(q, saved, 'cancelled', actor);
+    }),
     ...createWorkJournalStore(transaction, related),
     members(user, emails) {
       return transaction(async q => {

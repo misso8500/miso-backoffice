@@ -1,0 +1,9 @@
+.copay-person { position: relative; display: inline-flex; }
+.copay-person-button { display: grid; gap: 3px; min-width: 90px; max-width: 200px; text-align: left; padding: 5px 7px; border: 1px solid transparent; background: transparent; border-radius: 7px; color: #60467c; }
+.copay-person-button > strong { font-size: 13px; font-weight: 650; }
+.copay-person-button > small { font-size: 10px; color: #8b7185; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copay-person-button:hover,.copay-person-button:focus-visible { border-color: #d8c8eb; background: #f3edf9; }
+.copay-person-tip { position: fixed; z-index: 5; padding: 10px 12px; width: max-content; max-width: min(300px,70vw); background: #51405f; color: white; font-size: 11px; line-height: 1.7; white-space: normal; text-align: left; font-weight: 400; border-radius: 8px; box-shadow: 0 5px 16px #39274e20; visibility: hidden; opacity: 0; transform: translateY(-3px); pointer-events: none; transition: opacity 150ms ease,transform 150ms ease; }
+.copay-person:hover .copay-person-tip,.copay-person:focus-within .copay-person-tip { visibility: visible; opacity: 1; transform: translateY(0); }
+.copay-person-tip strong { display: block; font-size: 12px; color: white; }
+@media(prefers-reduced-motion:reduce) { .copay-person-tip { transition: none; } }

@@ -1,9 +1,10 @@
 import {workError} from './work-tasks.mjs';
+import {recipientNotDeleted} from './recipient-deletions.mjs';
 import {roundingValue} from './recipient-service-rounding.mjs';
 import {visitAssigneeIds} from '../shared/work-visits.mjs';
 const validMonth=value=>typeof value==='string' && /^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(value);
 export function createRecipientServiceMonthStore(transaction) {
-  const people=async q=>(await q('SELECT id,name,operational_name,service_start_date,service_end_date,enabled,is_draft FROM recipients ORDER BY name,id',[])).rows;
+  const people=async q=>(await q(`SELECT id,name,operational_name,service_start_date,service_end_date,enabled,is_draft FROM recipients WHERE ${recipientNotDeleted()} ORDER BY name,id`,[])).rows;
   async function result(q,month,row,rows) {
     const ids=new Set(row?JSON.parse(row.recipient_ids):[]);
     const rounding=(await q('SELECT * FROM recipient_service_rounding WHERE month=$1',[month])).rows;

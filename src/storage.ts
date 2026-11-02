@@ -31,7 +31,7 @@ export const requestJson = async <T,>(path: string, options?: RequestInit): Prom
   try {
     const result = cached ? await workCache.get<T>(path,()=>requestJsonImpl<T>(path,options),{force:options?.cache==='reload'||options?.cache==='no-store'}) : await requestJsonImpl<T>(path, options);
     if(path.startsWith('/api/work/') && method!=='GET') applyWorkMutation(path,result);
-    if(path.startsWith('/api/recipients') && method!=='GET') workCache.invalidate(key=>key.startsWith('/api/work/service-month?'));
+    if(path.startsWith('/api/recipients') && method!=='GET') workCache.invalidate(key=>key==='/api/work/context'||key.startsWith('/api/work/service-month?'));
     notify('success'); return result;
   }
   catch (error) {

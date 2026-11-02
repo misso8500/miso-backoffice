@@ -1,0 +1,77 @@
+.work-rfid { min-width: 0; }
+.rfid-toolbar { display: flex; flex-wrap: wrap; gap: 18px; align-items: end; padding: 18px 20px; background: #f6f3fa; border: 1px solid #e5dfed; border-radius: 12px; }
+.rfid-toolbar label { display: grid; gap: 6px; font-size: 12px; color: #63506f; }
+.rfid-toolbar input,.rfid-toolbar select { min-width: 170px; }
+.rfid-month-picker { display: flex; align-items: end; gap: 8px; }
+.rfid-month-picker button { min-height: 42px; }
+.rfid-guidance { font-size: 12px; line-height: 1.8; color: #7a6d86; margin: 14px 2px 20px; }
+.rfid-recipients { display: grid; gap: 12px; }
+.rfid-recipient { border: 1px solid #ddd4e7; border-radius: 14px; background: #fff; overflow: hidden; }
+.rfid-recipient.is-open { border-color: #bca2d9; box-shadow: 0 5px 20px #5338790a; }
+.rfid-recipient-toggle { width: 100%; display: flex; text-align: left; align-items: center; gap: 14px; border: 0; padding: 18px 22px; background: #f3eff8; color: #4e3b64; cursor: pointer; }
+.rfid-recipient.is-open > .rfid-recipient-toggle { background: #e9def5; }
+.rfid-recipient-toggle strong { font-size: 15px; }
+.rfid-recipient-toggle small { display: block; font-size: 11px; margin-top: 5px; color: #79658b; }
+.rfid-avatar { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: #fff; color: #76549a; font-weight: 700; flex-shrink: 0; }
+.rfid-recipient-count { margin-left: auto; padding: 6px 10px; background: #fff; border-radius: 20px; font-size: 12px; white-space: nowrap; }
+.rfid-recipient-toggle svg,.rfid-settings-toggle svg { flex-shrink: 0; transition: transform 240ms ease; }
+.rfid-recipient-toggle svg.is-open,.rfid-settings-toggle svg.is-open { transform: rotate(180deg); }
+.rfid-collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 280ms ease; }
+.rfid-collapse.is-open { grid-template-rows: 1fr; }
+.rfid-collapse-clip { overflow: hidden; min-height: 0; }
+.rfid-workspace { padding: 20px; }
+.rfid-settings-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 13px 15px; background: #f2f4fa; color: #4e5570; border: 1px solid #dce1ec; border-radius: 9px; font-size: 13px; font-weight: 650; text-align: left; cursor: pointer; }
+.rfid-settings-toggle small { font-size: 11px; font-weight: 400; margin-left: 12px; }
+.rfid-settings { padding: 16px; background: #f7f8fc; border: 1px solid #e1e5ef; border-top: 0; border-radius: 0 0 9px 9px; }
+.rfid-settings p { font-size: 12px; color: #737b91; margin: 0 0 16px; }
+.rfid-settings fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.rfid-settings label,.rfid-note-label { display: grid; gap: 7px; font-size: 12px; color: #645773; }
+.rfid-settings textarea,.rfid-note-label textarea { width: 100%; resize: vertical; line-height: 1.7; }
+.rfid-settings-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; margin-bottom: 14px; }
+.rfid-custom-dates { display: grid; grid-template-columns: repeat(auto-fill,minmax(38px,1fr)); gap: 5px; margin: 0 0 16px; }
+.rfid-custom-dates button { border: 1px solid #ddd1eb; background: #fff; color: #725487; border-radius: 6px; min-height: 36px; cursor: pointer; }
+.rfid-custom-dates button[aria-pressed="true"] { color: white; background: #7854a4; border-color: #7854a4; }
+.rfid-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.rfid-month-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; padding: 18px 2px; font-size: 13px; color: #665277; }
+.rfid-month-summary .is-done { color: #31835a; font-weight: 650; }
+.rfid-month-summary small { color: #8b7d97; font-size: 11px; margin-left: auto; }
+.rfid-calendar-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,0fr); gap: 0; transition: grid-template-columns 280ms ease,gap 280ms ease; align-items: start; }
+.rfid-calendar-layout.has-editor { grid-template-columns: minmax(0,1fr) minmax(290px,.65fr); gap: 20px; }
+.rfid-calendar { border: 1px solid #e0d5ed; background: #faf7fd; border-radius: 12px; padding: 16px; min-width: 0; }
+.rfid-calendar-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 16px; }
+.rfid-calendar-heading h3 { font-size: 15px; margin: 0; color: #624477; }
+.rfid-calendar-heading small { color: #8a7899; font-size: 11px; }
+.rfid-calendar-grid { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 6px; }
+.rfid-weekday { text-align: center; font-size: 11px; color: #7f718c; padding-bottom: 7px; }
+.rfid-weekday.day-0 { color: #be6e78; }
+.rfid-weekday.day-6 { color: #6483b1; }
+.rfid-date { aspect-ratio: 1; width: 100%; min-width: 0; min-height: 70px; padding: 9px; border: 1px solid #e5deeb; border-radius: 9px; background: #f0edf3; color: #a097a9; display: flex; flex-direction: column; align-items: start; gap: 5px; text-align: left; cursor: pointer; position: relative; }
+.rfid-date > span { display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 14px; font-weight: 650; }
+.rfid-date > span small { font-size: 9px; color: #7854a4; }
+.rfid-date strong { display: flex; align-items: center; gap: 2px; font-size: 10px; font-weight: 500; }
+.rfid-date.is-scheduled { background: #f0e6fc; color: #765392; border-color: #dac7ef; }
+.rfid-date.is-checked { background: #dff1e7; color: #26744c; border-color: #b9dec9; }
+.rfid-date.is-selected { outline: 2px solid #7854a4; outline-offset: 1px; }
+.rfid-date.is-today > span { text-decoration: underline; text-underline-offset: 4px; }
+.rfid-note-dot { font-size: 9px; border-radius: 4px; background: #ffffffc9; padding: 1px 4px; margin-top: auto; color: #7b658d; }
+.rfid-calendar-legend { display: flex; flex-wrap: wrap; gap: 12px; color: #83728f; font-size: 10px; padding-top: 14px; }
+.rfid-editor-slide { min-width: 0; overflow: hidden; opacity: 0; transform: translateX(18px); transition: opacity 240ms ease,transform 280ms ease; }
+.has-editor > .rfid-editor-slide { opacity: 1; transform: translateX(0); }
+.rfid-editor-clip { min-width: 0; }
+.rfid-day-editor { min-width: 290px; border: 1px solid #d9c7ed; background: #fbf8fe; padding: 18px; border-radius: 12px; }
+.rfid-day-editor header { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid #e7ddef; padding-bottom: 14px; margin-bottom: 14px; }
+.rfid-day-editor header small { color: #8c729e; font-size: 11px; }
+.rfid-day-editor h3 { margin: 5px 0 0; font-size: 20px; color: #62427d; }
+.rfid-day-hint { font-size: 11px; color: #8b7b99; line-height: 1.7; }
+.rfid-check-action { display: flex; align-items: center; gap: 12px; padding: 16px 12px; margin: 16px 0; border: 1px solid #d7c8e6; border-radius: 9px; background: #efe6fa; cursor: pointer; }
+.rfid-check-action.is-checked { background: #e2f2e9; border-color: #b6dbc5; }
+.work-hub .rfid-check-action input { width: 20px; height: 20px; accent-color: #428360; }
+.rfid-check-action strong { display: block; font-size: 13px; color: #4b3c60; }
+.rfid-check-action small { display: block; font-size: 10px; color: #84738f; margin-top: 5px; }
+.rfid-note-label small { display: inline; color: #9c8ba8; font-size: 10px; }
+.rfid-save-hint { display: block; margin-top: 12px; color: #937e9f; font-size: 10px; line-height: 1.6; }
+.rfid-notice { background: #eaf5ee; color: #3b7753; border-radius: 8px; padding: 12px; font-size: 12px; }
+.work-rfid button:disabled { opacity: .55; cursor: default; }
+@media(max-width:1000px) { .rfid-calendar-layout.has-editor { grid-template-columns: minmax(0,1fr); gap: 16px; } .rfid-editor-slide { display: grid; grid-template-rows: 0fr; } .has-editor > .rfid-editor-slide { grid-template-rows: 1fr; } .rfid-editor-clip { overflow: hidden; min-height: 0; } }
+@media(max-width:600px) { .rfid-workspace { padding: 12px; } .rfid-recipient-toggle { padding: 14px 12px; gap: 9px; } .rfid-recipient-count { font-size: 10px; padding: 5px; } .rfid-toolbar { padding: 12px; gap: 12px; } .rfid-settings-fields { grid-template-columns: 1fr; } .rfid-settings-toggle small { display: block; margin: 6px 0 0; } .rfid-month-summary small { margin-left: 0; } .rfid-calendar { padding: 10px; } .rfid-calendar-grid { gap: 4px; } .rfid-date { min-height: 57px; padding: 5px 3px; border-radius: 6px; } .rfid-date > span { font-size: 12px; } .rfid-date strong { font-size: 9px; } .rfid-date strong svg { display: none; } .rfid-date > span small { font-size: 8px; } .rfid-day-editor { min-width: 0; padding: 14px; } }
+@media(prefers-reduced-motion:reduce) { .work-rfid *, .work-rfid *::before, .work-rfid *::after { transition: none !important; } }

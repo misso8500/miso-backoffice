@@ -2121,3 +2121,19 @@ p {
 .validity-plan-line {display:grid;grid-template-columns:minmax(240px,1fr) 1fr;gap:8px 20px;margin-top:12px;border-top:1px solid #eee9f3;padding-top:12px;}
 .validity-plan-line small {grid-column:1/-1;}
 .validity-warning {color:#976748!important;}
+.copay-recipient-picker { width: min(560px,calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; border: 1px solid #ded5e8; border-radius: 14px; padding: 24px; color: #45394e; box-shadow: 0 24px 80px #30243c33; }
+.copay-recipient-picker::backdrop { background: #30243c66; }
+.copay-recipient-picker h2 { margin: 0; font-size: 20px; }
+.copay-recipient-picker p { font-size: 13px; color: #807587; line-height: 1.7; }
+.copay-recipient-picker label { display: grid; gap: 7px; font-size: 13px; }
+.copay-recipient-picker input { width: 100%; }
+.copay-recipient-matches { display: grid; gap: 8px; margin: 16px 0; max-height: 310px; overflow: auto; }
+.copay-recipient-match { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px 10px; text-align: left; padding: 14px; border: 1px solid #e5dced; border-radius: 9px; background: #faf7fd; color: #60467c; cursor: pointer; }
+.copay-recipient-match > :not(b) { grid-column: 1; overflow-wrap: anywhere; }
+.copay-recipient-match strong { font-size: 14px; }
+.copay-recipient-match span { font-size: 12px; }
+.copay-recipient-match small { color: #807587; font-size: 11px; }
+.copay-recipient-match b { grid-column: 2; grid-row: 1 / 4; align-self: center; font-size: 11px; }
+.copay-recipient-match:hover { background: #f0e8f8; }
+.copay-recipient-match:disabled { opacity: .5; cursor: default; }
+.copay-link-status { padding: 12px 16px; background: #f0eaf8; border-radius: 9px; color: #6f5a9f; font-size: 13px; }
