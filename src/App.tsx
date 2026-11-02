@@ -1,3 +1,5 @@
+import WorkVisits from './WorkVisits';
+import WorkRfid from './WorkRfid';
 import WorkOperationStatus from './WorkOperationStatus';
 import './NavigationTabs.css';
 import PageHeading from './PageHeading';
@@ -474,10 +476,13 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [copayRecipientRevision,setCopayRecipientRevision]=useState(0);
   const [copayLinkBusy,setCopayLinkBusy]=useState(false),[copayLinkError,setCopayLinkError]=useState('');
   const [copayPendingLink,setCopayPendingLink]=useState<{row:CopayRecipientRequest;recipient:Recipient}|null>(null);
-  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay">(
+  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay" | "visits" | "rfid">(
     "recipients"
   );
+  const [visitsBusy,setVisitsBusy]=useState(false),[visitsDirty,setVisitsDirty]=useState(false),[rfidBusy,setRfidBusy]=useState(false);
   function setActiveView(next: typeof activeView) {
+    if(next!==activeView&&activeView==='visits'){if(visitsBusy)return;if(visitsDirty&&!window.confirm('저장하지 않은 라운딩 입력을 닫고 이동할까요?'))return;}
+    if(next!==activeView&&activeView==='rfid'&&rfidBusy&&!window.confirm('저장하지 않은 RFID 변경을 버리고 이동할까요?'))return;
     if(next!==activeView&&activeView==='copay'&&copayBusy)return;
     if(next!==activeView && activeView==='recipientServices') {
       if(serviceBusy)return;
@@ -1576,7 +1581,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               근로계약서
             </button>
             </SidebarGroup>
-            <SidebarGroup title="센터 실무" active={activeView === "work" || activeView === "records"}>
+            <SidebarGroup title="센터 실무" active={activeView === "work" || activeView === "records" || activeView === "visits" || activeView === "rfid"}>
             <button type="button" className={activeView === "work" ? "is-active" : ""}
               aria-current={activeView === "work" ? "page" : undefined}
               onClick={() => {
@@ -1590,6 +1595,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <ClipboardCheck size={16} />센터업무(할일)
             </button>
             <button type="button" className={activeView === "records" ? "is-active" : ""} aria-current={activeView === "records" ? "page" : undefined} onClick={() => { setActiveView("records"); setSelectedRecipientId(null); setSelectedEmploymentContractId(null); setIsCreatePanelOpen(false); setIsEmploymentCreatePanelOpen(false); }}><ClipboardCheck size={16}/>근무기록</button>
+            {([['visits','라운딩'],['rfid','RFID 확인']] as const).map(([view,label])=><button key={view} type="button" className={activeView===view?'is-active':''} aria-current={activeView===view?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView(view);setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>{label}</button>)}
             </SidebarGroup>
             <SidebarGroup title="기관 운영 서류 업무"><button type="button" disabled className="sidebar-coming-soon">추가중</button></SidebarGroup>
           </nav>
@@ -1603,11 +1609,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
       <main className="main-content">
         <WorkOperationStatus/>
-        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리'}[activeView]}</strong></div>}
+        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인'}[activeView]}</strong></div>}
         {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
         {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}
         {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy} onRecipient={row=>void openCopayRecipient(row)} recipientRevision={copayRecipientRevision} active={activeView==='copay'}/></section>}
-        {activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
+        {activeView === "visits" ? <section className="work-hub"><WorkVisits onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
           <>
         <PageHeading title="수급자 관리" description="기본 정보와 장기요양이용계약 기간을 기록하고 확인합니다.">
           <div className="heading-actions">

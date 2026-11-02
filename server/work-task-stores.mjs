@@ -3,6 +3,8 @@ import {recipientNotDeleted} from './recipient-deletions.mjs';
 import { createRfidStore } from './work-rfid.mjs';
 import { createVisitStore } from './work-visits.mjs';
 import { createRecipientServiceMonthStore } from './recipient-service-months.mjs';
+import {visitDesignId} from './visit-work-link.mjs';
+import {roundingValue} from './recipient-service-rounding.mjs';
 import { createServiceRoundingStore } from './recipient-service-rounding.mjs';
 import { createTaskMapStore } from './work-task-map.mjs';
 import { readFileSync } from 'node:fs';
@@ -51,6 +53,29 @@ function createWorkStore(transaction, canEdit) {
     await q('INSERT INTO work_task_events(id,task_id,version,actor_id,kind,payload,created_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
       [newWorkId(), row.id, row.version, actor, kind, JSON.stringify(task(row)), row.updated_at]);
   };
+  const visitHooks={
+    async ensure(q,month,current){
+      if(!current)return;
+      const rows=(await q('SELECT * FROM recipient_service_rounding WHERE month=$1',[month])).rows;
+      for(const row of rows){
+        const payload=JSON.parse(row.payload);
+        if(payload.visitRunId||!payload.date||!payload.assigneeId||!['coordinating','paperwork','visited'].includes(payload.status))continue;
+        const taskRow=(await q('SELECT t.* FROM work_visit_tasks v JOIN work_tasks t ON t.id=v.task_id WHERE v.month=$1 AND v.recipient_id=$2',[month,row.recipient_id])).rows[0];
+        if(taskRow?.status==='cancelled')continue;
+        if((await q('SELECT id FROM recipient_service_pauses WHERE recipient_id=$1 AND returned_date IS NULL',[row.recipient_id])).rows.length)continue;
+        if(taskRow&&(await q('SELECT task_id FROM work_visit_holds WHERE task_id=$1 AND released_at IS NULL',[taskRow.id])).rows.length)continue;
+        await createServiceRoundingStore(fn=>fn(q),task,event).saveServiceRounding(month,row.recipient_id,{...roundingValue(row,taskRow),confirmComplete:true},current);
+      }
+    },
+    async complete(q,run,body,current){
+      const row=(await q('SELECT * FROM recipient_service_rounding WHERE month=$1 AND recipient_id=$2',[run.sourceMonth,run.sourceRecipientId])).rows[0];
+      if(!row)throw workError(404,'라운딩 계획을 찾을 수 없습니다.');
+      const linked=(await q('SELECT t.* FROM work_visit_tasks v JOIN work_tasks t ON t.id=v.task_id WHERE v.month=$1 AND v.recipient_id=$2',[run.sourceMonth,run.sourceRecipientId])).rows[0];
+      await createServiceRoundingStore(fn=>fn(q),task,event).saveServiceRounding(run.sourceMonth,run.sourceRecipientId,{...roundingValue(row,linked),date:body.actualDate||run.date,status:'visited',confirmComplete:true,visitRunId:run.id,visitMapVersion:body.version},current);
+      const saved=(await q('SELECT * FROM work_map_runs WHERE id=$1',[run.id])).rows[0];
+      return {id:saved.id,...JSON.parse(saved.payload),version:Number(saved.version)};
+    }
+  };
   return {
     ...createRfidStore(transaction),
     ...createCopayStore(transaction),
@@ -58,7 +83,7 @@ function createWorkStore(transaction, canEdit) {
     ...createServiceRoundingStore(transaction,task,event),
     ...createServicePauseStore(transaction,event),
     ...createVisitStore(transaction, task, event),
-    ...createTaskMapStore(transaction, related),
+    ...createTaskMapStore(transaction, related, visitHooks),
     ...createStaffRecordStore(transaction),
     ...createRecurrenceStore(transaction, async (q, row, actor) => {
       const locked = await lockTask(q, row.id);
@@ -98,7 +123,8 @@ function createWorkStore(transaction, canEdit) {
         if (status === 'open') conditions.push('completed_at IS NULL');
         if (status === 'done') conditions.push('completed_at IS NOT NULL');
         const rows = (await q(`SELECT *,${heldTaskSql} AS visit_on_hold FROM work_tasks${conditions.length ? ' WHERE ' + conditions.join(' AND ') : ''} ORDER BY created_at DESC,id DESC`, values)).rows;
-        return rows.map(row => ({ ...task(row), canEdit: row.status !== 'cancelled' && canEdit(task(row), current.me.id) }));
+        const sources=new Map((await q('SELECT v.task_id,r.payload FROM work_visit_tasks v JOIN recipient_service_rounding r ON r.month=v.month AND r.recipient_id=v.recipient_id',[])).rows.map(row=>[row.task_id,Boolean(JSON.parse(row.payload).visitRunId)]));
+        return rows.map(row => ({ ...task(row), sourceDesignId:sources.get(row.id)?visitDesignId:undefined, canEdit: row.status !== 'cancelled' && canEdit(task(row), current.me.id) }));
       });
     },
     async create(input, current) {

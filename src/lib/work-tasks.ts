@@ -11,7 +11,7 @@ export type WorkReference = { id: string; type: 'recipient' | 'worker'; name: st
 export type WorkAssignee = { id: string; name: string };
 export type WorkContext = { me: WorkMember; members: WorkMember[]; assignees: WorkAssignee[]; references: WorkReference[]; categories: WorkCategory[]; categoryLabels?: Record<string, string>; canManageCategories?: boolean };
 export type WorkTask = {
-  onHold?: boolean; id: string; requesterId: string; assigneeId: string | null; title: string; description: string;
+  sourceDesignId?: string; onHold?: boolean; id: string; requesterId: string; assigneeId: string | null; title: string; description: string;
   category: WorkCategory; dueDate: string | null; related: WorkReference[]; status: 'open' | 'done' | 'cancelled'; completedAt: string | null;
   version: number; createdAt: string; updatedAt: string; updatedBy: string; canEdit: boolean;
 };
@@ -34,7 +34,7 @@ export const cancelWorkTask = (task: WorkTask) => workRequest<WorkTask>(`/api/wo
 export type WorkTaskEvent = { version: number; kind: 'created' | 'updated' | 'cancelled'; actorName: string; createdAt: string; task: WorkTask };
 export const loadWorkTaskHistory = (id: string) => workRequest<WorkTaskEvent[]>(`/api/work/tasks/${encodeURIComponent(id)}/history`);
 export type WorkPeriod = 'morning' | 'afternoon' | 'unknown';
-export type WorkSnapshot = { title: string; category: WorkCategory; related: WorkReference[] };
+export type WorkSnapshot = { plannedStartTime?:string;plannedEndTime?:string;title: string; category: WorkCategory; related: WorkReference[] };
 export type WorkPlan = { id: string; taskId: string; assigneeId: string; date: string; period: WorkPeriod; snapshot: WorkSnapshot; status: 'planned' | 'cancelled'; version: number; createdBy: string; updatedBy: string; createdAt: string; updatedAt: string };
 export type WorkExecution = Omit<WorkPlan, 'taskId' | 'status'> & { taskId: string | null; planId: string | null; content: string; status: 'recorded' | 'voided' };
 export type WorkDay = { date: string; assignee: string; plans: WorkPlan[]; executions: WorkExecution[]; linkedExecutions?: WorkExecution[] };

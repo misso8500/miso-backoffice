@@ -30,7 +30,7 @@ export function normalizeTaskMap(body) {
     return { id: newWorkId(), title: s.title.trim(), guide: s.guide.trim(), assigneeId: s.assigneeId || null, dueOffsetDays: s.dueOffsetDays ?? 0 };
   }) };
 }
-export function createTaskMapStore(transaction, resolveRelated) {
+export function createTaskMapStore(transaction, resolveRelated, visitHooks) {
   async function generateDaily(q, templates, today) {
     if (!templates.some(t=>t.kind==='daily' && t.schedule)) return;
     const existing = new Set((await q('SELECT * FROM work_map_runs WHERE work_date LIKE $1',[today.slice(0,7)+'%'])).rows.filter(row=>!decode(row).related.length).map(row=>{const run=decode(row);return `${run.templateId ?? JSON.parse(row.run_key)[0]}:${run.date}`;}));
@@ -54,9 +54,10 @@ export function createTaskMapStore(transaction, resolveRelated) {
   }
   return {
     ensureDailyTaskMaps(today = todayInSeoul()) { workDate(today); return transaction(async q=>generateDaily(q,(await q(`SELECT * FROM work_map_templates ORDER BY id${q.forUpdate ?? ''}`,[])).rows.map(decode),today)); },
-    taskMaps(month, ensureDaily = false) { return transaction(async q => {
+    taskMaps(month, ensureDaily = false, current) { return transaction(async q => {
       const today = todayInSeoul();
       month ??= today.slice(0,7); workDate(month+'-01');
+      if(ensureDaily)await visitHooks?.ensure(q,month,current);
       const templates = (await q(`SELECT * FROM work_map_templates ORDER BY id${ensureDaily ? q.forUpdate ?? '' : ''}`, [])).rows.map(decode).sort((a,b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
       if(ensureDaily) await generateDaily(q,templates,today);
       const runs = (await q('SELECT * FROM work_map_runs ORDER BY work_date DESC,id', [])).rows.map(row => { const run = decode(row); return { ...run, templateId: run.templateId ?? JSON.parse(row.run_key)[0] }; });
@@ -72,6 +73,7 @@ export function createTaskMapStore(transaction, resolveRelated) {
           const previous = (await q(`SELECT * FROM work_map_templates WHERE id=$1${q.forUpdate ?? ''}`, [body.id])).rows[0];
           if (!previous || Number(previous.version) !== body.version) throw workError(409, '설계가 변경되었습니다. 새로고침 후 다시 편집해 주세요.');
           const old = decode(previous);
+          if(old.source==='rounding')throw workError(400,'방문 업무 설계는 라운딩 계획에서 자동으로 관리합니다.');
           if (old.kind !== input.kind) throw workError(400, '기존 기록의 집계를 위해 업무 유형은 유지해 주세요. 새 유형은 별도 설계로 추가합니다.');
           input.createdAt = old.createdAt ?? ''; 
           input.scheduleHistory = old.scheduleHistory ?? [];
@@ -95,6 +97,7 @@ export function createTaskMapStore(transaction, resolveRelated) {
         const template = (await q(`SELECT * FROM work_map_templates WHERE id=$1${q.forUpdate ?? ''}`, [body.templateId])).rows[0];
         if (!template) throw workError(404, '태스크 맵을 찾을 수 없습니다.');
         const map = decode(template);
+        if(map.source==='rounding')throw workError(400,'라운딩 화면에서 방문 계획을 추가해 주세요.');
         if (!Array.isArray(body.related) || body.related.length > 30 || body.related.some(r => !r || !['recipient','worker'].includes(r.type) || !text(r.id, 100))) throw workError(400, '연결 대상을 확인해 주세요.');
         const links = [...new Map(body.related.map(r=>[`${r.type}:${r.id}`,r])).values()].sort((a,b)=>`${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
         const related = links.length ? await resolveRelated(q, links) : [];
@@ -115,6 +118,8 @@ export function createTaskMapStore(transaction, resolveRelated) {
     },
     checkTaskMap(id, body, current) {
       return transaction(async q => {
+        const initial=(await q('SELECT * FROM work_map_runs WHERE id=$1',[id])).rows[0];
+        if(initial&&decode(initial).source==='rounding'){const run=decode(initial);if(body.step!==0||Number(run.version)!==body.version||run.steps[0].completedAt)throw workError(409,'방문 계획이 변경되었거나 이미 완료되었습니다. 새로고침 후 확인해 주세요.');return visitHooks.complete(q,run,body,current);}
         const row = (await q(`SELECT * FROM work_map_runs WHERE id=$1${q.forUpdate ?? ''}`, [id])).rows[0];
         if (!row) throw workError(404, '업무 묶음을 찾을 수 없습니다.');
         if (Number(row.version) !== body.version) throw workError(409, '다른 사용자가 변경했습니다. 새로고침 후 확인해 주세요.');

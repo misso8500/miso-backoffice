@@ -1,7 +1,5 @@
 import './NavigationTabs.css';
 import PageHeading from './PageHeading';
-import WorkVisits from './WorkVisits';
-import WorkRfid from './WorkRfid';
 import WorkTaskMap from './WorkTaskMap';
 import WorkBauChecklist from './WorkBauChecklist';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -52,8 +50,6 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const [detailDate, setDetailDate] = useState(workToday);
   const [view, setView] = useState<WorkCalendarMode>('day');
   const [systemOpen, setSystemOpen] = useState(false);
-  const [visitOpen,setVisitOpen]=useState(false);
-  const [rfidOpen,setRfidOpen]=useState(false);
   const [mapOpen, setMapOpen] = useState(true);
   const [designSection, setDesignSection] = useState<'map' | 'repeat' | 'legacy'>('map');
   const [systemDirty, setSystemDirty] = useState(false);
@@ -123,7 +119,7 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const lastResolved = tasks.find(task => task.id === lastResolvedId);
   const focusDate = view === 'day' ? date : detailDate;
   const selectedActivity = activity?.date === focusDate && activity.assignee === (assignee === 'unassigned' ? 'all' : assignee) ? activity : null;
-  const visible = tasks.filter(t => (status === 'all' || t.status === status)
+  const visible = tasks.filter(t => !t.sourceDesignId && (status === 'all' || t.status === status)
     && (assignee === 'all' || (assignee === 'unassigned' ? !t.assigneeId : t.assigneeId === assignee))
     && `${t.title} ${t.description} ${t.related.map(r => r.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
   const dayGroups = groupDayTasks(visible, date, selectedActivity);
@@ -233,13 +229,11 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const designWorkspace = context && <><nav className="work-secondary-tabs app-navigation-tabs" aria-label="설계 종류"><button type="button" disabled={navigationBusy || systemDirty} aria-current={designSection === 'map' ? 'page' : undefined} onClick={() => setDesignSection('map')}>월간·사건형 업무 설계</button><button type="button" disabled={navigationBusy || systemDirty} aria-current={designSection === 'repeat' ? 'page' : undefined} onClick={() => setDesignSection('repeat')}>매일 반복업무</button><button type="button" disabled={navigationBusy || systemDirty} aria-current={designSection === 'legacy' ? 'page' : undefined} onClick={() => setDesignSection('legacy')}>기존 반복 규칙</button></nav>{designSection !== 'legacy' ? <WorkTaskMap key={designSection} initialKind={designSection === 'repeat' ? 'daily' : 'monthly'} mode="design" onBusy={setSaving} onDirty={setSystemDirty} context={context} date={date} onChanged={() => setCalendarRevision(n=>n+1)}/> : <WorkRecurrenceSettings context={context} onChanged={() => void reload()} onBusy={setSaving} onDirty={setSystemDirty}/>}</>;
   function switchSection(section: 'map' | 'design' | 'todo') {
     if (systemDirty && !window.confirm('작성 중인 설정을 닫고 이동할까요?')) return;
-    if (visitOpen || section === 'todo') void reload();
-    setVisitOpen(false); setRfidOpen(false); setMapOpen(section === 'map'); setSystemOpen(section === 'design');
+    if (section === 'todo') void reload();
+    setMapOpen(section === 'map'); setSystemOpen(section === 'design');
   }
   const workspaceNavigation = <nav className="work-view-tabs work-primary-tabs app-navigation-tabs" aria-label="센터 업무">{([['map','업무전체지도'],['design','업무연관설계(태스크맵)'],['todo','일일 업무 관리(투두)']] as const).map(([key,label]) => <button key={key} type="button" disabled={navigationBusy} aria-current={(key === 'map' ? mapOpen : key === 'design' ? systemOpen : !mapOpen && !systemOpen) ? 'page' : undefined} onClick={() => switchSection(key)}>{label}</button>)}</nav>;
-  const todoNavigation = <nav className="work-secondary-tabs app-navigation-tabs" aria-label="투두 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" disabled={navigationBusy} aria-current={!visitOpen && !rfidOpen && view === mode ? 'page' : undefined} onClick={() => { if(visitOpen || rfidOpen) void reload(); setVisitOpen(false); setRfidOpen(false); setView(mode); }}>{({day:'일간',week:'주간',month:'월간'})[mode]}</button>)}<button type="button" disabled={navigationBusy} aria-current={visitOpen ? 'page' : undefined} onClick={() => { setRfidOpen(false); setVisitOpen(true); }}>라운딩</button><button type="button" disabled={navigationBusy} aria-current={rfidOpen ? 'page' : undefined} onClick={() => { setVisitOpen(false); setRfidOpen(true); }}>RFID</button></nav>;
-  if(rfidOpen)return <section className="work-hub is-system"><div className="work-day-navigation app-navigation-bar"><strong>센터업무(할일)</strong>{workspaceNavigation}{todoNavigation}</div><WorkRfid onBusy={setQuickBusy}/></section>;
-  if(visitOpen)return <section className="work-hub is-system"><div className="work-day-navigation app-navigation-bar"><strong>센터업무(할일)</strong>{workspaceNavigation}{todoNavigation}</div><WorkVisits onBusy={setQuickBusy}/></section>;
+  const todoNavigation = <nav className="work-secondary-tabs app-navigation-tabs" aria-label="투두 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" disabled={navigationBusy} aria-current={view === mode ? 'page' : undefined} onClick={() => setView(mode)}>{({day:'일간',week:'주간',month:'월간'})[mode]}</button>)}</nav>;
   return <section className={`work-hub ${systemOpen ? 'is-system' : ''}`} aria-label="공동 업무">
     
     <div className="work-day-navigation app-navigation-bar" role="region" aria-label="업무 기간 탐색">

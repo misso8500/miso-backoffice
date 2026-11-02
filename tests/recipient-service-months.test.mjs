@@ -38,5 +38,5 @@ for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: monthly service r
  const other=await store.saveServiceRounding('2026-10','b',{...initial,date:'2026-10-01',assigneeId:assignee},current);
  db.exec("CREATE TRIGGER fail_rounding BEFORE UPDATE ON recipient_service_rounding BEGIN SELECT RAISE(ABORT,'rollback check'); END;");
  await assert.rejects(async()=>store.saveServiceRounding('2026-10','b',{...other.rounding,status:'visited',confirmComplete:true},current),/rollback check/);
- assert.equal(db.prepare('SELECT count(*) AS n FROM work_visit_tasks').get().n,1);assert.equal(db.prepare('SELECT count(*) AS n FROM work_executions').get().n,1);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM work_visit_tasks').get().n,2);assert.equal(db.prepare('SELECT count(*) AS n FROM work_executions').get().n,1);
 });
