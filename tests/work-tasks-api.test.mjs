@@ -102,6 +102,20 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     assert.deepEqual(restored.related.map(r => r.id), [recipientId, workerId]);
   });
 
+  await t.test('RFID HTTP routes share saved records across accounts and survive restart', async () => {
+    const path = 'work/rfid?month=2000-02';
+    assert.equal((await call(path, 'GET', undefined, '')).status, 401);
+    const initial = await call(path); assert.equal(initial.status, 200);
+    assert.equal(initial.data.rows.find(r => r.id === rId).document.version, 0);
+    const body = { recipientId: rId, kind: 'day', version: 0, date: '2000-02-01', checked: true, note: 'RFID 확인' };
+    assert.equal((await call(path, 'PUT', body)).status, 200);
+    assert.equal((await call(path, 'PUT', body, 'b')).status, 409);
+    assert.equal((await call(path, 'GET', undefined, 'b')).data.rows.find(r => r.id === rId).document.records[body.date].note, body.note);
+    assert.equal((await call('work/rfid?month=2000-13')).status, 400);
+    await stop(); await start();
+    const reloaded = await call(path);
+    assert.equal(reloaded.data.rows.find(r => r.id === rId).document.records[body.date].checked, true);
+  });
   await t.test('recurrence HTTP routes enforce developer permissions and private rules', async () => {
     assert.equal((await call('work/categories', 'POST', { name: '금지' }, 'b')).status, 403);
     const category = await call('work/categories', 'POST', { name: '반복 관리' }); assert.equal(category.status, 200);

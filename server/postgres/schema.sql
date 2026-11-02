@@ -445,3 +445,14 @@ CREATE TABLE IF NOT EXISTS copay_events (
   created_at TEXT NOT NULL,
   UNIQUE(month,version)
 );
+CREATE TABLE IF NOT EXISTS work_rfid_months (
+  month TEXT NOT NULL,
+  recipient_id TEXT NOT NULL REFERENCES recipients(id),
+  payload TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(month,recipient_id)
+);
+ALTER TABLE work_rfid_months ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON work_rfid_months FROM anon, authenticated;

@@ -115,3 +115,12 @@ CREATE TABLE IF NOT EXISTS recipient_service_rounding (
   version INTEGER NOT NULL,
   PRIMARY KEY(month,recipient_id)
 );
+CREATE TABLE IF NOT EXISTS work_rfid_months (
+  month TEXT NOT NULL,
+  recipient_id TEXT NOT NULL REFERENCES recipients(id),
+  payload TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(month,recipient_id)
+);

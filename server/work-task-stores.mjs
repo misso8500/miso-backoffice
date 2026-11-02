@@ -1,4 +1,5 @@
 import {createServicePauseStore, heldTaskSql, assertVisitAvailable} from './service-pauses.mjs';
+import { createRfidStore } from './work-rfid.mjs';
 import { createVisitStore } from './work-visits.mjs';
 import { createRecipientServiceMonthStore } from './recipient-service-months.mjs';
 import { createServiceRoundingStore } from './recipient-service-rounding.mjs';
@@ -50,6 +51,7 @@ function createWorkStore(transaction, canEdit) {
       [newWorkId(), row.id, row.version, actor, kind, JSON.stringify(task(row)), row.updated_at]);
   };
   return {
+    ...createRfidStore(transaction),
     ...createCopayStore(transaction),
     ...createRecipientServiceMonthStore(transaction),
     ...createServiceRoundingStore(transaction,task,event),

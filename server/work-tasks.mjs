@@ -62,6 +62,13 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       else throw workError(405,'지원하지 않는 요청입니다.');
       return true;
     }
+    if(path==='/api/work/rfid') {
+      const month=new URL(request.url,'http://localhost').searchParams.get('month');
+      if(request.method==='GET')sendJson(response,200,await store.rfidMonth(month));
+      else if(request.method==='PUT')sendJson(response,200,await store.saveRfid(month,await readWorkBody(request),current));
+      else throw workError(405,'지원하지 않는 요청입니다.');
+      return true;
+    }
     if(path==='/api/work/service-rounding') {
       if(request.method!=='PUT')throw workError(405,'지원하지 않는 요청입니다.');
       const body=await readWorkBody(request);
