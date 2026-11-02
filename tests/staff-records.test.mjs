@@ -73,8 +73,8 @@ for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: staff documents, 
  assert.equal((await store.leaveLedger('2026',a)).plans.filter(plan=>plan.id.startsWith('attendance:')).length,1);
  const month=recurrenceToday().slice(0,7),date=month+'-01';
  await store.saveLeavePlan(null,{...planInput,dates:[{date,days:1}],applicationDate:date},a);
- const rule=await store.saveRecurrence(null,{requestId:randomUUID(),title:'RFID <YYMMDD>',description:'',assigneeId:profile.staffId,category:'unclassified',kind:'daily',dueDay:1,includeSaturday:true,includeSunday:true,includeLeave:false,active:true},a);
- const generated=(await store.list(a,'all','all')).filter(task=>task.title.startsWith('RFID'));
+ const rule=await store.saveRecurrence(null,{requestId:randomUUID(),title:'?? <YYMMDD>',description:'',assigneeId:profile.staffId,category:'unclassified',kind:'daily',dueDay:1,includeSaturday:true,includeSunday:true,includeLeave:false,active:true},a);
+ const generated=(await store.list(a,'all','all')).filter(task=>task.title.startsWith('??'));
  assert(!generated.some(task=>task.dueDate===date));assert.equal(generated.length,rule.created);
  assert.equal(execution.assigneeId,profile.staffId);
  const delegated=await store.staffRecordContext(profile.staffId,b);

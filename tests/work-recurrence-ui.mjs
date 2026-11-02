@@ -40,7 +40,7 @@ try {
     await page.getByRole('button', { name: '중지', exact: true }).click();
     await page.getByRole('button', { name: '재개', exact: true }).waitFor(); assert.equal(rules[0].active, false);
     await page.getByLabel('생성 주기', { exact: true }).selectOption('daily');
-    await page.getByLabel('업무 제목', { exact: true }).fill('RFID <YYMMDD> 체크');
+    await page.getByLabel('업무 제목', { exact: true }).fill('?? <YYMMDD> 체크');
     await page.getByLabel('업무 담당자', { exact: true }).selectOption('staff');
     await page.getByRole('checkbox', { name: '토요일 생성', exact: true }).check();
     await page.getByRole('checkbox', { name: '일요일 생성', exact: true }).check();

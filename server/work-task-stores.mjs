@@ -57,7 +57,13 @@ function createWorkStore(transaction, canEdit) {
     ...createVisitStore(transaction, task, event),
     ...createTaskMapStore(transaction, related),
     ...createStaffRecordStore(transaction),
-    ...createRecurrenceStore(transaction),
+    ...createRecurrenceStore(transaction, async (q, row, actor) => {
+      const locked = await lockTask(q, row.id);
+      if (!locked || locked.status !== 'open' || locked.completed_at) return;
+      const saved = (await q("UPDATE work_tasks SET status='cancelled',version=version+1,updated_by=$1,updated_at=$2 WHERE id=$3 RETURNING *", [actor, new Date().toISOString(), row.id])).rows[0];
+      await cancelTaskPlans(q, row.id, actor);
+      await event(q, saved, 'cancelled', actor);
+    }),
     ...createWorkJournalStore(transaction, related),
     members(user, emails) {
       return transaction(async q => {
