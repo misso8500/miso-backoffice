@@ -119,7 +119,7 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   const lastResolved = tasks.find(task => task.id === lastResolvedId);
   const focusDate = view === 'day' ? date : detailDate;
   const selectedActivity = activity?.date === focusDate && activity.assignee === (assignee === 'unassigned' ? 'all' : assignee) ? activity : null;
-  const visible = tasks.filter(t => (status === 'all' || t.status === status)
+  const visible = tasks.filter(t => !t.sourceDesignId && (status === 'all' || t.status === status)
     && (assignee === 'all' || (assignee === 'unassigned' ? !t.assigneeId : t.assigneeId === assignee))
     && `${t.title} ${t.description} ${t.related.map(r => r.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
   const dayGroups = groupDayTasks(visible, date, selectedActivity);

@@ -479,9 +479,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay" | "visits" | "rfid">(
     "recipients"
   );
-  const [visitsBusy,setVisitsBusy]=useState(false),[rfidBusy,setRfidBusy]=useState(false);
+  const [visitsBusy,setVisitsBusy]=useState(false),[visitsDirty,setVisitsDirty]=useState(false),[rfidBusy,setRfidBusy]=useState(false);
   function setActiveView(next: typeof activeView) {
-    if(next!==activeView&&activeView==='visits'&&visitsBusy)return;
+    if(next!==activeView&&activeView==='visits'){if(visitsBusy)return;if(visitsDirty&&!window.confirm('저장하지 않은 라운딩 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='rfid'&&rfidBusy&&!window.confirm('저장하지 않은 RFID 변경을 버리고 이동할까요?'))return;
     if(next!==activeView&&activeView==='copay'&&copayBusy)return;
     if(next!==activeView && activeView==='recipientServices') {
@@ -1613,7 +1613,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
         {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}
         {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy} onRecipient={row=>void openCopayRecipient(row)} recipientRevision={copayRecipientRevision} active={activeView==='copay'}/></section>}
-        {activeView === "visits" ? <section className="work-hub"><WorkVisits onBusy={setVisitsBusy}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
+        {activeView === "visits" ? <section className="work-hub"><WorkVisits onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
           <>
         <PageHeading title="수급자 관리" description="기본 정보와 장기요양이용계약 기간을 기록하고 확인합니다.">
           <div className="heading-actions">

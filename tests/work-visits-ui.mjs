@@ -20,44 +20,82 @@ let server,browser;
 async function call(path,method='GET',body){const response=await fetch(`http://127.0.0.1:${port}/api/${path}`,{method,headers:{Authorization:'Bearer a','Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();assert(response.ok,JSON.stringify(data));return data;}
 try{
  await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('API start timeout')),10000);api.stdout.on('data',chunk=>{if(chunk.toString().includes('API running')){clearTimeout(timer);resolve();}});api.once('exit',code=>{clearTimeout(timer);reject(Error(`API exit ${code}`));});api.once('error',reject);});
- const ids=[];for(const name of ['라운딩검증 데스크톱','라운딩검증 모바일']){const id=randomUUID();ids.push(id);await call('recipients/bulk-drafts','POST',{rows:[{id,name}]});}
+ const ids=[];for(const name of ['라운딩검증 데스크톱','라운딩검증 모바일','황영상 방문완료','담당미정 대상','선택하지 않은 대상']){const id=randomUUID();ids.push(id);await call('recipients/bulk-drafts','POST',{rows:[{id,name}]});}
  const db=new DatabaseSync(dbPath);try{for(const id of ids)db.prepare("UPDATE recipients SET is_draft=0,contract_registered_date='2026-09-01',contract_expired_date='2026-09-30',service_start_date='2026-09-01',service_end_date='2026-09-30' WHERE id=?").run(id);}finally{db.close();}
+ await call('work/service-month?month=2026-09','PUT',{version:0,recipientIds:ids.slice(0,4)});
+ for(const id of ids.slice(0,3))await call('work/service-rounding?month=2026-09','PUT',{recipientId:id,version:0,taskVersion:null,status:'coordinating',date:'2026-09-10',assigneeId:id===ids[2]?'staff-hwang-youngsang':'staff-park-jungyu'});
+ let source=await call('work/service-month?month=2026-09');
+ await call('work/service-rounding?month=2026-09','PUT',{recipientId:ids[2],...source.rows.find(row=>row.id===ids[2]).rounding,status:'visited',date:'2026-09-12',confirmComplete:true});
  server=await createServer({server:{host:'127.0.0.1',port:0,proxy:{'/api':`http://127.0.0.1:${port}`}},logLevel:'error'});await server.listen();
  browser=await chromium.launch({executablePath:process.env.WORK_UI_CHROME_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
  for(const [index,viewport]of[{width:1400,height:900},{width:390,height:844}].entries()){
+  if(index){const previous=(await call('work/visits/2026-09')).rows.find(row=>row.recipientId===ids[0]);await call('work/service-rounding?month=2026-09','PUT',{recipientId:ids[0],...previous.rounding,status:'coordinating',date:'2026-09-10'});}
   const page=await browser.newPage({viewport}),errors=[];page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.accept());
   await page.route('**/src/auth.ts',route=>route.fulfill({contentType:'application/javascript',body:"export const getAuthHeaders=async()=>({Authorization:'Bearer a'});export const authFailureEvent='test';"}));
   await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/center-practice-ui.html`);
   await page.getByRole('button',{name:'센터 실무',exact:true}).click();
   await page.getByRole('button',{name:'라운딩',exact:true}).click();await page.getByLabel('라운딩 조회 월',{exact:true}).fill('2026-09');
-  const name=index?'라운딩검증 모바일':'라운딩검증 데스크톱';const row=page.locator('.work-visit-row').filter({has:page.getByText(name,{exact:true})});await row.waitFor();
-  const selector=page.getByLabel(name+' 라운딩 담당자',{exact:true});assert.deepEqual(await selector.locator('option').allTextContents(),['사회복지사 선택','박준규','황영상']);await selector.selectOption('staff-park-jungyu');
-  await row.getByRole('button',{name:'확인 후 라운딩 할일 생성',exact:true}).click();await row.getByRole('button',{name:'라운딩 완료',exact:true}).waitFor();
-  const initialMonth=await call('work/visits/2026-09');const task=initialMonth.rows.find(item=>item.recipientId===ids[index]).task;
-  assert((await call('work/tasks?status=all')).some(item=>item.id===task.id));
-  // Complete from the ordinary task endpoint, then verify the roster observes the same task.
-  await call(`work/tasks/${task.id}/complete`,'POST',{version:task.version});await page.getByRole('button',{name:'새로고침',exact:true}).click();await row.getByText('✓ 라운딩 완료',{exact:true}).waitFor();
-  const current=(await call('work/visits/2026-09')).rows.find(item=>item.recipientId===ids[index]).task;await call(`work/tasks/${task.id}/reopen`,'POST',{version:current.version});await page.getByRole('button',{name:'새로고침',exact:true}).click();await row.getByRole('button',{name:'라운딩 완료',exact:true}).click();await row.getByText('✓ 라운딩 완료',{exact:true}).waitFor();
-  const retried=await call('work/visits/2026-09','POST',{recipientId:ids[index],assigneeId:'staff-park-jungyu',serviceConfirmed:true});assert.equal(retried.id,task.id);assert.equal(retried.status,'done');
-  // Extend only isolated test records to this month for the service-state workflow.
-  const today=recurrenceToday(),month=today.slice(0,7),first=month+'-01';
-  const [year,number]=month.split('-').map(Number),last=month+'-'+String(new Date(Date.UTC(year,number,0)).getUTCDate());
-  const edit=new DatabaseSync(dbPath);try{edit.prepare('UPDATE recipients SET contract_expired_date=?,service_end_date=? WHERE id=?').run(last,last,ids[index]);}finally{edit.close();}
-  await page.getByLabel('라운딩 조회 월',{exact:true}).fill(month);
-  await page.getByLabel(name+' 라운딩 담당자',{exact:true}).selectOption('staff-park-jungyu');await row.getByRole('button',{name:'확인 후 라운딩 할일 생성',exact:true}).click();await row.getByRole('button',{name:'라운딩 완료',exact:true}).waitFor();
-  const currentTask=(await call('work/visits/'+month)).rows.find(item=>item.recipientId===ids[index]).task;
-  await row.getByRole('button',{name:'서비스 일시정지',exact:true}).click();await page.getByLabel(name+' 정지 시작일',{exact:true}).fill(first);await page.getByLabel(name+' 정지 사유',{exact:true}).fill('입원 확인');
-  if(index)await page.getByLabel(name+' 복귀 예정일',{exact:true}).fill(first);
-  await row.getByRole('button',{name:'일시정지 등록',exact:true}).click();await row.getByText('라운딩 보류',{exact:true}).waitFor();
-  await row.getByText(index&&first<today?`복귀 예정일 경과 (${first}) · 확인 필요`:index?`복귀 예정 ${first}`:'복귀일 미정 · 확인 필요',{exact:true}).waitFor();
-  let paused=(await call('work/visits/'+month)).rows.find(item=>item.recipientId===ids[index]);assert.equal(paused.task.onHold,true);assert.equal(paused.task.id,currentTask.id);
-  const forbidden=await fetch(`http://127.0.0.1:${port}/api/work/tasks/${currentTask.id}/complete`,{method:'POST',headers:{Authorization:'Bearer a','Content-Type':'application/json'},body:JSON.stringify({version:paused.task.version})});assert.equal(forbidden.status,409);
-  await row.getByRole('button',{name:'복귀 처리',exact:true}).click();await page.getByLabel(name+' 실제 복귀일',{exact:true}).fill(today);await row.getByRole('button',{name:'복귀 확정',exact:true}).click();await row.getByRole('button',{name:'라운딩 완료',exact:true}).waitFor();
-  let restored=(await call('work/visits/'+month)).rows.find(item=>item.recipientId===ids[index]);assert.equal(restored.task.id,currentTask.id);assert.equal(restored.task.onHold,false);assert.equal(restored.servicePause,null);
-  await row.getByRole('button',{name:'라운딩 완료',exact:true}).click();await row.getByText('✓ 라운딩 완료',{exact:true}).waitFor();
-  await row.getByRole('button',{name:'서비스 일시정지',exact:true}).click();await page.getByLabel(name+' 정지 사유',{exact:true}).fill('추가 개인 사유');await row.getByRole('button',{name:'일시정지 등록',exact:true}).click();await row.getByText('현재 서비스 일시정지',{exact:true}).waitFor();await row.getByText('✓ 라운딩 완료',{exact:true}).waitFor();
-  await row.getByRole('button',{name:'복귀 처리',exact:true}).click();await row.getByRole('button',{name:'복귀 확정',exact:true}).click();await row.getByRole('button',{name:'서비스 일시정지',exact:true}).waitFor();
-  restored=(await call('work/visits/'+month)).rows.find(item=>item.recipientId===ids[index]);assert.equal(restored.task.id,currentTask.id);assert.equal(restored.task.status,'done');
-  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: task sync, pause/return, missing/elapsed expected date, blocked ordinary completion, same-task resume, completed-task preservation`);await page.close();
+  const name=index?'라운딩검증 모바일':'라운딩검증 데스크톱';
+  const roster=page.getByRole('region',{name:'월간 라운딩 명단'});
+  await roster.getByRole('button',{name:/담당미정 대상/}).waitFor();
+  assert.equal(await page.getByText('선택하지 않은 대상',{exact:true}).count(),0);
+  const calendar=page.getByRole('region',{name:'2026-09 전체 수급자 라운딩 달력'});
+  assert.equal(await calendar.locator('.rfid-calendar-grid').count(),1);
+  const tabs=page.getByRole('navigation',{name:'라운딩 담당자'});
+  await tabs.getByRole('button',{name:/황영상/}).click();
+  await roster.getByRole('button',{name:/황영상 방문완료/}).waitFor();
+  assert.equal(await roster.getByRole('button',{name:/라운딩검증/}).count(),0);
+  await tabs.getByRole('button',{name:/박준규/}).click();
+  assert.equal(await roster.getByRole('button',{name:/황영상 방문완료/}).count(),0);
+  assert.equal(await roster.getByRole('button',{name:/담당미정 대상/}).count(),0);
+  await calendar.getByRole('button',{name:'2026-09-10 계획 2명 방문 0명',exact:true}).click();
+  const editor=page.getByRole('complementary',{name:'라운딩 상세'});
+  await editor.getByRole('button',{name:new RegExp(name)}).click();
+  assert.equal(await page.getByLabel(name+' 방문일',{exact:true}).inputValue(),'2026-09-10');
+  await page.getByLabel(name+' 방문일',{exact:true}).fill('2026-09-11');
+  await page.getByLabel(name+' 계획 시작 시각',{exact:true}).fill('09:15');
+  await page.getByLabel(name+' 계획 종료 시각',{exact:true}).fill('10:00');
+  await editor.getByRole('button',{name:'방문 계획 저장',exact:true}).click();
+  await page.getByText('방문 계획을 저장했습니다.',{exact:false}).waitFor();
+  let record=(await call('work/visits/2026-09')).rows.find(row=>row.recipientId===ids[index]);
+  assert.deepEqual(record.plannedDates,['2026-09-11']);assert.equal(record.rounding.plannedStartTime,'09:15');assert.equal(record.rounding.plannedEndTime,'10:00');
+  await page.getByLabel(name+' 방문일',{exact:true}).fill('2026-09-12');
+  await editor.getByRole('button',{name:'실제 방문 완료',exact:true}).click();
+  await page.getByText('실제 방문과 연결된 할일 완료를 저장했습니다.',{exact:true}).waitFor();
+  record=(await call('work/visits/2026-09')).rows.find(row=>row.recipientId===ids[index]);
+  assert.deepEqual(record.plannedDates,['2026-09-11']);assert.equal(record.rounding.plannedStartTime,'09:15');assert.equal(record.rounding.plannedEndTime,'10:00');assert.deepEqual(record.visitedDates,['2026-09-12']);assert.equal(record.task.status,'done');
+  source=await call('work/service-month?month=2026-09');assert.equal(source.rows.find(row=>row.id===ids[index]).rounding.status,'visited');
+  await editor.getByRole('button',{name:'라운딩 상세 닫기',exact:true}).click();
+  await tabs.getByRole('button',{name:/모두/}).click();
+  await calendar.getByRole('button',{name:'2026-09-20 계획 0명 방문 0명',exact:true}).click();
+  const beforeScroll=await page.evaluate(()=>window.scrollY);
+  await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,350)));
+  const bounds=await editor.boundingBox();assert(bounds.y>=0&&bounds.y+bounds.height<=viewport.height+1,'editor must remain in viewport');
+  assert.equal(await page.evaluate(()=>window.scrollY),beforeScroll,'opening a date must not scroll to the month roster');
+  await editor.getByRole('button',{name:'방문계획 수급자 추가',exact:true}).click();
+  const candidates=editor.getByRole('region',{name:'방문계획에 추가할 남은 대상'});
+  assert.equal(await candidates.getByRole('button',{name:new RegExp(name)}).count(),0,'completed recipients must not be offered');
+  const add=candidates.getByRole('button',{name:/담당미정 대상/});assert.equal(await add.isDisabled(),true);
+  await candidates.getByLabel('추가할 방문 담당자',{exact:true}).selectOption('staff-hwang-youngsang');
+  await candidates.getByLabel('추가할 계획 시작 시각',{exact:true}).fill('11:00');
+  await candidates.getByLabel('추가할 계획 종료 시각',{exact:true}).fill('11:45');
+  await add.click();
+  await editor.getByText('2026-09-20 방문 계획에 담당미정 대상님을 추가했습니다.',{exact:true}).waitFor();
+  const added=(await call('work/visits/2026-09')).rows.find(row=>row.recipientId===ids[3]);
+  assert.deepEqual(added.plannedDates,['2026-09-20']);assert.equal(added.rounding.assigneeId,'staff-hwang-youngsang');assert.equal(added.rounding.plannedStartTime,'11:00');assert.equal(added.rounding.plannedEndTime,'11:45');
+  assert.equal(await candidates.getByRole('button',{name:/담당미정 대상/}).count(),0,'already planned recipients must leave the picker');
+  await editor.getByRole('button',{name:'라운딩 상세 닫기',exact:true}).click();
+  await calendar.getByRole('button',{name:'2026-09-20 계획 1명 방문 0명',exact:true}).waitFor();
+  await calendar.getByRole('button',{name:'2026-09-20 계획 1명 방문 0명',exact:true}).click();
+  await editor.getByRole('button',{name:/담당미정 대상/}).click();
+  assert.equal(await page.getByLabel('담당미정 대상 계획 시작 시각',{exact:true}).inputValue(),'11:00');
+  assert.equal(await page.getByLabel('담당미정 대상 계획 종료 시각',{exact:true}).inputValue(),'11:45');
+  await editor.getByRole('button',{name:'라운딩 상세 닫기',exact:true}).click();
+  await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,350)));
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),true);
+  // Leave a genuinely unassigned recipient for the next viewport.
+  const other=(await call('work/visits/2026-09')).rows.find(row=>row.recipientId===ids[3]);
+  await call('work/service-rounding?month=2026-09','PUT',{recipientId:ids[3],...other.rounding,status:'unplanned',date:'',assigneeId:''});
+  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: selected monthly recipients only, one shared RFID calendar, owner filters, planned/actual dates, completion and service-tab sync, fixed date panel and one-click recipient addition, time-range save/reload, no overflow`);await page.close();
  }
 }finally{await browser?.close();await server?.close();if(api.exitCode===null){api.kill();await once(api,'exit');}await new Promise(resolve=>auth.close(resolve));await rm(dir,{recursive:true,force:true});}

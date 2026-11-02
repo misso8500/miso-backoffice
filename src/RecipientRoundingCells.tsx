@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {Pencil,Check,X} from 'lucide-react';
-export type Rounding={status:'unplanned'|'coordinating'|'paperwork'|'visited';date:string;assigneeId:string;version:number;taskId:string|null;taskVersion:number|null};
+export type Rounding={plannedStartTime?:string;plannedEndTime?:string;plannedDate?:string;status:'unplanned'|'coordinating'|'paperwork'|'visited';date:string;assigneeId:string;version:number;taskId:string|null;taskVersion:number|null};
 export const emptyRounding: Rounding={status:'unplanned',date:'',assigneeId:'',version:0,taskId:null,taskVersion:null};
 const states=[['unplanned','미계획'],['coordinating','일정조율'],['paperwork','서류작업'],['visited','방문완료']] as const;
 export default function RecipientRoundingCells({name,value,assignees,busy,onSave,serverError,onEditing}:{name:string;value:Rounding;assignees:{id:string;name:string}[];busy:boolean;onSave:(value:Rounding,confirm?:boolean)=>Promise<boolean>;serverError:string;onEditing:(active:boolean)=>void}){

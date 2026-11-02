@@ -8,6 +8,7 @@ export function applyWorkMutation(path:string,value:any) {
   const base=path.split('?')[0];
   if(base==='/api/work/service-rounding' && value?.rounding) {
     workCache.update(key=>key===`/api/work/service-month?month=${value.month}`,data=>({...data,rows:data.rows.map((r:any)=>r.id===value.recipientId?{...r,rounding:value.rounding}:r)}));
+    workCache.invalidate(key=>key.startsWith('/api/work/task-maps?')||key.startsWith('/api/work/day?')||key.startsWith('/api/work/calendar?'));
     if(value.task)applyWorkMutation(`/api/work/tasks/${value.task.id}`,value.task);
     return;
   }
@@ -32,7 +33,7 @@ export function applyWorkMutation(path:string,value:any) {
       const next={...data,[field]:[...data[field].filter((row:any)=>row.id!==value.id),value]};
       return {...next,nodes:trafficBoard(next.templates,next.runs,next.month ?? next.today.slice(0,7),next.today)};
     });
-    if(run && base.endsWith('/check')) workCache.invalidate(key=>key.startsWith('/api/work/day?')||key.startsWith('/api/work/calendar?'));
+    if(run && base.endsWith('/check')) workCache.invalidate(key=>key.startsWith('/api/work/day?')||key.startsWith('/api/work/calendar?')||key.startsWith('/api/work/tasks?')||key.startsWith('/api/work/service-month?'));
     return;
   }
   if(base.startsWith('/api/work/tasks') && value?.id && value?.status) {
