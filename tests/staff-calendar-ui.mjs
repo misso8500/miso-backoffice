@@ -20,10 +20,12 @@ try {
  const url=new URL(route.request().url());let value;
  if(url.pathname.includes('/calendar')) value={plans:[],deadlines:[],unplanned:[{id:'task',title:'날짜 없는 할 일'}]};
  else if(url.pathname.includes('/workspace/')){const body=route.request().postDataJSON();for(const kind of ['attendance','journal'])documents[kind]={...documents[kind],payload:body[kind].payload,version:documents[kind].version+1};saves++;value={};}
- else {const kind=url.pathname.includes('/attendance/')?'attendance':'journal';value={document:documents[kind],executions:[],leaveDates:[],sourceHash:'test',sourceChanged:false};}
+ else {const kind=url.pathname.includes('/attendance/')?'attendance':'journal';await new Promise(resolve=>setTimeout(resolve,kind==='attendance'?500:900));value={document:documents[kind],executions:[],leaveDates:[],sourceHash:'test',sourceChanged:false};}
  await route.fulfill({json:value});
  });
  await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/staff-calendar-ui.html`);
+ await page.locator('.work-operation-status.is-busy').getByText('처리 중',{exact:true}).waitFor();
+ await page.locator('.work-operation-status.is-success').getByText('완료',{exact:true}).waitFor();
  const first=page.getByRole('button',{name:new RegExp(`${month}-01 .*검토 전`)});
  await first.click();
  await page.getByLabel('근태 비고·연차 사유',{exact:true}).fill('보존할 기록');
@@ -38,7 +40,7 @@ try {
  const toggle=page.getByRole('button',{name:/월 근무기록/});await toggle.click();assert.equal(await toggle.getAttribute('aria-expanded'),'false');await toggle.click();
  await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,350)));
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),`horizontal overflow ${width}`);
- assert.deepEqual(errors,[]);console.log(`PASS ${width}px: accordion, date editor, close/reopen preserves edits, review and save, no overflow`);
+ assert.deepEqual(errors,[]);console.log(`PASS ${width}px: loading indicator, accordion, date editor, close/reopen preserves edits, review and save, no overflow`);
  await page.close();
  }
 }finally{await browser?.close();await server.close();}
