@@ -104,7 +104,7 @@ export function createStaffRecordStore(transaction) {
         if (confirming && kind === 'journal' && inputs.attendance.payload.leaveHash !== inputs.leaveHash) throw workError(400, '연차 계획이 변경되었습니다. 출근부를 먼저 검토하고 재확정해 주세요.');
         if (confirming && kind === 'attendance' && payload.rows.some(row => row.kind === 'leave')) {
           const balance = await totals(q, current.me.id, month.slice(0,4), { month, rows: payload.rows });
-          if (balance.remaining < 0) throw workError(400, '연차 사용 일수가 부여 일수를 초과합니다. 연차대장을 확인해 주세요.');
+          if (balance.remaining < 0) throw workError(400, `${month.slice(0,4)}년 연차 부여 ${balance.granted}일보다 사용 ${balance.used}일이 많습니다. 연차대장 → 연차 일수 직접 등록에서 해당 직원의 부여 일수와 기존 사용분을 확인하고 저장해 주세요.`);
         }
         if (confirming && kind === 'attendance') payload.leaveHash = inputs.leaveHash;
         if (confirming && kind === 'journal') payload.attendance = inputs.attendance.payload.rows.map(row => ({ date: row.date, kind: row.kind, hours: row.hours, leaveDays: row.leaveDays }));
