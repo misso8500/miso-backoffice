@@ -10,7 +10,6 @@ import DateInput from './DateInput';
 import WorkCalendar from './WorkCalendar';
 import WorkRecurrenceSettings from './WorkRecurrenceSettings';
 import WorkTaskDetails from './WorkTaskDetails';
-import WorkOperationStatus from './WorkOperationStatus';
 import { groupDayTasks } from '../shared/work-day-tasks.mjs';
 import { moveWorkCalendar, workCalendarRange, type WorkCalendarMode } from '../shared/work-calendar.mjs';
 import WorkDayPanel, { type WorkDayHandle } from './WorkDayPanel';
@@ -239,10 +238,10 @@ export default function WorkHub({ onDirectoryChanged }: { onDirectoryChanged: ()
   }
   const workspaceNavigation = <nav className="work-view-tabs work-primary-tabs app-navigation-tabs" aria-label="센터 업무">{([['map','업무전체지도'],['design','업무연관설계(태스크맵)'],['todo','일일 업무 관리(투두)']] as const).map(([key,label]) => <button key={key} type="button" disabled={navigationBusy} aria-current={(key === 'map' ? mapOpen : key === 'design' ? systemOpen : !mapOpen && !systemOpen) ? 'page' : undefined} onClick={() => switchSection(key)}>{label}</button>)}</nav>;
   const todoNavigation = <nav className="work-secondary-tabs app-navigation-tabs" aria-label="투두 보기">{(['day','week','month'] as const).map(mode => <button key={mode} type="button" disabled={navigationBusy} aria-current={!visitOpen && !rfidOpen && view === mode ? 'page' : undefined} onClick={() => { if(visitOpen || rfidOpen) void reload(); setVisitOpen(false); setRfidOpen(false); setView(mode); }}>{({day:'일간',week:'주간',month:'월간'})[mode]}</button>)}<button type="button" disabled={navigationBusy} aria-current={visitOpen ? 'page' : undefined} onClick={() => { setRfidOpen(false); setVisitOpen(true); }}>라운딩</button><button type="button" disabled={navigationBusy} aria-current={rfidOpen ? 'page' : undefined} onClick={() => { setVisitOpen(false); setRfidOpen(true); }}>RFID</button></nav>;
-  if(rfidOpen)return <section className="work-hub is-system"><WorkOperationStatus/><div className="work-day-navigation app-navigation-bar"><strong>센터업무(할일)</strong>{workspaceNavigation}{todoNavigation}</div><WorkRfid onBusy={setQuickBusy}/></section>;
-  if(visitOpen)return <section className="work-hub is-system"><WorkOperationStatus/><div className="work-day-navigation app-navigation-bar"><strong>센터업무(할일)</strong>{workspaceNavigation}{todoNavigation}</div><WorkVisits onBusy={setQuickBusy}/></section>;
+  if(rfidOpen)return <section className="work-hub is-system"><div className="work-day-navigation app-navigation-bar"><strong>센터업무(할일)</strong>{workspaceNavigation}{todoNavigation}</div><WorkRfid onBusy={setQuickBusy}/></section>;
+  if(visitOpen)return <section className="work-hub is-system"><div className="work-day-navigation app-navigation-bar"><strong>센터업무(할일)</strong>{workspaceNavigation}{todoNavigation}</div><WorkVisits onBusy={setQuickBusy}/></section>;
   return <section className={`work-hub ${systemOpen ? 'is-system' : ''}`} aria-label="공동 업무">
-    <WorkOperationStatus/>
+    
     <div className="work-day-navigation app-navigation-bar" role="region" aria-label="업무 기간 탐색">
       <strong>센터업무(할일)</strong>
       {workspaceNavigation}

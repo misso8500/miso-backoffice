@@ -24,11 +24,9 @@ export const requestJson = async <T,>(path: string, options?: RequestInit): Prom
     try { useWorkCacheIdentity(JSON.stringify(await getAuthHeaders())); }
     catch(error) { workCache.clear(); throw error; }
   }
-  // Reuse the work status indicator for record reads as well as writes.
-  const recordRead = method==='GET' && (path.startsWith('/api/work/records/') || /^\/api\/work\/context(?:[?]|$)/.test(path));
-  const tracked = path.startsWith('/api/work/') && (method!=='GET' || recordRead) || path === '/api/recipients/bulk-drafts' || path === '/api/employment-contracts/bulk-drafts';
+  const tracked = path.startsWith('/api/');
   const id = crypto.randomUUID();
-  const notify = (phase: 'start' | 'success' | 'error') => { if (tracked) window.dispatchEvent(new CustomEvent(workOperationEvent, { detail: { id, phase } })); };
+  const notify = (phase: 'start' | 'success' | 'error') => { if (tracked) window.dispatchEvent(new CustomEvent(workOperationEvent, { detail: { id, phase, read: method==='GET' } })); };
   notify('start');
   try {
     const result = cached ? await workCache.get<T>(path,()=>requestJsonImpl<T>(path,options),{force:options?.cache==='reload'||options?.cache==='no-store'}) : await requestJsonImpl<T>(path, options);
