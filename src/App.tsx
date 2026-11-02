@@ -1,3 +1,4 @@
+import WorkOperationStatus from './WorkOperationStatus';
 import './NavigationTabs.css';
 import PageHeading from './PageHeading';
 import CopayRecipientPicker from './CopayRecipientPicker';
@@ -1601,6 +1602,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       {import.meta.env.DEV && <div className="development-indicator" role="note" aria-label="개발 환경">DEV · 개발 환경</div>}
 
       <main className="main-content">
+        <WorkOperationStatus/>
         {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리'}[activeView]}</strong></div>}
         {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
         {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}
@@ -1707,10 +1709,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           </div>
 
           {isLoading ? (
-            <div className="empty-state">
-              <RefreshCw className="spin" size={28} />
-              <p>수급자 정보를 불러오는 중입니다.</p>
-            </div>
+null
           ) : filteredRecipients.length === 0 ? (
             <div className="empty-state">
               <Users size={30} />
@@ -1806,10 +1805,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               </div>
 
               {isEmploymentLoading ? (
-                <div className="empty-state">
-                  <RefreshCw className="spin" size={28} />
-                  <p>근로계약 정보를 불러오는 중입니다.</p>
-                </div>
+null
               ) : filteredEmploymentContracts.length === 0 ? (
                 <div className="empty-state">
                   <Briefcase size={30} />

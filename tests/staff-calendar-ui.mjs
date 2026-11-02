@@ -24,8 +24,10 @@ try {
  await route.fulfill({json:value});
  });
  await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/staff-calendar-ui.html`);
+ await page.locator('.app-data-loading').waitFor({state:'visible'});
  await page.locator('.work-operation-status.is-busy').getByText('처리 중',{exact:true}).waitFor();
  await page.locator('.work-operation-status.is-success').getByText('완료',{exact:true}).waitFor();
+ await page.locator('.app-data-loading').waitFor({state:'detached'});
  const first=page.getByRole('button',{name:new RegExp(`${month}-01 .*검토 전`)});
  await first.click();
  await page.getByLabel('근태 비고·연차 사유',{exact:true}).fill('보존할 기록');
