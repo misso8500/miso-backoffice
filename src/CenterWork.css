@@ -1,11 +1,4 @@
 .work-hub { padding-top: 0; color: #45394e; }
-.work-hub .work-day-navigation { position: static; margin: 0 0 24px; padding: 0 0 18px; background: transparent; border: 0; border-bottom: 1px solid #e7e0ed; box-shadow: none; display: flex; flex-direction: column; align-items: stretch; gap: 16px; }
-.work-hub .work-primary-tabs { display: flex; gap: 24px; border-bottom: 1px solid #e7e0ed; }
-.work-hub .work-primary-tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 14px 2px; background: transparent; color: #807587; box-shadow: none; }
-.work-hub .work-primary-tabs button[aria-current="page"] { color: #76558f; border-bottom-color: #76558f; background: transparent; }
-.work-secondary-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-.work-secondary-tabs button { border: 1px solid #e7e0ed; border-radius: 8px; padding: 8px 14px; background: white; color: #786686; cursor: pointer; }
-.work-secondary-tabs button[aria-current="page"] { background: #eee5f5; border-color: #cbb7db; color: #65467e; }
 .work-hub .work-capture { max-width: none; padding: 18px 22px; border-color: #e7e0ed; box-shadow: none; margin-bottom: 24px; }
 .work-hub .work-capture h2 { font-size: 15px; }
 .work-hub .work-day-columns { gap: 24px; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); }
@@ -45,7 +38,7 @@
 .work-hub .traffic-mode-design .traffic-results .traffic-tree { grid-template-columns: minmax(0,1fr); }
 .work-hub .traffic-mode-design .traffic-instance-group { display: none; }
 @media(max-width:1100px) { .work-hub .traffic-results .traffic-tree { grid-template-columns: repeat(2,minmax(0,1fr)); } .work-hub .traffic-mode-design .traffic-workspace { grid-template-columns: 1fr; } }
-@media(max-width:760px) { .work-hub .work-primary-tabs { gap: 12px; } .work-hub .work-primary-tabs button { font-size: 12px; flex: 1; } .work-hub .work-day-columns { grid-template-columns: minmax(0,1fr); } .work-hub .traffic-results { padding: 14px; } .work-hub .traffic-results .traffic-tree { grid-template-columns: minmax(0,1fr); } .work-hub .work-task-row { padding: 12px; } }
+@media(max-width:760px) { .work-hub .work-day-columns { grid-template-columns: minmax(0,1fr); } .work-hub .traffic-results { padding: 14px; } .work-hub .traffic-results .traffic-tree { grid-template-columns: minmax(0,1fr); } .work-hub .work-task-row { padding: 12px; } }
 @media(prefers-reduced-motion:reduce) { .traffic-fold-body { transition: none; } }
 .work-bau-checklist { display: grid; gap: 10px; margin-bottom: 20px; }
 .work-bau-checklist:empty { display: none; }

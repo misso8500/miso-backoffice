@@ -87,6 +87,19 @@ for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: staff documents, 
  await store.saveRecordProfile({...profile,staffId,name:'선택 직원 C',version:0},selectedA);
  assert.equal((await store.recordProfile(selectedB)).name,'선택 직원 C');
  await store.saveLeaveAccount('2026',{version:0,granted:10,openingUsed:1},selectedB);
+ // An October draft survives a failed confirmation until the annual grant is registered.
+ const october=await store.recordMonth('attendance','2026-10',selectedA);
+ const octoberPayload=structuredClone(october.document.payload);
+ octoberPayload.rows.forEach(row=>{row.kind='off';row.reviewed=true;});
+ Object.assign(octoberPayload.rows[0],{kind:'leave',leaveDays:1});
+ await store.saveLeaveAccount('2026',{version:1,granted:0,openingUsed:0},selectedA);
+ const octoberDraft=await store.saveRecordMonth('attendance','2026-10',{action:'save',version:0,payload:octoberPayload,sourceHash:october.sourceHash},selectedA);
+ await assert.rejects(store.saveRecordMonth('attendance','2026-10',{action:'confirm',version:octoberDraft.version,payload:octoberPayload,sourceHash:october.sourceHash},selectedA),error=>error.status===400&&error.message.includes('2026년 연차 부여 0일보다 사용 1일'));
+ assert.equal((await store.recordMonth('attendance','2026-10',selectedA)).document.status,'draft');
+ assert.equal((await store.leaveLedger('2026',selectedA)).plans.some(plan=>plan.dates.some(day=>day.date==='2026-10-01')),true);
+ await store.saveLeaveAccount('2026',{version:2,granted:10,openingUsed:1},selectedA);
+ await store.saveRecordMonth('attendance','2026-10',{action:'confirm',version:octoberDraft.version,payload:octoberPayload,sourceHash:october.sourceHash},selectedA);
+ assert.equal((await store.leaveLedger('2026',selectedA)).totals.used,2);
  assert.equal((await store.leaveLedger('2026',selectedA)).totals.granted,10);
  assert.equal((await store.leaveLedger('2026',a)).totals.granted,15);
  await assert.rejects(async()=>store.staffRecordContext('invented',a),{status:400});
