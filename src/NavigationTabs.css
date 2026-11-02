@@ -1,0 +1,88 @@
+/* Shared navigation appearance, based on the staff-record tabs. */
+nav.app-navigation-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+}
+nav.app-navigation-tabs > button {
+  min-height: 36px;
+  flex: 0 1 auto;
+  padding: 6px 17px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #644c80;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+  box-shadow: none;
+}
+nav.app-navigation-tabs > button:hover:not(:disabled) {
+  background: #eee5f5;
+}
+nav.app-navigation-tabs > button[aria-current="page"]:hover:not(:disabled),
+nav.app-navigation-tabs > button[aria-pressed="true"]:hover:not(:disabled),
+nav.app-navigation-tabs > button[aria-current="page"],
+nav.app-navigation-tabs > button[aria-pressed="true"] {
+  background: #76549b;
+  border-color: #76549b;
+  color: white;
+  box-shadow: 0 2px 6px #5c38732b;
+}
+nav.app-navigation-tabs > button:focus-visible {
+  outline: 3px solid #b7a0d5;
+  outline-offset: 2px;
+}
+nav.app-navigation-tabs > button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+@media (max-width: 620px) {
+  nav.app-navigation-tabs > button { padding: 6px 12px; }
+}
+
+/* A consistent purple navigation bar on every workspace, including pages without tabs. */
+.main-content .app-navigation-bar {
+  position: sticky;
+  top: 0;
+  left: auto;
+  right: auto;
+  z-index: 9;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  flex-direction: row;
+  gap: 12px 22px;
+  min-height: 60px;
+  margin: -48px 0 28px;
+  padding: 12px 20px;
+  background: #c9b4e4;
+  border: 0;
+  border-bottom: 1px solid #ad91cc;
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 4px 18px #5d397c1b;
+}
+.main-content .app-navigation-bar > strong {
+  color: #45394e;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.main-content .app-navigation-bar nav.app-navigation-tabs {
+  margin: 0;
+  gap: 5px;
+}
+.main-content .app-navigation-bar .work-period-controls {
+  flex-basis: 100%;
+}
+.main-content .staff-records { padding-top: 0; }
+@media (max-width: 760px) {
+  .main-content .app-navigation-bar {
+    margin-top: -26px;
+    gap: 10px;
+    padding: 12px;
+  }
+}

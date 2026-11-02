@@ -1,3 +1,4 @@
+import './NavigationTabs.css';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { requestJson } from './storage';
@@ -56,7 +57,7 @@ export default function WorkRecurrenceSettings({ context, onChanged, onBusy, onD
   const dates = form.title.trim() && Number.isInteger(form.dueDay) && form.dueDay >= 1 && form.dueDay <= 31 ? recurrenceDates(form, month) : [];
   return <section className="work-system" aria-label="반복 업무">
     <header className="work-system-heading"><div><h2>반복 업무</h2><p>이번 달 {month} · 규칙은 나만 관리하고, 생성된 업무는 공동업무에서 함께 처리합니다.</p></div><button type="button" className="secondary-button" disabled={busy || loading} onClick={() => void reload(true)}><RefreshCw size={15}/>새로고침</button></header>
-    <nav className="work-system-tabs" aria-label="반복 업무 설정"><button type="button" aria-pressed={section === 'rules'} onClick={() => setSection('rules')}>나의 반복 업무</button><button type="button" aria-pressed={section === 'categories'} onClick={() => setSection('categories')}>카테고리 관리</button></nav>
+    <nav className="work-system-tabs app-navigation-tabs" aria-label="반복 업무 설정"><button type="button" aria-pressed={section === 'rules'} onClick={() => setSection('rules')}>나의 반복 업무</button><button type="button" aria-pressed={section === 'categories'} onClick={() => setSection('categories')}>카테고리 관리</button></nav>
     {error && <p className="work-day-error" role="alert">{error} 입력 내용은 유지됩니다.</p>}{notice && <p className="work-notice" role="status">{notice}</p>}
     {loading ? <p role="status">설정을 불러오는 중입니다.</p> : section === 'rules' ? <div className="work-system-layout"><form className="work-system-form" onSubmit={event => void save(event)}><h3>{form.id ? '반복 규칙 수정' : '반복 업무 만들기'}</h3><fieldset disabled={busy}>
       <label>생성 주기<select aria-label="생성 주기" value={form.kind} onChange={event => setForm({ ...form, kind: event.target.value as Rule['kind'] })}><option value="monthly">매월 한 번</option><option value="daily">이번 달 매일</option></select></label>
