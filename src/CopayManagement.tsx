@@ -3,6 +3,7 @@ import companySeal from '../docs/prototypes/assets/copay-company-seal.png?url';
 import runtime from './copay-runtime.js?raw';
 import {requestJson} from './storage';
 import './copay-management.css';
+import pageHeadingCss from './PageHeading.css?raw';
 
 // Reuse the reviewed forms while keeping their document/print styles isolated
 // from the application shell. Vite bundles both the HTML and the seal asset.
@@ -16,8 +17,11 @@ const documentHtml = prototype
   .replace('실제 수납일 8자리', '실제 수납일')
   .replace(/<aside class="sidebar">[\s\S]*?<\/aside>/, '')
   .replace('<h1>본인부담금</h1>', '<h1>본인부담금 관리</h1>')
+  .replace('<header class="heading">', '<header class="page-heading workspace-page-heading">')
+  .replace('<span class="eyebrow">RECIPIENT PAYMENTS</span>', '')
   .replace("new URL('./assets/copay-company-seal.png',document.baseURI).href", JSON.stringify(companySeal))
   .replace('</head>', `<style>
+    ${pageHeadingCss}
     .shell{display:block;min-height:0}
     .main{width:100%;max-width:none;margin:0;padding:0 0 24px;min-width:0}
     body{background:#f7f6f9}

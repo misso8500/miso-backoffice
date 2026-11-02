@@ -1,3 +1,4 @@
+import PageHeading from './PageHeading';
 import {summarizePlan} from './lib/recipient-plan-summary';
 import './dev-sidebar.css';
 import './dev-workspace.css';
@@ -1525,12 +1526,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy}/></section>}
         {activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
           <>
-        <section className="page-heading">
-          <div>
-            <span className="eyebrow">Recipients</span>
-            <h1>수급자 관리</h1>
-            <p>기본 정보와 장기요양이용계약 기간을 기록하고 확인합니다.</p>
-          </div>
+        <PageHeading title="수급자 관리" description="기본 정보와 장기요양이용계약 기간을 기록하고 확인합니다.">
           <div className="heading-actions">
             <button type="button" className="primary-button" onClick={() => setIsRecipientGridOpen(true)}>
               <Plus size={18} /> 표로 여러 명 입력
@@ -1552,7 +1548,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <strong>{enabledRecipientCount}명 <small>{renewalCount}건</small></strong>
             </div>
           </div>
-        </section>
+        </PageHeading>
 
         {errorMessage && (
           <div className="error-banner" role="alert">
@@ -1649,12 +1645,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           </>
         ) : (
           <>
-            <section className="page-heading">
-              <div>
-                <span className="eyebrow">Employment contracts</span>
-                <h1>근로계약 관리</h1>
-                <p>근로자의 계약 기간, 근무시간, 임금과 보험 정보를 기록하고 확인합니다.</p>
-              </div>
+            <PageHeading title="근로계약 관리" description="근로자의 계약 기간, 근무시간, 임금과 보험 정보를 기록하고 확인합니다.">
               <div className="heading-actions">
                 <button type="button" className="primary-button" onClick={() => setIsEmploymentGridOpen(true)}>
                   <Plus size={18} /> 표로 여러 명 입력
@@ -1682,7 +1673,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   <strong>{enabledEmploymentContractCount}건</strong>
                 </div>
               </div>
-            </section>
+            </PageHeading>
 
             {employmentErrorMessage && (
               <div className="error-banner" role="alert">

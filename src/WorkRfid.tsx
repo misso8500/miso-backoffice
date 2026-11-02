@@ -1,3 +1,4 @@
+import PageHeading from './PageHeading';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { requestJson } from './storage';
@@ -103,7 +104,7 @@ export default function WorkRfid({ onBusy }: { onBusy: (busy: boolean) => void }
   function leave() { return !busy || window.confirm('저장하지 않은 변경을 버리고 이동할까요?'); }
   function changeMonth(value: string) { if (/^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(value) && value !== month && leave()) { setMonth(value); setSelected(''); setVisited(new Set()); setBusy(false); } }
   const rows = (data?.rows ?? []).filter(r => `${r.name} ${r.operationalName}`.includes(query.trim()) && (filter === 'all' || r.selected));
-  return <section className="work-rfid" aria-label="RFID 업무 관리"><header className="page-heading"><div><span className="eyebrow">RFID CHECK</span><h1>RFID 업무 관리</h1><p>수급자별 서비스 일정과 한 달의 확인 내역을 함께 관리합니다.</p></div><button type="button" className="secondary-button" disabled={loading || busy} onClick={() => setRevision(n => n + 1)}><RefreshCw size={16}/>새로고침</button></header>
+  return <section className="work-rfid" aria-label="RFID 업무 관리"><PageHeading title="RFID 업무 관리" description="수급자별 서비스 일정과 한 달의 확인 내역을 함께 관리합니다."><button type="button" className="secondary-button" disabled={loading || busy} onClick={() => setRevision(n => n + 1)}><RefreshCw size={16}/>새로고침</button></PageHeading>
     <div className="rfid-toolbar"><div className="rfid-month-picker"><button className="secondary-button" aria-label="RFID 이전 달" disabled={busy || loading || month === '1000-01'} onClick={() => changeMonth(moveWorkCalendar(`${month}-01`, 'month', -1).slice(0, 7))}><ChevronLeft size={18}/></button><label>조회 월<input type="month" min="1000-01" max="9999-12" value={month} disabled={busy || loading} onChange={e => changeMonth(e.target.value)}/></label><button className="secondary-button" aria-label="RFID 다음 달" disabled={busy || loading || month === '9999-12'} onClick={() => changeMonth(moveWorkCalendar(`${month}-01`, 'month', 1).slice(0, 7))}><ChevronRight size={18}/></button></div><label>수급자 검색<input type="search" placeholder="이름·운영상 표기" value={query} disabled={busy} onChange={e => setQuery(e.target.value)}/></label><label>대상<select value={filter} disabled={busy} onChange={e => setFilter(e.target.value)}><option value="all">전체 수급자</option><option value="service">이 달의 서비스 수급자</option></select></label></div>
     <p className="rfid-guidance">수급자를 펼치면 월간 달력이 나타납니다. 서비스 대상 선택은 방문요양 서비스 관리와 연결되며, 근무일·시간·유형은 이 화면에서 월별로 저장합니다.</p>
     {error && <p className="work-day-error" role="alert">{error}<button className="secondary-button" onClick={() => setRevision(n => n + 1)}>다시 불러오기</button></p>}

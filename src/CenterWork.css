@@ -6,7 +6,6 @@
 .work-secondary-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .work-secondary-tabs button { border: 1px solid #e7e0ed; border-radius: 8px; padding: 8px 14px; background: white; color: #786686; cursor: pointer; }
 .work-secondary-tabs button[aria-current="page"] { background: #eee5f5; border-color: #cbb7db; color: #65467e; }
-.work-hub .page-heading { margin: 0 0 24px; }
 .work-hub .work-capture { max-width: none; padding: 18px 22px; border-color: #e7e0ed; box-shadow: none; margin-bottom: 24px; }
 .work-hub .work-capture h2 { font-size: 15px; }
 .work-hub .work-day-columns { gap: 24px; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); }
