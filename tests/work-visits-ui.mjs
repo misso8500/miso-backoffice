@@ -27,7 +27,8 @@ try{
  for(const [index,viewport]of[{width:1400,height:900},{width:390,height:844}].entries()){
   const page=await browser.newPage({viewport}),errors=[];page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.accept());
   await page.route('**/src/auth.ts',route=>route.fulfill({contentType:'application/javascript',body:"export const getAuthHeaders=async()=>({Authorization:'Bearer a'});export const authFailureEvent='test';"}));
-  await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/work-visits-ui.html`);
+  await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/center-practice-ui.html`);
+  await page.getByRole('button',{name:'센터 실무',exact:true}).click();
   await page.getByRole('button',{name:'라운딩',exact:true}).click();await page.getByLabel('라운딩 조회 월',{exact:true}).fill('2026-09');
   const name=index?'라운딩검증 모바일':'라운딩검증 데스크톱';const row=page.locator('.work-visit-row').filter({has:page.getByText(name,{exact:true})});await row.waitFor();
   const selector=page.getByLabel(name+' 라운딩 담당자',{exact:true});assert.deepEqual(await selector.locator('option').allTextContents(),['사회복지사 선택','박준규','황영상']);await selector.selectOption('staff-park-jungyu');

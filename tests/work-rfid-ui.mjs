@@ -14,6 +14,9 @@ try {
     await page.clock.install({ time: new Date('2026-11-02T03:00:00Z') });
     page.on('pageerror', e => errors.push(e.message));
     await page.route('**/src/auth.ts', r => r.fulfill({ contentType: 'application/javascript', body: 'export const getAuthHeaders=async()=>({});export const authFailureEvent="test";' }));
+    await page.route('**/api/recipients',r=>r.fulfill({json:[]}));
+    await page.route('**/api/employment-contracts',r=>r.fulfill({json:[]}));
+    await page.route('**/api/backoffice-users',r=>r.fulfill({json:{users:[]}}));
     await page.route('**/api/work/**', async route => {
       const url = new URL(route.request().url()), method = route.request().method();
       if (url.pathname.endsWith('/rfid')) {
@@ -34,9 +37,10 @@ try {
       if (url.pathname.endsWith('/day')) return route.fulfill({ json: { date: url.searchParams.get('date'), assignee: 'all', plans: [], executions: [] } });
       throw new Error(`Unexpected ${url.pathname}`);
     });
-    await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/work-detail-ui.html`);
-    await page.locator('.work-primary-tabs button').nth(2).click();
-    await page.getByRole('button', { name: 'RFID', exact: true }).click();
+    await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/center-practice-ui.html`);
+    await page.getByRole('button',{name:'센터 실무',exact:true}).click();
+    await page.getByRole('button', { name: 'RFID 확인', exact: true }).click();
+    assert.equal(await page.getByRole('button',{name:'RFID 확인',exact:true}).getAttribute('aria-current'),'page');
     await page.locator('.rfid-recipient-toggle').click();
     await page.locator('.rfid-settings-toggle').click();
     await page.getByLabel('총 근무일').fill('20');
