@@ -1,4 +1,5 @@
 import { workError, newWorkId } from './work-tasks.mjs';
+import {recipientNotDeleted} from './recipient-deletions.mjs';
 import { workDate } from './work-journal.mjs';
 import { recurrenceToday } from '../shared/work-recurrence.mjs';
 
@@ -15,7 +16,7 @@ export function createServicePauseStore(transaction,event) {
     await q('INSERT INTO recipient_service_pause_events(id,pause_id,actor_id,action,payload,created_at) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[newWorkId(),row.id,current.me.id,action,JSON.stringify(pauseFrom(row)),new Date().toISOString()]);
   }
   async function personLock(q,id) {
-    const row=(await q(`SELECT * FROM recipients WHERE id=$1${q.forUpdate??''}`,[id])).rows[0];
+    const row=(await q(`SELECT * FROM recipients WHERE id=$1 AND ${recipientNotDeleted()}${q.forUpdate??''}`,[id])).rows[0];
     if(!row)throw workError(404,'수급자를 찾을 수 없습니다.');return row;
   }
   return {

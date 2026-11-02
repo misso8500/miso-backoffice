@@ -124,3 +124,7 @@ CREATE TABLE IF NOT EXISTS work_rfid_months (
   updated_at TEXT NOT NULL,
   PRIMARY KEY(month,recipient_id)
 );
+CREATE TABLE IF NOT EXISTS recipient_deletions (
+  recipient_id TEXT PRIMARY KEY REFERENCES recipients(id),
+  deleted_at TEXT NOT NULL
+);

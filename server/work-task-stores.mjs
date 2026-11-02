@@ -1,4 +1,5 @@
 import {createServicePauseStore, heldTaskSql, assertVisitAvailable} from './service-pauses.mjs';
+import {recipientNotDeleted} from './recipient-deletions.mjs';
 import { createRfidStore } from './work-rfid.mjs';
 import { createVisitStore } from './work-visits.mjs';
 import { createRecipientServiceMonthStore } from './recipient-service-months.mjs';
@@ -20,7 +21,7 @@ const task = row => ({ id: row.id, requesterId: row.requester_id, assigneeId: ro
 
 function createWorkStore(transaction, canEdit) {
   const refs = async q => {
-    const recipients = (await q('SELECT id,name,operational_name,is_draft FROM recipients WHERE enabled = TRUE ORDER BY name', [])).rows;
+    const recipients = (await q(`SELECT id,name,operational_name,is_draft FROM recipients WHERE enabled = TRUE AND ${recipientNotDeleted()} ORDER BY name`, [])).rows;
     const workers = (await q('SELECT id,worker_name,contract_start_date,contract_end_date,is_draft FROM employment_contracts WHERE enabled = TRUE ORDER BY worker_name,contract_start_date DESC', [])).rows;
     return [
       ...recipients.map(r => ({ id: r.id, type: 'recipient', name: r.name, info: r.operational_name || '', isDraft: Boolean(r.is_draft) })),

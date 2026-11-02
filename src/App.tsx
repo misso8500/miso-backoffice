@@ -1,4 +1,6 @@
 import PageHeading from './PageHeading';
+import CopayRecipientPicker from './CopayRecipientPicker';
+import { copayRecipientPrefill, type CopayRecipientRequest } from './lib/copay-recipient';
 import {summarizePlan} from './lib/recipient-plan-summary';
 import './dev-sidebar.css';
 import './dev-workspace.css';
@@ -53,6 +55,7 @@ import {
   loadEmploymentContracts,
   loadBackofficeState,
   loadRecipients,
+  requestJson,
   restoreRecipient,
   terminateContract,
   updateEmploymentContract,
@@ -464,6 +467,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [serviceDirty,setServiceDirty]=useState(false),[serviceBusy,setServiceBusy]=useState(false);
   const [copayOpened, setCopayOpened] = useState(false);
   const [copayDirty,setCopayDirty]=useState(false),[copayBusy,setCopayBusy]=useState(false);
+  const [copayRecipientOrigin,setCopayRecipientOrigin]=useState<CopayRecipientRequest|null>(null);
+  const [copayRecipientPicker,setCopayRecipientPicker]=useState<{row:CopayRecipientRequest;recipients:Recipient[]}|null>(null);
+  const [copayRecipientRevision,setCopayRecipientRevision]=useState(0);
+  const [copayLinkBusy,setCopayLinkBusy]=useState(false),[copayLinkError,setCopayLinkError]=useState('');
+  const [copayPendingLink,setCopayPendingLink]=useState<{row:CopayRecipientRequest;recipient:Recipient}|null>(null);
   const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay">(
     "recipients"
   );
@@ -564,17 +572,20 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     setNotification({ id: Date.now(), message });
   }, []);
 
+  const recipientLoadGeneration=useRef(0);
   const fetchRecipients = useCallback(async () => {
+    const generation=++recipientLoadGeneration.current;
     setIsLoading(true);
 
     try {
       const loadedRecipients = await loadRecipients();
+      if(generation!==recipientLoadGeneration.current)return;
       setRecipients(loadedRecipients);
       setErrorMessage(null);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "수급자 정보를 불러오지 못했습니다.");
+      if(generation===recipientLoadGeneration.current)setErrorMessage(error instanceof Error ? error.message : "수급자 정보를 불러오지 못했습니다.");
     } finally {
-      setIsLoading(false);
+      if(generation===recipientLoadGeneration.current)setIsLoading(false);
     }
   }, []);
 
@@ -794,6 +805,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   };
 
   const closeCreatePanel = () => {
+    setCopayRecipientOrigin(null);
     setIsCreatePanelOpen(false);
     setEditingRecipientId(null);
     setFormState(emptyRecipientForm);
@@ -825,6 +837,63 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     setFormErrorMessage(null);
     setIsCreatePanelOpen(true);
   };
+
+  function beginCopayRecipientRegistration(row: CopayRecipientRequest) {
+    setCopayRecipientPicker(null); setCopayLinkError(''); setCopayRecipientOrigin(row);
+    setActiveView('recipients'); setSelectedRecipientId(null); setSelectedStatus('전체'); setIsQuickAddOpen(false);
+    setEditingRecipientId(null); setFormState({...emptyRecipientForm,...copayRecipientPrefill(row)}); setFormErrorMessage(null); setIsCreatePanelOpen(true);
+  }
+  async function openCopayRecipient(row: CopayRecipientRequest) {
+    if(copayLinkBusy)return;
+    setCopayLinkBusy(true); setCopayLinkError('');
+    try {
+      const people=await loadRecipients(); setRecipients(people);
+      const linked=people.find(p=>p.id===row.recipientId);
+      if(linked){
+        setActiveView('recipients'); setIsQuickAddOpen(false); setSelectedStatus('전체');
+        if(!linked.operationalName?.trim()){openRecipientEditPanel(linked);setCopayRecipientOrigin(row);}
+        else {setSelectedRecipientId(linked.id);setIsCreatePanelOpen(false);}
+      } else {
+        const normalize=(v:string)=>v.replace(/\s/g,'');
+        const candidates=people.filter(p=>Boolean(row.code&&p.longTermCareNumber===row.code)||normalize(p.name)===normalize(row.name));
+        if(candidates.length)setCopayRecipientPicker({row,recipients:people});
+        else beginCopayRecipientRegistration(row);
+      }
+    }catch(e){setCopayLinkError(e instanceof Error?e.message:'수급자 정보를 불러오지 못했습니다.');}
+    finally{setCopayLinkBusy(false);}
+  }
+  async function connectCopayRecipient(row: CopayRecipientRequest, recipient: Recipient, refreshVersion=false) {
+    let version=row.version;
+    if(refreshVersion){
+      const latest=await requestJson<{version:number;rows:{id:number;name:string;grade:string;code?:string;sourceCode?:string;recipientId:string|null}[]}>(`/api/work/copay?month=${row.month}`);
+      const source=latest.rows.find(r=>r.id===row.id);
+      if(!source||source.name!==row.name||source.grade!==row.grade||(source.sourceCode??source.code??'')!==row.code)throw new Error('종합현황 원본 행이 변경되었습니다. 종합현황에서 해당 수급자를 다시 선택해 주세요.');
+      version=latest.version;
+    }
+    const linked=await requestJson<{version:number}>(`/api/work/copay?month=${row.month}`,{method:'PUT',body:JSON.stringify({version,link:{id:row.id,recipientId:recipient.id}})});
+    setCopayPendingLink(null); setCopayLinkError(''); setCopayRecipientRevision(n=>n+1);
+    return linked.version;
+  }
+  async function chooseCopayRecipient(recipient:Recipient){
+    if(!copayRecipientPicker||copayLinkBusy)return;
+    setCopayLinkBusy(true);setCopayLinkError('');
+    try {
+      const version=await connectCopayRecipient(copayRecipientPicker.row,recipient,true);
+      const row={...copayRecipientPicker.row,version,recipientId:recipient.id};setCopayRecipientPicker(null);
+      setActiveView('recipients');setSelectedStatus('전체');
+      if(!recipient.operationalName?.trim()){openRecipientEditPanel(recipient);setCopayRecipientOrigin(row);}
+      else setSelectedRecipientId(recipient.id);
+      showNotification('종합현황을 수급자 기초정보와 연결했습니다.');
+    }catch(e){setCopayLinkError(e instanceof Error?e.message:'수급자를 연결하지 못했습니다.');}
+    finally{setCopayLinkBusy(false);}
+  }
+  async function retryCopayRecipientLink(){
+    if(!copayPendingLink||copayLinkBusy)return;
+    setCopayLinkBusy(true);setCopayLinkError('');
+    try{await connectCopayRecipient(copayPendingLink.row,copayPendingLink.recipient,true);showNotification('종합현황 연결을 완료했습니다.');}
+    catch(e){setCopayLinkError(e instanceof Error?e.message:'연결하지 못했습니다.');}
+    finally{setCopayLinkBusy(false);}
+  }
 
   const openEmploymentRenewalPanel = (contract: EmploymentContract, editing = false) => {
     setIsEditingEmploymentContract(editing);
@@ -931,6 +1000,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         : [...current, savedRecipient]);
       if (recipientBeingEdited?.isDraft && !savedRecipient.isDraft) setSelectedStatus("전체");
       setSelectedRecipientId(savedRecipient.id);
+      if(copayRecipientOrigin){
+        try{await connectCopayRecipient(copayRecipientOrigin,savedRecipient);}
+        catch(e){setCopayPendingLink({row:copayRecipientOrigin,recipient:savedRecipient});setCopayLinkError(`수급자 정보는 저장했습니다. 종합현황 연결은 다시 시도해 주세요. ${e instanceof Error?e.message:''}`);}
+      }
+      setCopayRecipientRevision(n=>n+1);
       showNotification(
         recipientBeingEdited
           ? "수급자 정보를 저장하였습니다."
@@ -1190,10 +1264,13 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
     try {
       await deleteRecipient(recipientToDeactivate.id);
+      recipientLoadGeneration.current++;setIsLoading(false);
+      if(copayPendingLink?.recipient.id===recipientToDeactivate.id){setCopayPendingLink(null);setCopayLinkError('');}
       setRecipients((current) =>
         current.filter((recipient) => recipient.id !== recipientToDeactivate.id)
       );
       setSelectedRecipientId(null);
+      setCopayRecipientRevision(n=>n+1);
       setRecipientToDeactivate(null);
       showNotification("수급자 정보를 삭제하였습니다.");
       setErrorMessage(null);
@@ -1523,7 +1600,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       {import.meta.env.DEV && <div className="development-indicator" role="note" aria-label="개발 환경">DEV · 개발 환경</div>}
 
       <main className="main-content">
-        {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy}/></section>}
+        {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
+        {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}
+        {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy} onRecipient={row=>void openCopayRecipient(row)} recipientRevision={copayRecipientRevision} active={activeView==='copay'}/></section>}
         {activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
           <>
         <PageHeading title="수급자 관리" description="기본 정보와 장기요양이용계약 기간을 기록하고 확인합니다.">
@@ -2051,6 +2130,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         </div>
       )}
 
+      {copayRecipientPicker && <CopayRecipientPicker row={copayRecipientPicker.row} recipients={copayRecipientPicker.recipients} busy={copayLinkBusy} error={copayLinkError} onChoose={recipient=>void chooseCopayRecipient(recipient)} onCreate={()=>beginCopayRecipientRegistration(copayRecipientPicker.row)} onClose={()=>{if(!copayLinkBusy){setCopayRecipientPicker(null);setCopayLinkError('');}}}/>}
       {isCreatePanelOpen && (
         <div className="detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(closeCreatePanel)();}}>
           <article className="detail-panel" aria-label={editingRecipientId ? "수급자 정보 수정" : "수급자 등록"}>
@@ -2070,6 +2150,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 <span className="eyebrow">{editingRecipientId ? "Edit recipient" : "New recipient"}</span>
                 <h2>{editingRecipientId ? "수급자 정보 수정" : "수급자 등록"}</h2>
               </div>
+              {copayRecipientOrigin && <p className="condition-review">{copayRecipientOrigin.month} 종합현황 · {copayRecipientOrigin.name} · 본인부담율 {copayRecipientOrigin.rate}에서 이동했습니다. 이름·등급·인정번호 등 원본에 있는 정보만 가져오며, 없는 항목과 감경 구분은 직접 확인해 주세요. 저장하면 이 종합현황 행과 연결합니다.</p>}
 
               {recipients.find((recipient) => recipient.id === editingRecipientId)?.isDraft && (
                 <p className="condition-review">정보 입력 중인 수급자입니다. 입력한 내용 임시 저장으로 나누어 저장할 수 있으며, 필수 정보를 채운 뒤 상세 정보 등록 완료를 눌러 주세요.</p>
@@ -2433,7 +2514,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <div>
               <h2 id="deactivate-title">수급자 정보 삭제</h2>
               <p id="deactivate-description">
-                {recipientToDeactivate.name} 수급자 정보를 삭제하시겠습니까?
+                {recipientToDeactivate.name} 수급자 정보를 삭제하시겠습니까? 삭제하면 수급자 명부와 서비스 대상 목록에서 제외됩니다. 기존 계약·청구·수납 이력은 보존됩니다.
               </p>
             </div>
 

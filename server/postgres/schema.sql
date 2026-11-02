@@ -456,3 +456,18 @@ CREATE TABLE IF NOT EXISTS work_rfid_months (
 );
 ALTER TABLE work_rfid_months ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON work_rfid_months FROM anon, authenticated;
+CREATE TABLE IF NOT EXISTS recipient_deletions (
+  recipient_id TEXT PRIMARY KEY REFERENCES recipients(id),
+  deleted_at TEXT NOT NULL
+);
+ALTER TABLE recipient_deletions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON recipient_deletions FROM anon, authenticated;
+INSERT INTO recipient_deletions(recipient_id,deleted_at)
+SELECT r.id,MAX(e.created_at)
+FROM recipients r JOIN recipient_contract_events e ON e.recipient_id=r.id AND e.type='deactivated'
+WHERE r.enabled=FALSE AND NOT EXISTS (
+  SELECT 1 FROM recipient_contract_events newer WHERE newer.recipient_id=r.id
+  AND newer.type IN ('restored','recontracted') AND newer.created_at>=e.created_at
+)
+GROUP BY r.id
+ON CONFLICT(recipient_id) DO NOTHING;

@@ -4,6 +4,9 @@ import runtime from './copay-runtime.js?raw';
 import {requestJson} from './storage';
 import './copay-management.css';
 import pageHeadingCss from './PageHeading.css?raw';
+import { useEffect, useRef } from 'react';
+import type { CopayRecipientRequest } from './lib/copay-recipient';
+import recipientLinkCss from './copay-recipient.css?raw';
 
 // Reuse the reviewed forms while keeping their document/print styles isolated
 // from the application shell. Vite bundles both the HTML and the seal asset.
@@ -22,6 +25,7 @@ const documentHtml = prototype
   .replace("new URL('./assets/copay-company-seal.png',document.baseURI).href", JSON.stringify(companySeal))
   .replace('</head>', `<style>
     ${pageHeadingCss}
+    ${recipientLinkCss}
     .shell{display:block;min-height:0}
     .main{width:100%;max-width:none;margin:0;padding:0 0 24px;min-width:0}
     body{background:#f7f6f9}
@@ -33,14 +37,19 @@ const documentHtml = prototype
 type CopayFrameWindow = Window & {copayStart?: (
   api: typeof requestJson,
   onDirty: (dirty: boolean)=>void,
-  onBusy: (busy: boolean)=>void
-)=>void};
+  onBusy: (busy: boolean)=>void,
+  onRecipient: (row: CopayRecipientRequest)=>void
+)=>void; copayRefreshRecipients?: ()=>void };
 
-export default function CopayManagement({onDirty,onBusy}:{onDirty:(dirty:boolean)=>void;onBusy:(busy:boolean)=>void}) {
+export default function CopayManagement({onDirty,onBusy,onRecipient,recipientRevision=0,active=true}:{onDirty:(dirty:boolean)=>void;onBusy:(busy:boolean)=>void;onRecipient:(row:CopayRecipientRequest)=>void;recipientRevision?:number;active?:boolean}) {
+  const frame=useRef<HTMLIFrameElement>(null),recipientHandler=useRef(onRecipient);
+  recipientHandler.current=onRecipient;
+  useEffect(()=>{if(active)(frame.current?.contentWindow as CopayFrameWindow|null)?.copayRefreshRecipients?.();},[recipientRevision,active]);
   return <iframe
+    ref={frame}
     className="copay-management-frame"
     title="본인부담금 관리"
     srcDoc={documentHtml}
-    onLoad={event=>(event.currentTarget.contentWindow as CopayFrameWindow|null)?.copayStart?.(requestJson,onDirty,onBusy)}
+    onLoad={event=>(event.currentTarget.contentWindow as CopayFrameWindow|null)?.copayStart?.(requestJson,onDirty,onBusy,row=>recipientHandler.current(row))}
   />;
 }

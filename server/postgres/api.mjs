@@ -1,4 +1,5 @@
 import { handleWorkTasks } from "../work-tasks.mjs";
+import { recipientNotDeleted } from '../recipient-deletions.mjs';
 import { createPostgresWorkStore } from "../work-task-stores.mjs";
 import { handleRecipientPlans, guardProfilePlanFields } from "../recipient-plans.mjs";
 import { createPostgresPlanStore } from "../recipient-plan-stores.mjs";
@@ -311,7 +312,7 @@ const readRecipient = async (recipientId) => {
           WHERE recipient_id = recipients.id AND type IN ('restored', 'recontracted')
         ) AS recontract_count
       FROM recipients
-      WHERE id = $1
+      WHERE id = $1 AND ${recipientNotDeleted()}
     `,
     [recipientId]
   );
@@ -819,7 +820,7 @@ export const handlePostgresRequest = async (request, response) => {
     if (await handleRecipientPlans(request, response, sendJson, planStore, authentication.user)) return;
     if (await handleDriveRequest(request, response, sendJson)) return;
     if (await handleRecipientDocuments(request, response, sendJson, {
-      exists: async id => (await pool.query('SELECT 1 FROM recipients WHERE id=$1', [id])).rowCount > 0,
+      exists: async id => (await pool.query(`SELECT 1 FROM recipients WHERE id=$1 AND ${recipientNotDeleted()}`, [id])).rowCount > 0,
       get: async id => (await pool.query('SELECT payload FROM recipient_documents WHERE recipient_id=$1', [id])).rows[0]?.payload ?? null,
       save: async (id, payload, version) => {
         const result = version === null
@@ -833,7 +834,7 @@ export const handlePostgresRequest = async (request, response) => {
       const body = await readBody(request), client = await pool.connect();
       try {
         await client.query('BEGIN');
-        const result = await client.query('SELECT * FROM recipients WHERE id=$1 FOR UPDATE', [parts[2]]);
+        const result = await client.query(`SELECT * FROM recipients WHERE id=$1 AND ${recipientNotDeleted()} FOR UPDATE`, [parts[2]]);
         if (!result.rows[0]) throw Object.assign(new Error('수급자를 찾을 수 없습니다.'), {status:404});
         const existing = recipientFromRow(result.rows[0]), change = prepareServicePeriod(body, existing);
         if (change.changed) {
@@ -894,6 +895,7 @@ export const handlePostgresRequest = async (request, response) => {
       try {
         await client.query("BEGIN");
         for (const [index, recipient] of rows.entries()) {
+          if((await client.query('SELECT recipient_id FROM recipient_deletions WHERE recipient_id=$1',[recipient.id])).rowCount)throw Object.assign(new Error(`${index+1}행: 삭제된 수급자입니다. 목록을 새로 확인해 주세요.`),{status:409});
           const previous = await client.query("SELECT * FROM recipients WHERE id = $1", [recipient.id]);
           if (previous.rows[0]) {
             const existing = recipientFromRow(previous.rows[0]);
@@ -1011,6 +1013,7 @@ export const handlePostgresRequest = async (request, response) => {
             WHERE recipient_id = recipients.id AND type IN ('restored', 'recontracted')
           ) AS recontract_count
         FROM recipients
+        WHERE ${recipientNotDeleted()}
         ORDER BY contract_expired_date ASC, name ASC
       `);
       sendJson(response, 200, await planStore.enrich(rows.map(recipientFromRow)));
@@ -1162,24 +1165,20 @@ export const handlePostgresRequest = async (request, response) => {
       return;
     }
 
-    if (parts[2] && request.method === "DELETE") {
-      const result = await pool.query(
-        "UPDATE recipients SET enabled = FALSE, updated_at = $1 WHERE id = $2",
-        [new Date().toISOString(), parts[2]]
-      );
-
-      if (result.rowCount > 0) {
-        await insertEvent({
-          recipientId: parts[2],
-          type: "deactivated"
-        });
-      }
-
-      sendJson(
-        response,
-        result.rowCount > 0 ? 200 : 404,
-        result.rowCount > 0 ? { ok: true } : { error: "Recipient not found" }
-      );
+    if (parts[2] && !parts[3] && request.method === "DELETE") {
+      const client=await pool.connect();
+      try{
+        await client.query('BEGIN');
+        if(!(await client.query('SELECT id FROM recipients WHERE id=$1 FOR UPDATE',[parts[2]])).rowCount)throw Object.assign(new Error('수급자를 찾을 수 없습니다.'),{status:404});
+        if(!(await client.query('SELECT recipient_id FROM recipient_deletions WHERE recipient_id=$1',[parts[2]])).rowCount){
+          const now=new Date().toISOString();
+          await client.query('UPDATE recipients SET enabled=FALSE,updated_at=$1 WHERE id=$2',[now,parts[2]]);
+          await client.query('INSERT INTO recipient_deletions(recipient_id,deleted_at) VALUES($1,$2)',[parts[2],now]);
+          await client.query("INSERT INTO recipient_contract_events(id,recipient_id,type,documents_confirmed,created_at) VALUES($1,$2,'deleted',FALSE,$3)",[randomUUID(),parts[2],now]);
+        }
+        await client.query('COMMIT');
+      }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+      sendJson(response,200,{ok:true});
       return;
     }
 

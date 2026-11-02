@@ -1,4 +1,5 @@
 import { workError } from './work-tasks.mjs';
+import { recipientNotDeleted } from './recipient-deletions.mjs';
 import { emptyRfidSettings, rfidMonthDates } from '../shared/work-rfid.mjs';
 const monthValid = value => typeof value === 'string' && /^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(value);
 const document = row => ({ version: Number(row?.version ?? 0), settings: row ? JSON.parse(row.payload).settings : emptyRfidSettings(), records: row ? JSON.parse(row.payload).records : {} });
@@ -7,7 +8,7 @@ export function createRfidStore(transaction) {
     rfidMonth(month) {
       if (!monthValid(month)) throw workError(400, '조회 월을 확인해 주세요.');
       return transaction(async q => {
-        const people = (await q('SELECT id,name,operational_name,service_start_date,service_end_date,enabled FROM recipients ORDER BY name,id', [])).rows;
+        const people = (await q(`SELECT id,name,operational_name,service_start_date,service_end_date,enabled FROM recipients WHERE ${recipientNotDeleted()} ORDER BY name,id`, [])).rows;
         const docs = (await q('SELECT * FROM work_rfid_months WHERE month=$1', [month])).rows;
         const selection = (await q('SELECT recipient_ids FROM recipient_service_months WHERE month=$1', [month])).rows[0];
         const selected = new Set(selection ? JSON.parse(selection.recipient_ids) : []);
@@ -24,7 +25,7 @@ export function createRfidStore(transaction) {
       const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
       if (body.kind === 'day' && body.checked && body.date > today) throw workError(400, '미래 날짜는 확인 완료로 저장할 수 없습니다.');
       return transaction(async q => {
-        if (!(await q('SELECT id FROM recipients WHERE id=$1', [body.recipientId])).rows.length) throw workError(404, '수급자를 찾을 수 없습니다.');
+        if (!(await q(`SELECT id FROM recipients WHERE id=$1 AND ${recipientNotDeleted()}`, [body.recipientId])).rows.length) throw workError(404, '수급자를 찾을 수 없습니다.');
         const now = new Date().toISOString();
         await q('INSERT INTO work_rfid_months(month,recipient_id,payload,version,updated_by,updated_at) VALUES($1,$2,$3,0,$4,$5) ON CONFLICT(month,recipient_id) DO NOTHING RETURNING month', [month, body.recipientId, JSON.stringify({ settings: emptyRfidSettings(), records: {} }), current.me.id, now]);
         const old = (await q(`SELECT * FROM work_rfid_months WHERE month=$1 AND recipient_id=$2${q.forUpdate ?? ''}`, [month, body.recipientId])).rows[0];

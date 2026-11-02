@@ -1,4 +1,5 @@
 import {workError,newWorkId} from './work-tasks.mjs';
+import {recipientNotDeleted} from './recipient-deletions.mjs';
 import {workDate,journalEvent} from './work-journal.mjs';
 import {visitAssigneeIds} from '../shared/work-visits.mjs';
 import {assertVisitAvailable} from './service-pauses.mjs';
@@ -18,7 +19,7 @@ export function createServiceRoundingStore(transaction,taskFromRow,event) {
   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   if(body.status==='visited'&&(!date||!assignee||date>today))throw workError(400,'방문완료는 실제 방문일과 담당자를 입력해야 하며 미래 날짜는 사용할 수 없습니다.');
   return transaction(async q=>{
-   const person=(await q(`SELECT * FROM recipients WHERE id=$1${q.forUpdate??''}`,[id])).rows[0];if(!person)throw workError(404,'수급자를 찾을 수 없습니다.');
+   const person=(await q(`SELECT * FROM recipients WHERE id=$1 AND ${recipientNotDeleted()}${q.forUpdate??''}`,[id])).rows[0];if(!person)throw workError(404,'수급자를 찾을 수 없습니다.');
    const old=(await q(`SELECT * FROM recipient_service_rounding WHERE month=$1 AND recipient_id=$2${q.forUpdate??''}`,[month,id])).rows[0];
    if(Number(old?.version??0)!==body.version)throw workError(409,'라운딩 정보가 변경되었습니다. 새로고침 후 다시 확인해 주세요.');
    let task=(await q(`SELECT t.* FROM work_visit_tasks v JOIN work_tasks t ON t.id=v.task_id WHERE v.month=$1 AND v.recipient_id=$2${q.forUpdate??''}`,[month,id])).rows[0];
