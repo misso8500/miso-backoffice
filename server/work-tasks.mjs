@@ -51,6 +51,21 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
+    const prospectRoute=/^\/api\/work\/prospects(?:\/([^/]+))?(\/activities)?$/.exec(path);
+    if(prospectRoute){
+      const id=prospectRoute[1]?decodeURIComponent(prospectRoute[1]):null;
+      if(prospectRoute[2]&&id&&request.method==='POST')sendJson(response,200,await store.addProspectActivity(id,await readWorkBody(request),current));
+      else if(!prospectRoute[2]&&request.method==='GET')sendJson(response,200,id?await store.prospect(id):await store.prospects(current));
+      else if(!prospectRoute[2]&&request.method===(id?'PUT':'POST'))sendJson(response,200,await store.saveProspect(id,await readWorkBody(request),current));
+      else throw workError(405,'지원하지 않는 잠재고객 요청입니다.');
+      return true;
+    }
+    if(path==='/api/work/recipient-import/preview'||path==='/api/work/recipient-import/apply') {
+      if(request.method!=='POST')throw workError(405,'지원하지 않는 가져오기 요청입니다.');
+      const body=await readWorkBody(request,3000000);
+      sendJson(response,200,path.endsWith('/preview')?await store.previewRecipientImport(body):await store.applyRecipientImport(body));
+      return true;
+    }
     if(path==='/api/work/copay/import') {
       if(request.method!=='POST')throw workError(405,'지원하지 않는 요청입니다.');
       sendJson(response,200,await store.importCopay(await readWorkBody(request,3000000),current));return true;

@@ -71,7 +71,7 @@ for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: monthly visits sh
  await assert.rejects(store.checkTaskMap(run.id,{version:run.version,step:0,actualDate:'2026-09-12'},b),{status:409});
  run=(await store.taskMaps('2026-09')).runs.find(row=>row.sourceRecipientId==='integrated');
  const checked=await store.checkTaskMap(run.id,{version:run.version,step:0,actualDate:'2026-09-12'},b);
- assert(checked.steps[0].completedAt);assert.equal(checked.steps[0].completedById,b.me.id);
+ assert(checked.steps[0].completedAt);assert.equal(checked.steps[0].completedById,b.me.id);assert.equal(checked.steps[0].performedDate,'2026-09-12');
  const actual=(await store.day('2026-09-12','all',a)).executions.filter(row=>row.taskId===integrated.task.id);
  assert.equal(actual.length,1);assert.equal(actual[0].planId,moved.id);assert.equal(actual[0].assigneeId,'staff-hwang-youngsang');assert.equal(actual[0].content,'integrated 라운딩');
  assert.equal((await store.visitMonth('2026-09')).rows.find(row=>row.recipientId==='integrated').rounding.status,'visited');
@@ -81,6 +81,23 @@ for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: monthly visits sh
  assert.equal(db.prepare('SELECT count(*) n FROM work_plans WHERE task_id=?').get(integrated.task.id).n,1);
  assert.equal((await store.taskMaps('2026-09')).runs.filter(row=>row.sourceRecipientId==='integrated').length,1);
  await assert.rejects(store.saveTaskMap({id:'system:social-worker-visits',version:1,title:'변경 시도',kind:'event',category:'service',steps:[{title:'방문',guide:''}]},a),{status:400});
+ // The daily plan's quick-execution action is the same completion path, including undo and correction.
+ person('daily-visit');
+ const daily=await store.saveServiceRounding('2026-09','daily-visit',{version:0,taskVersion:null,status:'coordinating',date:'2026-09-17',assigneeId:'staff-park-jungyu'},a);
+ const dailyPlan=(await store.day('2026-09-17','all',a)).plans.find(row=>row.taskId===daily.task.id);
+ const requestId='683b06ee-7631-45bb-a0b9-1c206dc99c55';
+ const recorded=await store.recordPlan(dailyPlan.id,{period:'morning',executionVersion:0,requestId,date:'2026-09-18'},a);
+ assert.equal(recorded.planId,dailyPlan.id);assert.equal(recorded.period,'morning');
+ assert.equal((await store.recordPlan(dailyPlan.id,{period:'morning',executionVersion:0,requestId,date:'2026-09-18'},b)).id,recorded.id);
+ assert((await store.taskMaps('2026-09')).runs.find(row=>row.sourceRecipientId==='daily-visit').steps[0].completedAt);
+ let corrected=await store.updateExecution(recorded.id,{version:recorded.version,date:'2026-09-19',period:'afternoon',content:'방문 결과 확인',assigneeId:'staff-hwang-youngsang'},a);
+ assert.equal((await store.day('2026-09-17','all',a)).plans.find(row=>row.id===dailyPlan.id).assigneeId,'staff-park-jungyu');
+ assert.equal(corrected.date,'2026-09-19');assert.equal(corrected.content,'방문 결과 확인');
+ assert.equal((await store.visitMonth('2026-09')).rows.find(row=>row.recipientId==='daily-visit').rounding.date,'2026-09-19');
+ await store.cancelExecution(corrected.id,corrected.version,a);
+ assert.equal((await store.taskMaps('2026-09')).runs.find(row=>row.sourceRecipientId==='daily-visit').steps[0].completedAt,null);
+ assert.equal((await store.visitMonth('2026-09')).rows.find(row=>row.recipientId==='daily-visit').rounding.status,'coordinating');
+ assert.equal(db.prepare('SELECT count(*) n FROM work_executions WHERE task_id=?').get(daily.task.id).n,1);
  // Existing scheduled records are linked on the first map read, without requiring a new visit save.
  person('legacy-plan');
  const legacy={status:'coordinating',date:'2026-09-16',assigneeId:'staff-park-jungyu',updatedBy:a.me.id,updatedAt:'2026-09-01'};

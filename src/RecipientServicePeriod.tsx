@@ -3,10 +3,12 @@ import DateInput from './DateInput';
 import type { Recipient } from './types';
 import { loadRecipientPeriodEvents, updateRecipientServicePeriod, type RecipientPeriodEvent } from './storage';
 
-export default function RecipientServicePeriod({ recipient, onSaved }: { recipient: Recipient; onSaved: (recipient: Recipient) => void }) {
+export default function RecipientServicePeriod({ recipient, onSaved, onDirty, onBusy }: { onDirty?:(value:boolean)=>void;onBusy?:(value:boolean)=>void;recipient: Recipient; onSaved: (recipient: Recipient) => void }) {
   const [editing,setEditing]=useState(false), [start,setStart]=useState(recipient.serviceStartDate), [end,setEnd]=useState(recipient.serviceEndDate);
   const [reason,setReason]=useState<'renewal'|'correction'>('renewal'), [busy,setBusy]=useState(false), [error,setError]=useState(''), [notice,setNotice]=useState('');
   const [showHistory,setShowHistory]=useState(false), [events,setEvents]=useState<RecipientPeriodEvent[]>([]), [historyError,setHistoryError]=useState('');
+  useEffect(()=>{onDirty?.(editing&&(start!==recipient.serviceStartDate||end!==recipient.serviceEndDate));return()=>onDirty?.(false);},[editing,start,end,recipient.serviceStartDate,recipient.serviceEndDate,onDirty]);
+  useEffect(()=>{onBusy?.(busy);return()=>onBusy?.(false);},[busy,onBusy]);
   useEffect(()=>{
     if(!showHistory)return;let active=true;
     void loadRecipientPeriodEvents(recipient.id).then(data=>{if(active){setEvents(data.filter(e=>e.type==='service_renewal'||e.type==='service_correction'));setHistoryError('');}}).catch(e=>{if(active)setHistoryError(e.message);});

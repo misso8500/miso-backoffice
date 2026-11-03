@@ -1,0 +1,6 @@
+.traffic-signal { display: inline-flex; flex-shrink: 0; gap: 4px; padding: 6px; border-radius: 18px; background: #e8edea; border: 1px solid #d4ddd7; }
+.traffic-signal i { width: 12px; height: 12px; border-radius: 50%; background: #c2ccc6; }
+.traffic-signal .lit.red { background: #c4403d; box-shadow: 0 0 0 2px #f9d8d6; }
+.traffic-signal .lit.yellow { background: #d49b08; box-shadow: 0 0 0 2px #f7e9bd; }
+.traffic-signal .lit.green { background: #23805b; box-shadow: 0 0 0 2px #c8e7d8; }
+.traffic-signal .lit.black { background:#20202a;box-shadow:0 0 0 2px #dad8df; }

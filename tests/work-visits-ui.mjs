@@ -93,9 +93,33 @@ try{
   await editor.getByRole('button',{name:'라운딩 상세 닫기',exact:true}).click();
   await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,350)));
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),true);
+  // Planning must be visible in the actual map and design-generated daily checklist.
+  await page.getByRole('button',{name:'센터업무(할일)',exact:true}).click();
+  await page.getByRole('region',{name:'업무전체지도',exact:true}).getByLabel('조회 월',{exact:true}).fill('2026-09');
+  await page.getByText('사회복지사 방문 업무',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'일일 업무 관리(투두)',exact:true}).click();
+  await page.getByLabel('기준 날짜',{exact:true}).fill('2026-09-20');
+  const linkedPlan=page.locator('.work-plan').filter({has:page.getByText('담당미정 대상 라운딩',{exact:true})});
+  await linkedPlan.waitFor();await linkedPlan.getByText('11:00–11:45',{exact:false}).waitFor();
+  const checklist=page.getByRole('region',{name:'연계 업무 체크리스트'});
+  const bundle=checklist.locator('details').filter({hasText:'담당미정 대상 라운딩'});
+  await bundle.locator('summary').click();
+  const checkedResponse=page.waitForResponse(response=>response.url().includes('/task-maps/runs/')&&response.url().endsWith('/check'));
+  await bundle.getByRole('checkbox').click();
+  assert.equal((await checkedResponse).status(),200);
+  await page.getByLabel('업무 상태 필터',{exact:true}).selectOption('all');
+  await bundle.getByRole('checkbox').waitFor();assert.equal(await bundle.getByRole('checkbox').isChecked(),true);
+  await page.locator('.work-execution').getByText('담당미정 대상 라운딩',{exact:true}).waitFor();
+  const checked=(await call('work/visits/2026-09')).rows.find(row=>row.recipientId===ids[3]);assert.equal(checked.rounding.status,'visited');assert.equal(checked.task.title,'담당미정 대상 라운딩');
+  const linkedDay=await call('work/day?date=2026-09-20&assignee=all');assert.equal(linkedDay.executions.filter(row=>row.taskId===checked.task.id).length,1);assert.equal(linkedDay.executions.find(row=>row.taskId===checked.task.id).planId,linkedDay.plans.find(row=>row.taskId===checked.task.id).id);
+  assert.equal(await page.locator('.work-task-row').filter({hasText:'담당미정 대상 라운딩'}).count(),0,'design tasks should not be duplicated in the ordinary task list');
+  await page.getByLabel('기준 날짜',{exact:true}).fill('2026-09-12');
+  const earlierVisit=checklist.locator('.work-bau-step').filter({hasText:name+' 라운딩'});
+  await earlierVisit.locator('input').waitFor({state:'attached'});assert.equal(await earlierVisit.locator('input').isChecked(),true);
+
   // Leave a genuinely unassigned recipient for the next viewport.
   const other=(await call('work/visits/2026-09')).rows.find(row=>row.recipientId===ids[3]);
   await call('work/service-rounding?month=2026-09','PUT',{recipientId:ids[3],...other.rounding,status:'unplanned',date:'',assigneeId:''});
-  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: selected monthly recipients only, one shared RFID calendar, owner filters, planned/actual dates, completion and service-tab sync, fixed date panel and one-click recipient addition, time-range save/reload, no overflow`);await page.close();
+  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: selected monthly recipients only, one shared RFID calendar, owner filters, planned/actual dates, completion and service-tab sync, fixed date panel and one-click recipient addition, time-range save/reload, map/design checklist/plan/execution linkage, no overflow`);await page.close();
  }
 }finally{await browser?.close();await server?.close();if(api.exitCode===null){api.kill();await once(api,'exit');}await new Promise(resolve=>auth.close(resolve));await rm(dir,{recursive:true,force:true});}

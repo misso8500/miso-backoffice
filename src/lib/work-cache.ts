@@ -6,6 +6,7 @@ export function useWorkCacheIdentity(next: string) { if(identity !== next) { ide
 export function invalidateWorkData() { workCache.invalidate(()=>true); }
 export function applyWorkMutation(path:string,value:any) {
   const base=path.split('?')[0];
+  if(base==='/api/work/recipient-import/apply') { workCache.invalidate(()=>true); return; }
   if(base==='/api/work/service-rounding' && value?.rounding) {
     workCache.update(key=>key===`/api/work/service-month?month=${value.month}`,data=>({...data,rows:data.rows.map((r:any)=>r.id===value.recipientId?{...r,rounding:value.rounding}:r)}));
     workCache.invalidate(key=>key.startsWith('/api/work/task-maps?')||key.startsWith('/api/work/day?')||key.startsWith('/api/work/calendar?'));
@@ -56,6 +57,7 @@ export function applyWorkMutation(path:string,value:any) {
       return next;
     });
     workCache.invalidate(key=>key.includes('/calendar?')||key.includes('/history'));
+    if(value.snapshot?.sourceDesignId){workCache.invalidate(key=>key.startsWith('/api/work/task-maps?')||key.startsWith('/api/work/tasks?')||key.startsWith('/api/work/service-month?'));void workCache.revalidate();}
     return;
   }
   // Copay data has its own monthly snapshot and does not change task/calendar data.
