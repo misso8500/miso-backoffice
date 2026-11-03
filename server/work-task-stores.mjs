@@ -1,3 +1,4 @@
+import {createRecipientImportStore} from './recipient-import.mjs';
 import {createProspectStore} from './prospects.mjs';
 import {createServicePauseStore, heldTaskSql, assertVisitAvailable} from './service-pauses.mjs';
 import {recipientNotDeleted} from './recipient-deletions.mjs';
@@ -102,6 +103,7 @@ function createWorkStore(transaction, canEdit) {
     }
   };
   return {
+    ...createRecipientImportStore(transaction),
     ...createProspectStore(transaction),
     ...createRfidStore(transaction),
     ...createCopayStore(transaction),

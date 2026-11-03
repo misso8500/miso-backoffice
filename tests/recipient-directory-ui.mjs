@@ -23,7 +23,7 @@ try{
  const baseline=(await call('recipients')).length;
  const ids=[randomUUID(),randomUUID(),randomUUID()];
  await call('recipients/bulk-drafts','POST',{rows:ids.map((id,index)=>({id,name:index<2?'김확인':'정보 보완 대상'}))});
- const db=new DatabaseSync(dbPath);try{for(const [index,id]of ids.slice(0,2).entries())db.prepare("UPDATE recipients SET is_draft=0,long_term_care_number=?,operational_name=?,birth_date='1940-01-01',care_grade='3등급',phone=?,address=?,representative_name='김보호',representative_relation='자녀',representative_phone='010-3333-3333',medical_history='방문 시 보행 유의',caregiver_requirements='오전 근무 조건',service_start_date='2026-01-01',service_end_date='2027-12-31',contract_registered_date='2026-01-01',contract_expired_date='2027-12-31' WHERE id=?").run(index?'L0987654321':'1234567890','김확인 / '+index,index?'010-2222-2222':'010-1111-1111','광주 테스트 주소 '+index,id);}finally{db.close();}
+ const db=new DatabaseSync(dbPath);try{for(const [index,id]of ids.slice(0,2).entries())db.prepare("UPDATE recipients SET is_draft=0,long_term_care_number=?,operational_name=?,birth_date='1940-01-01',care_grade='3등급',phone=?,address=?,representative_name='김보호',representative_relation='자녀',representative_phone='010-3333-3333',medical_history='방문 시 보행 유의',caregiver_requirements='오전 근무 조건',service_start_date='2026-01-01',service_end_date='2027-12-31',contract_registered_date='2026-01-01',contract_expired_date='2027-12-31' WHERE id=?").run(index?'L0987654321':'1234567890','김확인 / '+index,index?'010-2222-2222':'010-1111-1111','광주 테스트 주소 '+index,id);db.prepare("UPDATE recipients SET service_start_date='2026-10-01',service_end_date='2028-12-31',contract_expired_date='2028-12-31' WHERE id=?").run(ids[1]);}finally{db.close();}
  const month=recurrenceToday().slice(0,7);await call('work/service-month?month='+month,'PUT',{version:0,recipientIds:ids.slice(0,2)});
  server=await createServer({server:{host:'127.0.0.1',port:0,proxy:{'/api':`http://127.0.0.1:${port}`}},logLevel:'error'});await server.listen();
  browser=await chromium.launch({executablePath:process.env.WORK_UI_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
@@ -37,6 +37,16 @@ try{
   await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.__copiedAddress=text;}},configurable:true}));
   await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/center-practice-ui.html`);
   await page.locator('.recipient-directory-row').first().waitFor();assert.equal(await page.locator('.recipient-directory-row').count(),baseline+3);
+  const sort=page.getByRole('combobox',{name:'수급자 정렬 기준',exact:true}),asc=page.getByRole('button',{name:'↑ 오름차순',exact:true}),desc=page.getByRole('button',{name:'↓ 내림차순',exact:true});
+  const names=()=>page.locator('.recipient-directory-identity>strong').evaluateAll(nodes=>nodes.map(node=>node.firstChild.textContent));
+  assert.equal(await sort.inputValue(),'serviceEndDate');assert.equal(await asc.getAttribute('aria-pressed'),'true');
+  await sort.selectOption('name');await asc.click();assert.deepEqual(await names(),['김미소','김확인','김확인','이미래','정바른','정보 보완 대상']);
+  await desc.click();assert.deepEqual(await names(),['정보 보완 대상','정바른','이미래','김확인','김확인','김미소']);
+  await sort.selectOption('careGrade');await asc.click();assert.equal(await page.locator('.recipient-directory-identity em').first().innerText(),'2등급');assert.equal((await names()).at(-1),'정보 보완 대상');await desc.click();assert.equal(await page.locator('.recipient-directory-identity em').first().innerText(),'4등급');assert.equal((await names()).at(-1),'정보 보완 대상');
+  for(const field of ['serviceStartDate','serviceEndDate']){await sort.selectOption(field);await desc.click();assert(await page.locator('.recipient-directory-row').first().innerText().then(text=>text.includes('010-2222-2222')));assert.equal((await names()).at(-1),'정보 보완 대상');}
+  await sort.selectOption('serviceEndDate');await asc.click();assert.equal((await names())[0],'정바른');
+  await sort.selectOption('name');await desc.click();await page.reload();await page.locator('.recipient-directory-row').first().waitFor();assert.equal(await sort.inputValue(),'name');assert.equal(await desc.getAttribute('aria-pressed'),'true');assert.equal((await names())[0],'정보 보완 대상');
+  await sort.selectOption('serviceEndDate');await asc.click();
   await page.locator('.recipient-directory-row').filter({hasText:'010-2222-2222'}).getByRole('img',{name:'김확인 서비스 상태: 서비스 일시정지',exact:true}).waitFor();
   await page.getByRole('img',{name:'정보 보완 대상 서비스 상태: 기초 정보 입력 중',exact:true}).waitFor();
   await page.getByRole('button',{name:/정보 보완 필요/}).click();assert.equal(await page.locator('.recipient-directory-row').count(),1);await page.getByRole('button',{name:/등록 명부/}).click();assert.equal(await page.locator('.recipient-directory-row').count(),baseline+3);
@@ -81,6 +91,6 @@ try{
   assert.equal((await call('recipients/'+ids[1])).servicePaused,false);
   await page.getByRole('button',{name:'수급자 기초정보',exact:true}).click();
   await page.locator('.recipient-directory-row').filter({hasText:'010-2222-2222'}).getByRole('img',{name:'김확인 서비스 상태: 서비스 진행 중',exact:true}).waitFor();
-  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: concise overview, contact save and conflicts without data loss, draft contact editing, lazy plan/documents, unsaved-change protection, contract controls, exact-recipient service/visit handoff, no overflow`);await page.close();
+  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: sorting and saved preference, concise overview, contact save and conflicts without data loss, draft contact editing, lazy plan/documents, unsaved-change protection, contract controls, exact-recipient service/visit handoff, no overflow`);await page.close();
  }
 }finally{await browser?.close();await server?.close();if(api.exitCode===null){api.kill();await once(api,'exit');}await new Promise(resolve=>auth.close(resolve));await rm(dir,{recursive:true,force:true});}

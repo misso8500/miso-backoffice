@@ -1,3 +1,5 @@
+import {compareRecipients,loadRecipientSort,saveRecipientSort,recipientSortFields,type RecipientSortField} from './lib/recipient-sort';
+import RecipientImport from './RecipientImport';
 import RecipientContactCard from './RecipientContactCard';
 import RecipientOverviewPanel from './RecipientOverviewPanel';
 import './RecipientDirectory.css';
@@ -467,7 +469,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [planEditingRequested, setPlanEditingRequested] = useState(false);
   const [recipientAttention,setRecipientAttention]=useState<'all'|'renewal'|'unassigned'|'draft'>('all');
   const [recipientView, setRecipientView] = useState<RecipientView>("basic");
+  const [recipientSort,setRecipientSort]=useState(loadRecipientSort);
+  useEffect(()=>saveRecipientSort(recipientSort),[recipientSort]);
   const [isRecipientGridOpen, setIsRecipientGridOpen] = useState(false);
+  const [isRecipientImportOpen,setIsRecipientImportOpen]=useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -655,8 +660,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           .toLocaleLowerCase()
           .includes(query);
       })
-      .sort((a, b) => a.serviceEndDate.localeCompare(b.serviceEndDate));
-  }, [recipients, searchQuery, selectedStatus, selectedAssignedUserId, showEnabledOnly,recipientAttention]);
+      .sort((a,b)=>compareRecipients(a,b,recipientSort));
+  }, [recipients, searchQuery, selectedStatus, selectedAssignedUserId, showEnabledOnly,recipientAttention,recipientSort]);
 
   const selectedRecipient =
     recipients.find((recipient) => recipient.id === selectedRecipientId) ?? null;
@@ -1577,6 +1582,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           <section className="recipient-directory-workspace">
         <PageHeading title="수급자 기초정보" description="연락처·방문 주소·보호자·담당자를 확인하고 필요한 업무로 이어갑니다.">
           <div className="heading-actions">
+            <button type="button" className="secondary-button" onClick={()=>setIsRecipientImportOpen(true)}>엑셀로 등록·업데이트</button>
             <button type="button" className="secondary-button" onClick={() => setIsRecipientGridOpen(true)}>
               <Plus size={18} /> 표로 여러 명 입력
             </button>
@@ -1668,6 +1674,16 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   aria-label="수급자 검색" placeholder="이름·연락처·주소·보호자 검색"
                 />
               </label>
+            </div>
+            <div className="recipient-directory-sort" role="group" aria-label="수급자 목록 정렬">
+              <label>정렬 기준<select className="filter-select" aria-label="수급자 정렬 기준" value={recipientSort.field} onChange={event=>setRecipientSort(current=>({...current,field:event.target.value as RecipientSortField}))}>
+                {recipientSortFields.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}
+              </select></label>
+              <div className="recipient-directory-sort-direction" role="group" aria-label="정렬 방향">
+                <button type="button" aria-pressed={recipientSort.direction==='asc'} onClick={()=>setRecipientSort(current=>({...current,direction:'asc'}))}>↑ 오름차순</button>
+                <button type="button" aria-pressed={recipientSort.direction==='desc'} onClick={()=>setRecipientSort(current=>({...current,direction:'desc'}))}>↓ 내림차순</button>
+              </div>
+              <span>미입력 항목은 마지막에 표시합니다.</span>
             </div>
           </div>
 
@@ -1827,6 +1843,8 @@ null
           setShowEnabledEmploymentOnly(false); setEmploymentRegistrationFilter("draft");
           showNotification(`${saved.length}건의 기본 정보를 저장했습니다. 이름을 눌러 상세 정보를 보완해 주세요.`);
         }} />}
+
+      {isRecipientImportOpen&&<RecipientImport onClose={()=>setIsRecipientImportOpen(false)} onApplied={result=>{setIsRecipientImportOpen(false);setRecipientAttention('all');setSelectedStatus('전체');setSearchQuery('');setSelectedAssignedUserId('all');setShowEnabledOnly(false);void fetchRecipients();showNotification(`신규 ${result.created}명 등록 · ${result.updated}명 업데이트를 완료했습니다.`);}}/>}
 
       {isRecipientGridOpen && <BasicEntryGrid existing={recipients}
         onClose={() => setIsRecipientGridOpen(false)} onSaved={(saved) => {
