@@ -1,7 +1,7 @@
 import {syncVisitPlan,syncVisitMap,visitDesignId} from './visit-work-link.mjs';
 import {workError,newWorkId} from './work-tasks.mjs';
 import {recipientNotDeleted} from './recipient-deletions.mjs';
-import {workDate,journalEvent} from './work-journal.mjs';
+import {workDate,workPeriod,workRequestId,journalEvent} from './work-journal.mjs';
 import {visitAssigneeIds} from '../shared/work-visits.mjs';
 import {assertVisitAvailable} from './service-pauses.mjs';
 export const roundingStatuses=['unplanned','coordinating','paperwork','visited'];
@@ -13,6 +13,9 @@ export function roundingValue(row,task) {
 export function createServiceRoundingStore(transaction,taskFromRow,event) {
  return {saveServiceRounding(month,id,body,current){
   if(typeof month!=='string'||!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||month<'1000-01'||typeof id!=='string'||!id||!Number.isInteger(body.version)||body.version<0||!roundingStatuses.includes(body.status))throw workError(400,'라운딩 입력 내용을 확인해 주세요.');
+  if(body.actualContent!==undefined&&(typeof body.actualContent!=='string'||!body.actualContent.trim()||body.actualContent.length>5000))throw workError(400,'수행 내용을 확인해 주세요.');
+  const actualPeriod=body.actualPeriod===undefined?undefined:workPeriod(body.actualPeriod);
+  const executionRequestId=body.executionRequestId===undefined?undefined:workRequestId(body.executionRequestId);
   const date=body.date?workDate(body.date):'';
   if(date&&date.slice(0,7)!==month)throw workError(400,'라운딩 일자는 선택한 월 안의 날짜로 입력해 주세요.');
   const assignee=body.assigneeId||'';
@@ -49,16 +52,18 @@ export function createServiceRoundingStore(transaction,taskFromRow,event) {
     await event(q,task,'updated',current.me.id);
    }
    const planDate=body.status==='visited'?(payload.plannedDate||previous.date||date):date;
-   const plan=task?await syncVisitPlan(q,{task,payload,date:planDate,assignee,start:plannedStartTime,end:plannedEndTime,actor:current.me.id,now,active:scheduled}):null;
+   const planAssignee=body.status==='visited'?(payload.plannedAssigneeId||previous.assigneeId||assignee):assignee;
+   const plan=task?await syncVisitPlan(q,{task,payload,date:planDate,assignee:planAssignee,start:plannedStartTime,end:plannedEndTime,actor:current.me.id,now,active:scheduled}):null;
    const execution=payload.executionId?(await q(`SELECT * FROM work_executions WHERE id=$1${q.forUpdate??''}`,[payload.executionId])).rows[0]:plan?(await q("SELECT * FROM work_executions WHERE plan_id=$1 AND assignee_id=$2 AND status='recorded'",[plan.id,assignee])).rows[0]:null;
    if(execution)payload.executionId=execution.id;
+   if(body.actualExecutionVersion!==undefined&&(!execution||Number(execution.version)!==body.actualExecutionVersion))throw workError(409,'방문 수행 기록이 변경되었습니다. 새로고침 후 확인해 주세요.');
    if(body.status==='visited'){
-    if(execution){const updated=(await q("UPDATE work_executions SET plan_id=$6,assignee_id=$1,work_date=$2,status='recorded',version=version+1,updated_by=$3,updated_at=$4 WHERE id=$5 RETURNING *",[assignee,date,current.me.id,now,execution.id,plan?.id??null])).rows[0];await journalEvent(q,'execution',updated,'updated',current.me.id);}
-    else {payload.executionId=newWorkId();const snapshot=JSON.stringify({title:task.title,category:'service',related:JSON.parse(task.related)});const created=(await q("INSERT INTO work_executions(id,task_id,plan_id,assignee_id,work_date,period,content,snapshot,status,version,created_by,updated_by,created_at,updated_at) VALUES($1,$2,$9,$3,$4,'unknown',$5,$6,'recorded',1,$7,$7,$8,$8) RETURNING *",[payload.executionId,task.id,assignee,date,task.title,snapshot,current.me.id,now,plan?.id??null])).rows[0];await journalEvent(q,'execution',created,'created',current.me.id);}
+    if(execution){const updated=(await q("UPDATE work_executions SET snapshot=$9,content=$8,period=$7,plan_id=$6,assignee_id=$1,work_date=$2,status='recorded',version=version+1,updated_by=$3,updated_at=$4 WHERE id=$5 RETURNING *",[assignee,date,current.me.id,now,execution.id,plan?.id??null,actualPeriod??execution.period,body.actualContent??execution.content,JSON.stringify({...JSON.parse(execution.snapshot),sourceDesignId:visitDesignId})])).rows[0];await journalEvent(q,'execution',updated,'updated',current.me.id);}
+    else {payload.executionId=executionRequestId??newWorkId();const snapshot=plan?.snapshot??JSON.stringify({title:task.title,category:'service',related:JSON.parse(task.related)});const created=(await q("INSERT INTO work_executions(id,task_id,plan_id,assignee_id,work_date,period,content,snapshot,status,version,created_by,updated_by,created_at,updated_at) VALUES($1,$2,$9,$3,$4,$10,$5,$6,'recorded',1,$7,$7,$8,$8) RETURNING *",[payload.executionId,task.id,assignee,date,task.title,snapshot,current.me.id,now,plan?.id??null,actualPeriod??'unknown'])).rows[0];await journalEvent(q,'execution',created,'created',current.me.id);}
    }else if(execution&&execution.status==='recorded'){const updated=(await q("UPDATE work_executions SET status='voided',version=version+1,updated_by=$1,updated_at=$2 WHERE id=$3 RETURNING *",[current.me.id,now,execution.id])).rows[0];await journalEvent(q,'execution',updated,'voided',current.me.id);}
    payload.plannedDate=body.status==='visited'?(payload.plannedDate??(previous.status!=='visited'?previous.date:'')):(body.status==='unplanned'?'':date);
-   Object.assign(payload,{plannedStartTime,plannedEndTime,status:body.status,date,assigneeId:assignee,updatedAt:now,updatedBy:current.me.id});
-   if(task)await syncVisitMap(q,{month,person,task,payload,date:planDate,assignee,actor:current.me,now,active:scheduled});
+   Object.assign(payload,{plannedAssigneeId:planAssignee,plannedStartTime,plannedEndTime,status:body.status,date,assigneeId:assignee,updatedAt:now,updatedBy:current.me.id});
+   if(task)await syncVisitMap(q,{month,person,task,payload,date:planDate,assignee:planAssignee,actor:current.me,now,active:scheduled});
    const saved=old?(await q('UPDATE recipient_service_rounding SET payload=$1,version=version+1 WHERE month=$2 AND recipient_id=$3 RETURNING *',[JSON.stringify(payload),month,id])).rows[0]:(await q('INSERT INTO recipient_service_rounding(month,recipient_id,payload,version) VALUES($1,$2,$3,1) RETURNING *',[month,id,JSON.stringify(payload)])).rows[0];
    return {month,recipientId:id,rounding:roundingValue(saved,task),task:task?{...taskFromRow(task),sourceDesignId:payload.visitRunId?visitDesignId:undefined,canEdit:true}:null};
   });

@@ -1,0 +1,76 @@
+.prospect-management { color:#45394e;min-width:0; }
+.prospect-management .primary-button,.prospect-management .secondary-button { display:inline-flex;align-items:center;justify-content:center;gap:7px; }
+.prospect-summary { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:20px 0; }
+.prospect-summary button { position:relative;text-align:left;padding:18px 20px;border:1px solid #e1d6eb;border-radius:13px;background:#faf7fd;color:#79658b;cursor:pointer; }
+.prospect-summary button[aria-pressed="true"] { background:#eee4f8;border-color:#bca2d9; }
+.prospect-summary button>span { font-size:12px; }
+.prospect-summary strong { display:block;font-size:28px;color:#624477;margin-top:9px; }
+.prospect-summary strong small { font-size:12px;font-weight:400;margin-left:5px; }
+.prospect-summary svg { position:absolute;right:18px;bottom:22px;color:#a18ab2; }
+nav.prospect-stage-tabs { padding:12px;border-radius:12px;background:#eee5f5;margin-bottom:18px; }
+.prospect-stage-tabs small { margin-left:7px;font-size:10px;opacity:.75; }
+.prospect-toolbar { display:flex;align-items:end;flex-wrap:wrap;gap:12px;padding:18px;background:#fff;border:1px solid #e4dced;border-radius:12px;margin-bottom:22px; }
+.prospect-toolbar label { display:grid;gap:6px;color:#796a87;font-size:11px; }
+.prospect-toolbar .prospect-search { display:flex;align-items:center;gap:8px;flex:1;min-width:190px;border:1px solid #ded5e8;border-radius:8px;padding:0 10px;height:39px; }
+.prospect-management input:not([type="checkbox"]),.prospect-management select,.prospect-management textarea { min-width:0;max-width:100%;padding:9px 10px;border:1px solid #ded5e8;border-radius:8px;background:#fff;color:#45394e;font:inherit;font-size:12px; }
+.prospect-toolbar .prospect-search input { padding:0;border:0;outline:none;width:100%; }
+.prospect-list-heading { display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin:0 0 12px; }
+.prospect-list-heading h2 { margin:0;font-size:16px; }.prospect-list-heading h2 small { margin-left:8px;font-size:12px;color:#93849e;font-weight:400; }
+.prospect-list-heading>span { color:#93849e;font-size:11px; }
+.prospect-list { border:1px solid #e2d9ec;border-radius:13px;overflow:hidden;background:white; }
+.prospect-list-columns,.prospect-row { display:grid;grid-template-columns:minmax(145px,1fr) minmax(115px,.8fr) minmax(170px,1.2fr) minmax(140px,1fr) 18px;gap:16px;align-items:center;padding:16px 20px; }
+.prospect-list-columns { background:#f3eff8;color:#887495;font-size:11px; }
+.prospect-row { width:100%;text-align:left;background:#fff;border:0;border-top:1px solid #eee7f5;color:#45394e;cursor:pointer;font:inherit; }
+.prospect-row:hover { background:#faf7fd; }.prospect-row.is-overdue { border-left:3px solid #d4a879; }
+.prospect-row>span { min-width:0; }.prospect-row strong { font-size:13px;font-weight:600;overflow-wrap:anywhere; }
+.prospect-row small { display:flex;align-items:center;gap:5px;color:#93849e;margin-top:7px;font-size:11px;line-height:1.6;overflow-wrap:anywhere; }
+.prospect-row small svg { flex-shrink:0; }.prospect-row>svg { color:#b19ac2; }
+.prospect-row small.prospect-overdue { color:#a66c33; }
+.prospect-stage { display:inline-block;padding:6px 9px;border:1px solid #ded1eb;border-radius:7px;background:#f0e7f9;color:#785592;font-style:normal;font-size:11px;line-height:1.5; }
+.prospect-stage.stage-contracted { background:#e6f3eb;border-color:#c2dfce;color:#34734d; }
+.prospect-stage.stage-deferred { background:#fff5e7;border-color:#ead9bc;color:#98703a; }
+.prospect-stage.stage-lost { background:#f1eff3;border-color:#e0dbe6;color:#8a7d94; }
+.prospect-stage.stage-visit_planned { background:#e9eef9;border-color:#d1dbef;color:#586f9d; }
+.prospect-empty { display:grid;place-items:center;gap:12px;min-height:260px;padding:30px;background:#faf7fd;border:1px dashed #cfbddd;border-radius:13px;color:#8c759d;text-align:center; }
+.prospect-empty strong { font-size:15px;color:#624477; }.prospect-empty p { font-size:12px;line-height:1.8;margin:0; }
+.prospect-dialog { position:fixed;inset:18px 18px 18px auto;margin:0;width:min(560px,calc(100vw - 36px));height:calc(100dvh - 36px);max-width:none;max-height:none;padding:0;border:1px solid #d8c8e8;border-radius:16px;background:#fbf8fe;color:#45394e;box-shadow:0 16px 60px #45305f35;overflow:hidden; }
+.prospect-dialog[open] { display:flex;flex-direction:column;animation:prospect-enter 240ms ease both; }
+.prospect-dialog::backdrop { background:#35274438; }
+.prospect-dialog-header { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;background:#e9def5;border-bottom:1px solid #d8c8e8;flex-shrink:0; }
+.prospect-dialog-header small { color:#8c729e;font-size:11px; }.prospect-dialog-header h2 { font-size:21px;margin:6px 0 0;color:#624477; }
+.prospect-dialog-body { flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:22px; }
+.prospect-dialog fieldset { padding:0;border:0;margin:0;min-width:0; }
+.prospect-dialog label { display:grid;gap:7px;margin-bottom:14px;font-size:12px;color:#79658b; }
+.prospect-dialog :is(input:not([type="checkbox"]),select,textarea) { width:100%; }
+.prospect-dialog textarea { resize:vertical;line-height:1.7;min-height:65px; }
+.prospect-form-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px; }
+.prospect-form-section { padding:16px;border:1px solid #e0d5ed;border-radius:11px;background:#f4eef9;margin:18px 0; }
+.prospect-form-section h3 { font-size:14px;margin:0 0 14px;color:#624477; }
+.prospect-extra { padding:12px 14px;background:white;border:1px solid #e4dced;border-radius:9px;margin-bottom:16px; }
+.prospect-extra summary { font-size:12px;color:#79658b;cursor:pointer; }.prospect-extra[open] summary { margin-bottom:14px; }
+.prospect-form-actions { display:flex;gap:9px;justify-content:flex-end;padding-top:16px;border-top:1px solid #e4dced; }
+.prospect-help { font-size:11px;line-height:1.8;color:#93849e;margin:9px 0; }
+.prospect-error,.prospect-notice { padding:12px;border-radius:9px;font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere; }
+.prospect-error { color:#9b4c58;background:#f9ebef;border:1px solid #ecd1d9; }
+.prospect-notice { color:#39734d;background:#eaf5ee;border:1px solid #d4e7db; }
+.prospect-detail-status { display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px; }.prospect-detail-status span,.prospect-detail-status strong { font-size:11px;color:#93849e; }
+.prospect-detail-actions { display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px; }
+.prospect-detail-actions button { font-size:11px;padding:8px 10px; }
+.prospect-facts { margin:0; }.prospect-facts>div { display:grid;grid-template-columns:110px minmax(0,1fr);gap:12px;padding:10px 0;border-bottom:1px solid #eee7f5;font-size:12px;line-height:1.8; }
+.prospect-facts dt { color:#93849e; }.prospect-facts dd { margin:0;white-space:pre-wrap;overflow-wrap:anywhere; }
+.prospect-next { background:#efe6fa;border:1px solid #d7c8e6;border-radius:11px;padding:16px;margin:22px 0; }
+.prospect-next.is-overdue { background:#fff6e9;border-color:#ebdbbf; }.prospect-next small,.prospect-next span { font-size:11px;color:#93849e; }.prospect-next h3 { font-size:14px;line-height:1.7;margin:8px 0;color:#624477;overflow-wrap:anywhere; }
+.prospect-activity-form { padding:16px;border:1px solid #ded2e9;border-radius:11px;background:#fff;margin:22px 0; }
+.prospect-activity-form h3,.prospect-history h3 { font-size:14px;color:#624477;margin:0 0 16px; }
+.prospect-dialog label.prospect-checkbox { display:flex;align-items:start;gap:8px;line-height:1.7; }.prospect-checkbox input { margin-top:3px;accent-color:#76549b; }
+.prospect-history h3 small { font-size:11px;color:#93849e;font-weight:400;margin-left:7px; }
+.prospect-history article { padding:16px 0 16px 16px;margin-left:5px;border-left:2px solid #ded0eb;border-bottom:1px solid #eee7f5; }
+.prospect-history article>div { display:flex;justify-content:space-between;align-items:center;gap:12px; }.prospect-history strong { font-size:12px; }.prospect-history time { font-size:11px;color:#93849e; }
+.prospect-history p { font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0; }.prospect-history article>small { display:block;margin-top:12px;font-size:10px;color:#a08cad; }
+.prospect-history summary { cursor:pointer;font-size:11px;color:#93849e; }.prospect-history .prospect-completed { color:#39734d; }
+.prospect-management button:focus-visible,.prospect-management :is(input,select,textarea):focus-visible { outline:3px solid #b7a0d5;outline-offset:2px; }
+.prospect-management button:disabled { opacity:.55;cursor:default; }
+@keyframes prospect-enter { from { opacity:0;transform:translateX(20px); } to { opacity:1;transform:translateX(0); } }
+@media(max-width:1050px) { .prospect-list-columns,.prospect-row { grid-template-columns:minmax(130px,1fr) minmax(110px,.8fr) minmax(160px,1fr) 18px; }.prospect-row>span:nth-child(4),.prospect-list-columns>span:nth-child(4) { display:none; } }
+@media(max-width:620px) { .prospect-summary { grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; }.prospect-summary button { padding:14px; }.prospect-summary strong { font-size:24px; }.prospect-toolbar { padding:12px;gap:10px; }.prospect-toolbar .prospect-search { flex-basis:100%; }.prospect-toolbar>label:not(.prospect-search) { flex:1;min-width:110px; }.prospect-list-columns { display:none; }.prospect-row { grid-template-columns:minmax(0,1fr) minmax(110px,.7fr);padding:15px;gap:12px; }.prospect-row>span:nth-child(3) { grid-column:1/-1;padding-top:10px;border-top:1px solid #eee7f5; }.prospect-row>span:nth-child(4) { display:block;grid-column:1/-1; }.prospect-row>svg { display:none; }.prospect-dialog { inset:8px;width:calc(100vw - 16px);height:calc(100dvh - 16px);border-radius:12px; }.prospect-dialog-header { padding:14px 16px; }.prospect-dialog-body { padding:16px; }.prospect-form-section { padding:12px; }.prospect-facts>div { grid-template-columns:90px minmax(0,1fr);gap:10px; } }
+@media(prefers-reduced-motion:reduce) { .prospect-dialog[open] { animation:none; } }

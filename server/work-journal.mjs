@@ -50,7 +50,7 @@ const taskId = (value, optional = false) => {
   return value;
 };
 
-export function createWorkJournalStore(transaction, resolveRelated) {
+export function createWorkJournalStore(transaction, resolveRelated, visitHooks) {
   async function readEntity(q, table, id) {
     const initial = (await q(`SELECT * FROM ${table} WHERE id=$1`, [id])).rows[0];
     if (!initial) throw workError(404, '기록을 찾을 수 없습니다.');
@@ -133,6 +133,7 @@ export function createWorkJournalStore(transaction, resolveRelated) {
           if (priorRequest.plan_id === id && priorRequest.period === period && (date === null || priorRequest.work_date === date) && priorRequest.status === 'recorded') return executionFromRow(priorRequest);
           throw workError(409, '이미 처리되었거나 취소된 수행 요청입니다. 최신 기록을 확인해 주세요.');
         }
+        if(snapshot(plan).sourceDesignId==='system:social-worker-visits'&&visitHooks)return visitHooks.record(q,plan,body,current);
         const existing = (await q("SELECT * FROM work_executions WHERE plan_id=$1 AND status='recorded'", [id])).rows[0];
         if (existing) {
           if (existing.period === period && (date === null || existing.work_date === date)) return executionFromRow(existing);
@@ -184,6 +185,7 @@ export function createWorkJournalStore(transaction, resolveRelated) {
         const old = await readEntity(q, 'work_executions', id); assertVersion(old, body.version, 'recorded');
         const assignee = body.assigneeId === undefined ? old.assignee_id : staffId(body.assigneeId, current);
         const date = body.date === undefined ? old.work_date : workDate(body.date); actualDate(date);
+        if(snapshot(old).sourceDesignId==='system:social-worker-visits'&&visitHooks)return visitHooks.changeExecution(q,old,{date,period,assigneeId:assignee,content:text},current);
         const row = (await q("UPDATE work_executions SET period=$1,content=$2,assignee_id=$7,work_date=$8,version=version+1,updated_by=$3,updated_at=$4 WHERE id=$5 AND version=$6 AND status='recorded' RETURNING *", [period, text, current.me.id, new Date().toISOString(), id, body.version, assignee, date])).rows[0];
         if (!row) throw workError(409, '수행 기록이 변경되었습니다.');
         await journalEvent(q, 'execution', row, 'updated', current.me.id); return executionFromRow(row);
@@ -192,6 +194,7 @@ export function createWorkJournalStore(transaction, resolveRelated) {
     cancelExecution(id, version, current) {
       return transaction(async q => {
         const old = await readEntity(q, 'work_executions', id); assertVersion(old, version, 'recorded');
+        if(snapshot(old).sourceDesignId==='system:social-worker-visits'&&visitHooks)return visitHooks.changeExecution(q,old,{cancel:true},current);
         const row = (await q("UPDATE work_executions SET status='voided',version=version+1,updated_by=$1,updated_at=$2 WHERE id=$3 AND version=$4 AND status='recorded' RETURNING *", [current.me.id, new Date().toISOString(), id, version])).rows[0];
         if (!row) throw workError(409, '수행 기록이 변경되었습니다.');
         await journalEvent(q, 'execution', row, 'voided', current.me.id); return executionFromRow(row);

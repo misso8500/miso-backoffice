@@ -56,6 +56,7 @@ export function applyWorkMutation(path:string,value:any) {
       return next;
     });
     workCache.invalidate(key=>key.includes('/calendar?')||key.includes('/history'));
+    if(value.snapshot?.sourceDesignId){workCache.invalidate(key=>key.startsWith('/api/work/task-maps?')||key.startsWith('/api/work/tasks?')||key.startsWith('/api/work/service-month?'));void workCache.revalidate();}
     return;
   }
   // Copay data has its own monthly snapshot and does not change task/calendar data.

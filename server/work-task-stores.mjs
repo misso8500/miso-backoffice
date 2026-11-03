@@ -1,3 +1,4 @@
+import {createProspectStore} from './prospects.mjs';
 import {createServicePauseStore, heldTaskSql, assertVisitAvailable} from './service-pauses.mjs';
 import {recipientNotDeleted} from './recipient-deletions.mjs';
 import { createRfidStore } from './work-rfid.mjs';
@@ -10,7 +11,7 @@ import { createTaskMapStore } from './work-task-map.mjs';
 import { readFileSync } from 'node:fs';
 import { newWorkId, workError } from './work-tasks.mjs';
 import { fixedWorkAssignees } from '../shared/work-assignees.mjs';
-import { createWorkJournalStore, lockTask, cancelTaskPlans } from './work-journal.mjs';
+import { createWorkJournalStore, executionFromRow, lockTask, cancelTaskPlans } from './work-journal.mjs';
 import { createRecurrenceStore, validateWorkCategory } from './work-recurrence.mjs';
 import { createStaffRecordStore } from './staff-records.mjs';
 import { createCopayStore } from './copay-store.mjs';
@@ -67,6 +68,30 @@ function createWorkStore(transaction, canEdit) {
         await createServiceRoundingStore(fn=>fn(q),task,event).saveServiceRounding(month,row.recipient_id,{...roundingValue(row,taskRow),confirmComplete:true},current);
       }
     },
+    async changeExecution(q,execution,change,current){
+      const row=(await q('SELECT r.* FROM recipient_service_rounding r JOIN work_visit_tasks v ON r.month=v.month AND r.recipient_id=v.recipient_id WHERE v.task_id=$1',[execution.task_id])).rows[0];
+      if(!row)throw workError(404,'연결된 방문 기록을 찾을 수 없습니다.');
+      const payload=JSON.parse(row.payload),linked=(await q('SELECT * FROM work_tasks WHERE id=$1',[execution.task_id])).rows[0];
+      if(payload.executionId!==execution.id)throw workError(409,'연결된 방문 기록이 변경되었습니다. 다시 불러와 주세요.');
+      const value=roundingValue(row,linked);
+      await createServiceRoundingStore(fn=>fn(q),task,event).saveServiceRounding(row.month,row.recipient_id,{...value,status:change.cancel?'coordinating':'visited',date:change.cancel?(value.plannedDate||value.date):change.date,assigneeId:change.cancel?(payload.plannedAssigneeId||value.assigneeId):change.assigneeId,actualPeriod:change.period,actualContent:change.content,actualExecutionVersion:Number(execution.version),confirmComplete:true},current);
+      return executionFromRow((await q('SELECT * FROM work_executions WHERE id=$1',[execution.id])).rows[0]);
+    },
+    async record(q,plan,body,current){
+      const row=(await q('SELECT r.* FROM recipient_service_rounding r JOIN work_visit_tasks v ON r.month=v.month AND r.recipient_id=v.recipient_id WHERE v.task_id=$1',[plan.task_id])).rows[0];
+      if(!row)throw workError(404,'연결된 라운딩 계획을 찾을 수 없습니다.');
+      const payload=JSON.parse(row.payload);
+      if(payload.planId!==plan.id)throw workError(409,'방문 계획이 변경되었습니다. 새로고침 후 확인해 주세요.');
+      const existing=(await q("SELECT * FROM work_executions WHERE plan_id=$1 AND status='recorded'",[plan.id])).rows[0];
+      const date=body.date||plan.work_date;
+      if(existing&&existing.period===body.period&&existing.work_date===date)return executionFromRow(existing);
+      if(Number(existing?.version??0)!==body.executionVersion)throw workError(409,'방문 수행이 변경되었습니다. 새로고침 후 확인해 주세요.');
+      const linked=(await q('SELECT * FROM work_tasks WHERE id=$1',[plan.task_id])).rows[0];
+      await createServiceRoundingStore(fn=>fn(q),task,event).saveServiceRounding(row.month,row.recipient_id,{...roundingValue(row,linked),status:'visited',date,confirmComplete:true,actualPeriod:body.period,executionRequestId:body.requestId},current);
+      const refreshed=(await q('SELECT payload FROM recipient_service_rounding WHERE month=$1 AND recipient_id=$2',[row.month,row.recipient_id])).rows[0];
+      const execution=(await q('SELECT * FROM work_executions WHERE id=$1',[JSON.parse(refreshed.payload).executionId])).rows[0];
+      return executionFromRow(execution);
+    },
     async complete(q,run,body,current){
       const row=(await q('SELECT * FROM recipient_service_rounding WHERE month=$1 AND recipient_id=$2',[run.sourceMonth,run.sourceRecipientId])).rows[0];
       if(!row)throw workError(404,'라운딩 계획을 찾을 수 없습니다.');
@@ -77,6 +102,7 @@ function createWorkStore(transaction, canEdit) {
     }
   };
   return {
+    ...createProspectStore(transaction),
     ...createRfidStore(transaction),
     ...createCopayStore(transaction),
     ...createRecipientServiceMonthStore(transaction),
@@ -92,7 +118,7 @@ function createWorkStore(transaction, canEdit) {
       await cancelTaskPlans(q, row.id, actor);
       await event(q, saved, 'cancelled', actor);
     }),
-    ...createWorkJournalStore(transaction, related),
+    ...createWorkJournalStore(transaction, related, visitHooks),
     members(user, emails) {
       return transaction(async q => {
         const now = new Date().toISOString();
@@ -175,6 +201,14 @@ function createWorkStore(transaction, canEdit) {
     },
     complete(id, version, current, reopen = false) {
       return transaction(async q => {
+        const visit=(await q('SELECT r.* FROM recipient_service_rounding r JOIN work_visit_tasks v ON r.month=v.month AND r.recipient_id=v.recipient_id WHERE v.task_id=$1',[id])).rows[0];
+        if(visit&&JSON.parse(visit.payload).visitRunId){
+          const linked=(await q('SELECT * FROM work_tasks WHERE id=$1',[id])).rows[0];authorizeVersion(linked,version,current);
+          if(Boolean(linked.completed_at)===!reopen)throw workError(409,'업무 완료 상태가 이미 변경되었습니다. 다시 확인해 주세요.');
+          const value=roundingValue(visit,linked);
+          return (await createServiceRoundingStore(fn=>fn(q),task,event).saveServiceRounding(visit.month,visit.recipient_id,{...value,taskVersion:version,status:reopen?'coordinating':'visited',date:reopen?(value.plannedDate||value.date):value.date,assigneeId:reopen?(JSON.parse(visit.payload).plannedAssigneeId||value.assigneeId):value.assigneeId,confirmComplete:true},current)).task;
+        }
+
         const previous = await lockTask(q, id);
         authorizeVersion(previous, version, current);
         await assertVisitAvailable(q,id);
@@ -192,6 +226,7 @@ function createWorkStore(transaction, canEdit) {
 export function createSqliteWorkStore(db, canEdit) {
   db.exec(readFileSync(new URL('./copay-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./work-task-schema.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('./prospects-schema.sql', import.meta.url), 'utf8'));
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'roster_assignee_id')) db.exec('ALTER TABLE work_tasks ADD COLUMN roster_assignee_id TEXT REFERENCES work_assignees(id)');
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'completed_at')) db.exec('ALTER TABLE work_tasks ADD COLUMN completed_at TEXT');
   db.exec(readFileSync(new URL('./work-journal-schema.sql', import.meta.url), 'utf8'));

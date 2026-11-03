@@ -1,3 +1,4 @@
+import ProspectManagement from './ProspectManagement';
 import WorkVisits from './WorkVisits';
 import WorkRfid from './WorkRfid';
 import WorkOperationStatus from './WorkOperationStatus';
@@ -476,11 +477,13 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [copayRecipientRevision,setCopayRecipientRevision]=useState(0);
   const [copayLinkBusy,setCopayLinkBusy]=useState(false),[copayLinkError,setCopayLinkError]=useState('');
   const [copayPendingLink,setCopayPendingLink]=useState<{row:CopayRecipientRequest;recipient:Recipient}|null>(null);
-  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay" | "visits" | "rfid">(
+  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay" | "visits" | "rfid" | "prospects">(
     "recipients"
   );
+  const [prospectBusy,setProspectBusy]=useState(false),[prospectDirty,setProspectDirty]=useState(false);
   const [visitsBusy,setVisitsBusy]=useState(false),[visitsDirty,setVisitsDirty]=useState(false),[rfidBusy,setRfidBusy]=useState(false);
   function setActiveView(next: typeof activeView) {
+    if(next!==activeView&&activeView==='prospects'){if(prospectBusy)return;if(prospectDirty&&!window.confirm('저장하지 않은 잠재고객 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='visits'){if(visitsBusy)return;if(visitsDirty&&!window.confirm('저장하지 않은 라운딩 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='rfid'&&rfidBusy&&!window.confirm('저장하지 않은 RFID 변경을 버리고 이동할까요?'))return;
     if(next!==activeView&&activeView==='copay'&&copayBusy)return;
@@ -1549,7 +1552,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           </div>
           <span className="sidebar-section-label">센터 운영</span>
           <nav className="view-tabs sidebar-group-navigation" aria-label="관리 메뉴">
-            <SidebarGroup title="수급자" active={activeView === "recipients" || activeView === "recipientServices" || activeView === "copay"}>
+            <SidebarGroup title="수급자" active={activeView === "recipients" || activeView === "recipientServices" || activeView === "copay" || activeView === "prospects"}>
+            <button type="button" className={activeView==='prospects'?'is-active':''} aria-current={activeView==='prospects'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('prospects');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><Users size={16}/>잠재고객 관리</button>
             <button
               type="button"
               className={activeView === "recipients" ? "is-active" : ""}
@@ -1609,11 +1613,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
       <main className="main-content">
         <WorkOperationStatus/>
-        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인'}[activeView]}</strong></div>}
+        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인',prospects:'잠재고객 관리'}[activeView]}</strong></div>}
         {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
         {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}
         {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy} onRecipient={row=>void openCopayRecipient(row)} recipientRevision={copayRecipientRevision} active={activeView==='copay'}/></section>}
-        {activeView === "visits" ? <section className="work-hub"><WorkVisits onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
+        {activeView === "prospects" ? <ProspectManagement onDirty={setProspectDirty} onBusy={setProspectBusy}/> : activeView === "visits" ? <section className="work-hub"><WorkVisits onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
           <>
         <PageHeading title="수급자 관리" description="기본 정보와 장기요양이용계약 기간을 기록하고 확인합니다.">
           <div className="heading-actions">
