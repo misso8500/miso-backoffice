@@ -82,3 +82,13 @@ nav.recipient-detail-tabs { gap:4px;padding:12px 18px;border-bottom:1px solid #e
 .recipient-directory-sort-direction button[aria-pressed="true"] { background:#76549b;color:#fff;border-color:#76549b;box-shadow:0 2px 5px #76549b20; }
 .recipient-directory-sort>span { color:#93849e;font-size:11px; }
 @media(max-width:620px) { .recipient-directory-sort { gap:10px; }.recipient-directory-sort>span { flex-basis:100%; }.recipient-directory-sort-direction { margin-left:auto; }.recipient-directory-sort-direction button { padding:8px;font-size:11px; } }
+
+.recipient-directory-row.is-contract-start-month { background:#edf5ff; }
+.recipient-directory-row.is-contract-start-month:hover { background:#e2eeff; }
+.recipient-directory-row.is-contract-end-month { background:#fff0f1; }
+.recipient-directory-row.is-contract-end-month:hover { background:#ffe4e7; }
+.recipient-directory-contract-period { display:grid;gap:5px;margin-top:10px;padding-top:9px;border-top:1px solid #dcd4e480;font-size:11px;line-height:1.6; }
+.recipient-directory-contract-period>span { display:flex;align-items:center;flex-wrap:wrap;gap:4px 7px; }
+.recipient-directory-contract-period>span>span:first-child { color:#887495;font-size:10px; }
+.recipient-directory-contract-period time { color:#59476a;font-variant-numeric:tabular-nums;white-space:nowrap; }
+.recipient-directory-contract-period em { padding:1px 5px;border-radius:4px;background:#fff9;color:#76549b;font-size:9px;font-style:normal;white-space:nowrap; }

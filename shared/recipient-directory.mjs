@@ -11,3 +11,9 @@ export function recipientServiceSignal(person,status){
  if(status==='급여시작')return {state:'idle',label:'서비스 시작 예정'};
  return {state:'green',label:'서비스 진행 중'};
 }
+
+export function recipientContractMonth(person,month){
+ const inMonth=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value&&value.slice(0,7)===month;
+ const starts=inMonth(person.serviceStartDate),ends=inMonth(person.serviceEndDate);
+ return {starts,ends,tone:ends?'end':starts?'start':null};
+}

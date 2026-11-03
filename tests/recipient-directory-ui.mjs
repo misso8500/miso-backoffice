@@ -23,7 +23,8 @@ try{
  const baseline=(await call('recipients')).length;
  const ids=[randomUUID(),randomUUID(),randomUUID()];
  await call('recipients/bulk-drafts','POST',{rows:ids.map((id,index)=>({id,name:index<2?'김확인':'정보 보완 대상'}))});
- const db=new DatabaseSync(dbPath);try{for(const [index,id]of ids.slice(0,2).entries())db.prepare("UPDATE recipients SET is_draft=0,long_term_care_number=?,operational_name=?,birth_date='1940-01-01',care_grade='3등급',phone=?,address=?,representative_name='김보호',representative_relation='자녀',representative_phone='010-3333-3333',medical_history='방문 시 보행 유의',caregiver_requirements='오전 근무 조건',service_start_date='2026-01-01',service_end_date='2027-12-31',contract_registered_date='2026-01-01',contract_expired_date='2027-12-31' WHERE id=?").run(index?'L0987654321':'1234567890','김확인 / '+index,index?'010-2222-2222':'010-1111-1111','광주 테스트 주소 '+index,id);db.prepare("UPDATE recipients SET service_start_date='2026-10-01',service_end_date='2028-12-31',contract_expired_date='2028-12-31' WHERE id=?").run(ids[1]);}finally{db.close();}
+ const currentMonth=recurrenceToday().slice(0,7),monthEnd=new Date(Date.UTC(Number(currentMonth.slice(0,4)),Number(currentMonth.slice(5)),0)).toISOString().slice(0,10);
+ const db=new DatabaseSync(dbPath);try{for(const [index,id]of ids.slice(0,2).entries())db.prepare("UPDATE recipients SET is_draft=0,long_term_care_number=?,operational_name=?,birth_date='1940-01-01',care_grade='3등급',phone=?,address=?,representative_name='김보호',representative_relation='자녀',representative_phone='010-3333-3333',medical_history='방문 시 보행 유의',caregiver_requirements='오전 근무 조건',service_start_date='2026-01-01',service_end_date='2027-12-31',contract_registered_date='2026-01-01',contract_expired_date='2027-12-31' WHERE id=?").run(index?'L0987654321':'1234567890','김확인 / '+index,index?'010-2222-2222':'010-1111-1111','광주 테스트 주소 '+index,id);db.prepare("UPDATE recipients SET service_start_date=?,service_end_date='2028-12-31',contract_expired_date='2028-12-31' WHERE id=?").run(currentMonth+'-01',ids[1]);db.prepare("UPDATE recipients SET service_end_date=?,contract_expired_date=? WHERE id='recipient-003'").run(monthEnd,monthEnd);}finally{db.close();}
  const month=recurrenceToday().slice(0,7);await call('work/service-month?month='+month,'PUT',{version:0,recipientIds:ids.slice(0,2)});
  server=await createServer({server:{host:'127.0.0.1',port:0,proxy:{'/api':`http://127.0.0.1:${port}`}},logLevel:'error'});await server.listen();
  browser=await chromium.launch({executablePath:process.env.WORK_UI_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
@@ -47,6 +48,10 @@ try{
   await sort.selectOption('serviceEndDate');await asc.click();assert.equal((await names())[0],'정바른');
   await sort.selectOption('name');await desc.click();await page.reload();await page.locator('.recipient-directory-row').first().waitFor();assert.equal(await sort.inputValue(),'name');assert.equal(await desc.getAttribute('aria-pressed'),'true');assert.equal((await names())[0],'정보 보완 대상');
   await sort.selectOption('serviceEndDate');await asc.click();
+  const starting=page.locator('.recipient-directory-row').filter({hasText:'010-2222-2222'}),ending=page.locator('.recipient-directory-row').filter({hasText:'010-4444-5555'});
+  assert.match(await starting.getAttribute('class'),/is-contract-start-month/);assert.equal(await starting.evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(237, 245, 255)');
+  assert.match(await ending.getAttribute('class'),/is-contract-end-month/);assert.equal(await ending.evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(255, 240, 241)');
+  await starting.locator('.recipient-directory-contract-period time').filter({hasText:currentMonth+'-01'}).waitFor();assert.equal(await starting.locator('.recipient-directory-contract-period').getByText('이번 달',{exact:true}).count(),1);assert.equal(await ending.locator('.recipient-directory-contract-period time').last().innerText(),monthEnd);
   await page.locator('.recipient-directory-row').filter({hasText:'010-2222-2222'}).getByRole('img',{name:'김확인 서비스 상태: 서비스 일시정지',exact:true}).waitFor();
   await page.getByRole('img',{name:'정보 보완 대상 서비스 상태: 기초 정보 입력 중',exact:true}).waitFor();
   await page.getByRole('button',{name:/정보 보완 필요/}).click();assert.equal(await page.locator('.recipient-directory-row').count(),1);await page.getByRole('button',{name:/등록 명부/}).click();assert.equal(await page.locator('.recipient-directory-row').count(),baseline+3);
@@ -91,6 +96,6 @@ try{
   assert.equal((await call('recipients/'+ids[1])).servicePaused,false);
   await page.getByRole('button',{name:'수급자 기초정보',exact:true}).click();
   await page.locator('.recipient-directory-row').filter({hasText:'010-2222-2222'}).getByRole('img',{name:'김확인 서비스 상태: 서비스 진행 중',exact:true}).waitFor();
-  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: sorting and saved preference, concise overview, contact save and conflicts without data loss, draft contact editing, lazy plan/documents, unsaved-change protection, contract controls, exact-recipient service/visit handoff, no overflow`);await page.close();
+  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: contract dates and monthly shading, sorting and saved preference, concise overview, contact save and conflicts without data loss, draft contact editing, lazy plan/documents, unsaved-change protection, contract controls, exact-recipient service/visit handoff, no overflow`);await page.close();
  }
 }finally{await browser?.close();await server?.close();if(api.exitCode===null){api.kill();await once(api,'exit');}await new Promise(resolve=>auth.close(resolve));await rm(dir,{recursive:true,force:true});}
