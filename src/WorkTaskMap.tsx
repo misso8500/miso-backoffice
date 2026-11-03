@@ -1,3 +1,4 @@
+import TrafficSignal from './TrafficSignal';
 import { useEffect, useRef, useState } from 'react';
 import { requestJson } from './storage';
 import { workCategoryLabels, type WorkContext } from './lib/work-tasks';
@@ -7,7 +8,7 @@ import DateInput from './DateInput';
 import { workCache } from './lib/work-cache';
 import { useWorkCacheUpdates } from './lib/use-work-cache';
 function Signal({ state }: { state: TrafficState }) {
-  return <span className="traffic-signal" role="img" aria-label={trafficLabels[state]}>{(['red','yellow','green'] as const).map(color => <i key={color} className={state === color ? `lit ${color}` : ''}/>)}</span>;
+  return <TrafficSignal state={state} label={trafficLabels[state]}/>;
 }
 const presets = {
   daily: { title: '매일 서비스 점검', category: 'service', steps: [{ title: '오늘 서비스 일정 확인', guide: '서비스 관리에서 수급자별 일정과 담당 요양보호사를 확인합니다.' }, { title: '결근·일정 변경 확인', guide: '변경 사항을 확인하고 관련자에게 안내합니다.' }, { title: '서비스 제공 결과 확인', guide: '미제공·특이사항을 확인하고 후속 조치를 남깁니다.' }] },

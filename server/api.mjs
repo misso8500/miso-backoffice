@@ -1,3 +1,4 @@
+import {prepareRecipientContact} from './recipient-contact.mjs';
 import { handleWorkTasks } from "./work-tasks.mjs";
 import { recipientNotDeleted, backfillRecipientDeletions } from './recipient-deletions.mjs';
 import { createSqliteWorkStore } from "./work-task-stores.mjs";
@@ -603,9 +604,15 @@ const planStore = createSqlitePlanStore(db, recipientFromRow, (executor,id)=>{
   return row?JSON.parse(row.payload).periods??[]:[];
 }, executor=>executor.prepare('SELECT recipient_id,payload FROM recipient_documents').all().map(row=>({recipient_id:row.recipient_id,periods:(JSON.parse(row.payload).periods??[]).map(p=>({id:p.id,startDate:p.startDate,endDate:p.endDate}))})));
 
+const withRecipientPauses = (people) => {
+  const rows = db.prepare('SELECT DISTINCT recipient_id FROM recipient_service_pauses WHERE returned_date IS NULL').all();
+  const paused = new Set(rows.map(row => row.recipient_id));
+  return people.map(person => ({...person, servicePaused: paused.has(person.id)}));
+};
+
 const readRecipient = (recipientId) => {
   const row = selectRecipientById.get(recipientId);
-  return row ? planStore.enrich([recipientFromRow(row)])[0] : null;
+  return row ? withRecipientPauses(planStore.enrich([recipientFromRow(row)]))[0] : null;
 };
 
 const insertEvent = ({
@@ -1187,6 +1194,14 @@ const server = createServer(async (request, response) => {
       }
     })) return;
     const parts = parsePath(request.url ?? "/");
+    if(parts[0]==='api'&&parts[1]==='recipients'&&parts[2]&&parts[3]==='contact'&&!parts[4]){
+      if(request.method!=='PUT'){sendJson(response,405,{error:'지원하지 않는 연락처 요청입니다.'});return;}
+      const body=await readBody(request),existing=readRecipient(parts[2]),value=prepareRecipientContact(body,existing);
+      const saved=db.prepare('UPDATE recipients SET phone=?,address=?,representative_name=?,representative_relation=?,representative_phone=?,updated_at=? WHERE id=? AND updated_at=? RETURNING id').get(value.phone,value.address,value.representativeName,value.representativeRelation,value.representativePhone,value.updatedAt,parts[2],body.updatedAt);
+      if(!saved)throw Object.assign(new Error('다른 화면에서 수급자 정보가 변경되었습니다. 최신 정보를 다시 확인해 주세요.'),{status:409});
+      sendJson(response,200,readRecipient(parts[2]));return;
+    }
+
     if (parts[0] === 'api' && parts[1] === 'recipients' && parts[2] && parts[3] === 'service-period' && !parts[4] && request.method === 'PUT') {
       const body = await readBody(request);
       db.exec('BEGIN IMMEDIATE');
@@ -1379,7 +1394,7 @@ const server = createServer(async (request, response) => {
           ORDER BY contract_expired_date ASC, name ASC
         `)
         .all();
-      sendJson(response, 200, planStore.enrich(rows.map(recipientFromRow)));
+      sendJson(response, 200, withRecipientPauses(planStore.enrich(rows.map(recipientFromRow))));
       return;
     }
 

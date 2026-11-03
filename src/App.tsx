@@ -1,3 +1,6 @@
+import RecipientContactCard from './RecipientContactCard';
+import RecipientOverviewPanel from './RecipientOverviewPanel';
+import './RecipientDirectory.css';
 import ProspectManagement from './ProspectManagement';
 import WorkVisits from './WorkVisits';
 import WorkRfid from './WorkRfid';
@@ -318,56 +321,6 @@ const formatEmploymentAge = (contract: EmploymentContract) => {
   return age === null ? undefined : `만 ${age}세`;
 };
 
-const detailSections: Array<{
-  title: string;
-  fields: Array<{ label: string; value: (recipient: Recipient) => string | undefined }>;
-}> = [
-  {
-    title: "기본 정보",
-    fields: [
-      { label: "수급자 이름", value: (recipient) => recipient.name },
-      { label: "생년월일", value: (recipient) => recipient.birthDate },
-      { label: "장기요양인정번호", value: (recipient) => recipient.longTermCareNumber },
-      { label: "장기요양등급", value: (recipient) => recipient.careGrade },
-      { label: "수급자 연락처", value: (recipient) => recipient.phone },
-      { label: "병력 · 건강 메모", value: (recipient) => recipient.medicalHistory },
-      { label: "수급자 주소", value: (recipient) => recipient.address }
-    ]
-  },
-  {
-    title: "대표 연락자",
-    fields: [
-      { label: "이름", value: (recipient) => recipient.representativeName },
-      { label: "관계", value: (recipient) => recipient.representativeRelation },
-      { label: "연락처", value: (recipient) => recipient.representativePhone }
-    ]
-  },
-  {
-    title: "장기요양이용계약",
-    fields: [
-      { label: "장기요양이용계약 시작일", value: (recipient) => recipient.serviceStartDate },
-      { label: "장기요양이용계약 만료일", value: (recipient) => recipient.serviceEndDate },
-      { label: "서비스 구분", value: (recipient) => recipient.serviceType },
-      { label: "요양보호사 구인조건", value: (recipient) => recipient.caregiverRequirements },
-      { label: "감경여부", value: (recipient) => recipient.reductionType },
-      { label: "관련 지인", value: (recipient) => recipient.relatedPeople }
-    ]
-  },
-  {
-    title: "시스템 정보",
-    fields: [
-      {
-        label: "유효 상태",
-        value: (recipient) => (isRecipientEnabled(recipient) ? "유효함" : "비활성화")
-      },
-      { label: "복구/재계약 횟수", value: (recipient) => `${recipient.recontractCount}회` },
-      { label: "내부 ID", value: (recipient) => recipient.id },
-      { label: "생성일시", value: (recipient) => recipient.createdAt },
-      { label: "수정일시", value: (recipient) => recipient.updatedAt }
-    ]
-  }
-];
-
 const employmentContractDetailSections: Array<{
   title: string;
   fields: Array<{ label: string; value: (contract: EmploymentContract) => string | undefined }>;
@@ -405,13 +358,6 @@ const employmentContractDetailSections: Array<{
     ]
   }
 ];
-
-const formatDate = (value: string) => !value || !Number.isFinite(Date.parse(value)) ? "미등록" :
-  new Intl.DateTimeFormat("ko-KR", {
-    year: "numeric",
-    month: "short",
-    day: "numeric"
-  }).format(new Date(value));
 
 const formatCurrency = (value: number) => `${value.toLocaleString("ko-KR")}원`;
 
@@ -482,7 +428,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   );
   const [prospectBusy,setProspectBusy]=useState(false),[prospectDirty,setProspectDirty]=useState(false);
   const [visitsBusy,setVisitsBusy]=useState(false),[visitsDirty,setVisitsDirty]=useState(false),[rfidBusy,setRfidBusy]=useState(false);
-  function setActiveView(next: typeof activeView) {
+  const [recipientHandoff,setRecipientHandoff]=useState<{id:string;name:string}|null>(null);
+  function setActiveView(next: typeof activeView, focus?:{id:string;name:string}) {
+    if(next===activeView&&!focus)return;
     if(next!==activeView&&activeView==='prospects'){if(prospectBusy)return;if(prospectDirty&&!window.confirm('저장하지 않은 잠재고객 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='visits'){if(visitsBusy)return;if(visitsDirty&&!window.confirm('저장하지 않은 라운딩 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='rfid'&&rfidBusy&&!window.confirm('저장하지 않은 RFID 변경을 버리고 이동할까요?'))return;
@@ -492,6 +440,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       if(serviceDirty&&!window.confirm('적용하지 않은 체크 변경을 버리고 이동할까요?'))return;
     }
     if(next==='copay')setCopayOpened(true);
+    setRecipientHandoff(focus??null);
     setActiveViewState(next);
   }
   useEffect(()=>{
@@ -516,6 +465,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [selectedStatus, setSelectedStatus] = useState<RecipientStatus | "전체">("전체");
   const [selectedAssignedUserId, setSelectedAssignedUserId] = useState("all");
   const [planEditingRequested, setPlanEditingRequested] = useState(false);
+  const [recipientAttention,setRecipientAttention]=useState<'all'|'renewal'|'unassigned'|'draft'>('all');
   const [recipientView, setRecipientView] = useState<RecipientView>("basic");
   const [isRecipientGridOpen, setIsRecipientGridOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
@@ -626,10 +576,13 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   }, []);
 
   useEffect(() => {
-    void fetchRecipients();
     void fetchEmploymentContracts();
     void fetchBackofficeState();
   }, [fetchBackofficeState, fetchEmploymentContracts, fetchRecipients]);
+
+  useEffect(() => {
+    if (activeView === 'recipients') void fetchRecipients();
+  }, [activeView, fetchRecipients]);
 
   useEffect(() => {
     if (!notification) return;
@@ -666,11 +619,14 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           return false;
         }
 
+        if(recipientAttention==='renewal'&&!['급여갱신필요','계약종료예정'].includes(getRecipientStatus(recipient)))return false;
+        if(recipientAttention==='unassigned'&&recipient.assignedBackofficeUserId)return false;
+        if(recipientAttention==='draft'&&!recipient.isDraft)return false;
         if (selectedStatus !== "전체" && getRecipientStatus(recipient) !== selectedStatus) {
           return false;
         }
 
-        if (selectedAssignedUserId !== "all" && recipient.assignedBackofficeUserId !== selectedAssignedUserId) {
+        if (selectedAssignedUserId !== "all" && (selectedAssignedUserId === "none" ? Boolean(recipient.assignedBackofficeUserId) : recipient.assignedBackofficeUserId !== selectedAssignedUserId)) {
           return false;
         }
 
@@ -700,7 +656,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           .includes(query);
       })
       .sort((a, b) => a.serviceEndDate.localeCompare(b.serviceEndDate));
-  }, [recipients, searchQuery, selectedStatus, selectedAssignedUserId, showEnabledOnly]);
+  }, [recipients, searchQuery, selectedStatus, selectedAssignedUserId, showEnabledOnly,recipientAttention]);
 
   const selectedRecipient =
     recipients.find((recipient) => recipient.id === selectedRecipientId) ?? null;
@@ -710,7 +666,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     setOperationalNameDraft(selectedRecipient?.operationalName ?? "");
     setOperationalNameSaveMessage(null);
   }, [selectedRecipient?.id, selectedRecipient?.operationalName]);
-  const enabledRecipientCount = recipients.filter((recipient) => isRecipientEnabled(recipient) && !recipient.isDraft).length;
+  const enabledRecipientCount = recipients.filter((recipient) => isRecipientEnabled(recipient)).length;
   const renewalCount = recipients.filter((recipient) =>
     ["급여갱신필요", "계약종료예정"].includes(getRecipientStatus(recipient))
   ).length;
@@ -1617,11 +1573,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
         {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}
         {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy} onRecipient={row=>void openCopayRecipient(row)} recipientRevision={copayRecipientRevision} active={activeView==='copay'}/></section>}
-        {activeView === "prospects" ? <ProspectManagement onDirty={setProspectDirty} onBusy={setProspectBusy}/> : activeView === "visits" ? <section className="work-hub"><WorkVisits onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
-          <>
-        <PageHeading title="수급자 관리" description="기본 정보와 장기요양이용계약 기간을 기록하고 확인합니다.">
+        {activeView === "prospects" ? <ProspectManagement onDirty={setProspectDirty} onBusy={setProspectBusy}/> : activeView === "visits" ? <section className="work-hub"><WorkVisits key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
+          <section className="recipient-directory-workspace">
+        <PageHeading title="수급자 기초정보" description="연락처·방문 주소·보호자·담당자를 확인하고 필요한 업무로 이어갑니다.">
           <div className="heading-actions">
-            <button type="button" className="primary-button" onClick={() => setIsRecipientGridOpen(true)}>
+            <button type="button" className="secondary-button" onClick={() => setIsRecipientGridOpen(true)}>
               <Plus size={18} /> 표로 여러 명 입력
             </button>
 
@@ -1636,12 +1592,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <Plus size={18} />
               간단 추가
             </button>
-            <div className="summary-card">
-              <span>관리 중 · 갱신 확인</span>
-              <strong>{enabledRecipientCount}명 <small>{renewalCount}건</small></strong>
-            </div>
+
           </div>
         </PageHeading>
+        <div className="recipient-directory-summary">{([{key:'all',label:'등록 명부',count:enabledRecipientCount},{key:'renewal',label:'기간 확인 필요',count:renewalCount},{key:'unassigned',label:'담당 미배정',count:recipients.filter(r=>isRecipientEnabled(r)&&!r.assignedBackofficeUserId).length},{key:'draft',label:'정보 보완 필요',count:recipients.filter(r=>isRecipientEnabled(r)&&r.isDraft).length}] as const).map(item=><button type="button" key={item.key} aria-pressed={recipientAttention===item.key&&(item.key!=='all'||selectedStatus==='전체'&&selectedAssignedUserId==='all'&&showEnabledOnly&&!searchQuery.trim())} onClick={()=>{setSearchQuery('');setRecipientAttention(item.key);setSelectedStatus('전체');setSelectedAssignedUserId('all');setShowEnabledOnly(true);}}><span>{item.label}</span><strong>{item.count}<small>명</small></strong><ChevronRight size={16}/></button>)}</div>
+        <nav className="app-navigation-tabs recipient-directory-tabs" aria-label="수급자 보기">{([['basic','기본·연락처'],['validity','기간·갱신'],['plan','돌봄·계획']] as const).map(([value,label])=><button type="button" key={value} aria-current={recipientView===value?'page':undefined} onClick={()=>setRecipientView(value)}>{label}</button>)}</nav>
 
         {errorMessage && (
           <div className="error-banner" role="alert">
@@ -1685,26 +1640,24 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           <div className="list-toolbar">
             <div>
               <h2 id="recipient-list-title">수급자 목록</h2>
-              <span>{recipientView==='plan'?'메모는 앞부분만 표시합니다. 행을 누르면 전체 계획과 변경 이력을 확인합니다.':'장기요양이용계약 만료일 오름차순'}</span>
+              <span>{recipientView==='plan'?'현재 계획 기간과 다음 작성 일정을 확인합니다. 내용을 보려면 수급자를 선택하세요.':'연락과 방문에 필요한 정보를 먼저 보여줍니다. 이름을 누르면 상세가 열립니다.'}</span>
             </div>
             <div className="toolbar-controls">
-              <select className="filter-select" aria-label="담당 사회복지사 필터" value={selectedAssignedUserId} onChange={(event) => setSelectedAssignedUserId(event.target.value)}>
-                <option value="all">담당자 전체</option>
+              <select className="filter-select" aria-label="담당 사회복지사 필터" value={selectedAssignedUserId} onChange={(event) => {setSelectedAssignedUserId(event.target.value);setRecipientAttention('all');}}>
+                <option value="all">담당자 전체</option><option value="none">담당 미배정</option>
                 {backofficeUsers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
               </select>
-              <select className="filter-select" aria-label="계약 상태 필터" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as RecipientStatus | "전체")}>
+              <select className="filter-select" aria-label="계약 상태 필터" value={selectedStatus} onChange={(event) => {setSelectedStatus(event.target.value as RecipientStatus | "전체");setRecipientAttention('all');}}>
                 {(["전체", "정보입력중", "급여시작", "급여제공중", "급여갱신필요", "계약종료예정", "계약종료"] as const).map((status) => <option key={status} value={status}>{status === "전체" ? "상태 전체" : status === "정보입력중" ? "정보 입력 중" : status}</option>)}
               </select>
-              <div className="density-toggle" role="group" aria-label="수급자 보기 방식">
-                {([['basic','기본'],['plan','계획'],['validity','유효'],['address','주소']] as const).map(([value,label])=><button type="button" key={value} aria-pressed={recipientView===value} className={recipientView===value?'is-active':''} onClick={()=>setRecipientView(value)}>{label}</button>)}
-              </div>
+
               <label className="valid-toggle">
                 <input
                   type="checkbox"
                   checked={showEnabledOnly}
                   onChange={(event) => setShowEnabledOnly(event.target.checked)}
                 />
-                <span>유효함</span>
+                <span>활성 명부만</span>
               </label>
               <label className="search-box">
                 <Search size={18} />
@@ -1712,7 +1665,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   type="search"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="이름, 인정번호, 계획 메모, 주소, 연락처 검색"
+                  aria-label="수급자 검색" placeholder="이름·연락처·주소·보호자 검색"
                 />
               </label>
             </div>
@@ -1732,7 +1685,7 @@ null
               assign={(r,id)=>void handleAssignedBackofficeUserUpdate(r,id)} assigning={assigningRecipientIds} errors={assignmentErrors} />
           )}
         </section>
-          </>
+          </section>
         ) : (
           <>
             <PageHeading title="근로계약 관리" description="근로자의 계약 기간, 근무시간, 임금과 보험 정보를 기록하고 확인합니다.">
@@ -1879,98 +1832,21 @@ null
         onClose={() => setIsRecipientGridOpen(false)} onSaved={(saved) => {
           setRecipients((current) => [...current.filter((recipient) => !saved.some((item) => item.id === recipient.id)), ...saved]);
           setIsRecipientGridOpen(false);
-          if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("recipients"); setSelectedStatus("정보입력중"); setShowEnabledOnly(true);
+          if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("recipients"); setRecipientAttention('all');setSelectedStatus("정보입력중"); setShowEnabledOnly(true);
           setSearchQuery(""); setSelectedAssignedUserId("all");
           showNotification(`${saved.length}명의 기본 정보를 저장했습니다. 이름을 눌러 상세 정보를 보완해 주세요.`);
         }} />}
 
-      {selectedRecipient && (
-        <div className="detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(()=>setSelectedRecipientId(null))();}}>
-          <article
-            className={`detail-panel ${
-              isRecipientEnabled(selectedRecipient) ? "" : "is-disabled-detail"
-            }`}
-            aria-label={`${selectedRecipient.name} 상세 정보`}
-          >
-            <div className="detail-header">
-              <button
-                type="button"
-                className="back-button"
-                onClick={() => setSelectedRecipientId(null)}
-              >
-                <ArrowLeft size={17} />
-                목록으로
-              </button>
-              <div className="detail-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => openRecipientEditPanel(selectedRecipient)}
-                >
-                  <Pencil size={17} />
-                  {selectedRecipient.isDraft ? "상세 정보 입력" : "전체 정보 수정"}
-                </button>
-                {isRecipientEnabled(selectedRecipient) ? (
-                  <>
-                    <button
-                      type="button"
-                      className="warning-button"
-                      disabled={Boolean(selectedRecipient.isDraft)}
-                      title={selectedRecipient.isDraft ? "상세 정보 등록 후 이용할 수 있습니다." : undefined}
-                      onClick={() => openTerminateDialog(selectedRecipient)}
-                    >
-                      <FileX2 size={17} />
-                      계약해지
-                    </button>
-                    <button
-                      type="button"
-                      className="danger-button"
-                      onClick={() => {
-                        setRecipientToDeactivate(selectedRecipient);
-                        setDeactivateErrorMessage(null);
-                      }}
-                    >
-                      <Trash2 size={17} />
-                      수급자 삭제
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    className="restore-button"
-                    onClick={() => openRestoreDialog(selectedRecipient)}
-                  >
-                    <RotateCcw size={17} />
-                    계약복구
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="icon-button"
-                  onClick={() => setSelectedRecipientId(null)}
-                >
-                  <X size={20} />
-                  <span className="sr-only">닫기</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="recipient-hero">
-              <span>{selectedRecipient.isDraft ? "정보 입력 중 · 상세 정보를 보완해 주세요" : selectedRecipient.longTermCareNumber}</span>
-              <h2>{selectedRecipient.name}</h2>
-              <p>
-                {selectedRecipient.careGrade || "등급 미등록"} · 대표 연락자{" "}
-                {selectedRecipient.representativeName || "미등록"}
-                {!isRecipientEnabled(selectedRecipient) && (
-                  <strong className="inactive-inline">비활성화된 수급자</strong>
-                )}
-              </p>
-              <div>
-                <small>장기요양이용계약 만료일</small>
-                <strong>{formatDate(selectedRecipient.serviceEndDate)}</strong>
-              </div>
-            </div>
-
+      {selectedRecipient && <RecipientOverviewPanel key={selectedRecipient.id} recipient={selectedRecipient} users={backofficeUsers} status={getRecipientStatus(selectedRecipient)} initialSection={recipientView==='plan'||planEditingRequested?'plan':'basic'}
+        onClose={()=>setSelectedRecipientId(null)} onSectionChange={()=>setPlanEditingRequested(false)}
+        onNavigate={view=>{setActiveView(view,{id:selectedRecipient.id,name:selectedRecipient.name});setSelectedRecipientId(null);}}
+        busy={isSaving||assigningRecipientIds.includes(selectedRecipient.id)} managementDirty={operationalNameDraft!==(selectedRecipient.operationalName??'')} onDiscardManagement={()=>setOperationalNameDraft(selectedRecipient.operationalName??'')}
+        renderContact={(onDirty,onBusy)=><RecipientContactCard recipient={selectedRecipient} onDirty={onDirty} onBusy={onBusy} onSaved={saved=>setRecipients(current=>current.map(person=>person.id===saved.id?saved:person))}/>}
+        renderPlan={(onDirty,onBusy)=><RecipientPlanPanel key={`plan-${selectedRecipient.id}`} recipientId={selectedRecipient.id} initiallyEditing={planEditingRequested} onDirty={onDirty} onBusy={onBusy} onSaved={state=>{setRecipients(current=>current.map(r=>r.id===selectedRecipient.id?{...r,...(state.current?.notes??state.legacyNotes),planSummary:summarizePlan(state)}:r));showNotification('수급자 계획을 저장했습니다.');}}/>}
+        renderContract={(onDirty,onBusy)=><RecipientServicePeriod key={`period-${selectedRecipient.id}`} recipient={selectedRecipient} onDirty={onDirty} onBusy={onBusy} onSaved={saved=>{setRecipients(current=>current.map(r=>r.id===saved.id?saved:r));showNotification('계약 기간을 저장했습니다.');}}/>}
+        renderDocuments={(onDirty,onBusy)=><RecipientDocuments key={selectedRecipient.id} recipientId={selectedRecipient.id} recipientName={selectedRecipient.name} onDirty={onDirty} onBusy={onBusy}/>}
+        managementActions={[{label:'전체 정보 수정',onClick:()=>openRecipientEditPanel(selectedRecipient)},...(isRecipientEnabled(selectedRecipient)?[{label:'계약해지',className:'warning-button',disabled:Boolean(selectedRecipient.isDraft),onClick:()=>{setSelectedRecipientId(null);openTerminateDialog(selectedRecipient);}},{label:'수급자 삭제',className:'danger-button',onClick:()=>{setRecipientToDeactivate(selectedRecipient);setDeactivateErrorMessage(null);setSelectedRecipientId(null);}}]:[{label:'계약복구',className:'restore-button',onClick:()=>{setSelectedRecipientId(null);openRestoreDialog(selectedRecipient);}}])]}
+        management={<>
             <form className="operational-name-editor" onSubmit={(event) => { event.preventDefault(); void handleOperationalNameUpdate(); }}>
               <label>
                 <span>업무식별명</span>
@@ -2004,31 +1880,8 @@ null
               {assignmentErrors[selectedRecipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[selectedRecipient.id]}</small>}
             </div>
 
-            <RecipientPlanPanel key={`plan-${selectedRecipient.id}`} recipientId={selectedRecipient.id} focusOnMount={recipientView==='plan'} initiallyEditing={planEditingRequested} onSaved={state=>{
-              setRecipients(current=>current.map(r=>r.id===selectedRecipient.id?{...r,...(state.current?.notes??state.legacyNotes),planSummary:summarizePlan(state)}:r));
-              showNotification('수급자 계획을 저장했습니다.');
-            }} />
-            <RecipientServicePeriod key={`period-${selectedRecipient.id}`} recipient={selectedRecipient} onSaved={saved=>{setRecipients(current=>current.map(r=>r.id===saved.id?saved:r));showNotification('계약 기간을 저장했습니다.');}} />
-            <RecipientDocuments key={selectedRecipient.id} recipientId={selectedRecipient.id} recipientName={selectedRecipient.name} />
 
-            <div className="detail-sections">
-              {detailSections.map((section) => (
-                <section key={section.title}>
-                  <h3>{section.title}</h3>
-                  <dl>
-                    {section.fields.map((field) => (
-                      <div key={field.label}>
-                        <dt>{field.label}</dt>
-                        <dd>{field.value(selectedRecipient) || "미등록"}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
-              ))}
-            </div>
-          </article>
-        </div>
-      )}
+        </>}/>}
 
       {selectedEmploymentContract && (
         <div className="detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(()=>setSelectedEmploymentContractId(null))();}}>

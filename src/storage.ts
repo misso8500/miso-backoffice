@@ -122,6 +122,9 @@ export const updateRecipient = (recipient: RecipientInput) =>
     body: JSON.stringify({ ...recipient, enabled: recipient.enabled ?? true })
   }).then(normalizeRecipient);
 
+export const updateRecipientContact = (id:string,input:{phone:string;address:string;representativeName:string;representativeRelation:string;representativePhone:string;updatedAt:string}) =>
+  requestJson<Recipient>(`/api/recipients/${id}/contact`,{method:'PUT',body:JSON.stringify(input)}).then(normalizeRecipient);
+
 export const terminateContract = (recipientId: string, input: TerminateContractInput) =>
   requestJson<Recipient>(`/api/recipients/${recipientId}/terminate`, {
     method: "POST",

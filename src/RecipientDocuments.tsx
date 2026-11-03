@@ -38,7 +38,7 @@ function RemoteImage({ endpoint, name, onOpen, cache }: { endpoint: string; name
   }, [endpoint, attempt, visible, cache]);
   return <div ref={host}>{url ? <button type="button" className="document-thumbnail" onClick={() => onOpen(url)}><img src={url} alt={name} /><span>크게 보기</span></button> : error ? <><p role="alert">{error}</p><button type="button" className="secondary-button" onClick={() => setAttempt(attempt + 1)}>다시 시도</button></> : <p role="status">사진 불러오는 중…</p>}</div>;
 }
-export default function RecipientDocuments({ recipientId, recipientName }: { recipientId: string; recipientName: string }) {
+export default function RecipientDocuments({ recipientId, recipientName, onDirty, onBusy }: { recipientId: string; recipientName: string;onDirty?:(value:boolean)=>void;onBusy?:(value:boolean)=>void }) {
   const [saved, setSaved] = useState<Documents>(empty), [draft, setDraft] = useState<Documents>(empty);
   const [candidates, setCandidates] = useState<Candidate[]>([]), [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false), [initializing, setInitializing] = useState(true), [error, setError] = useState(''), [notice, setNotice] = useState('');
@@ -48,6 +48,8 @@ export default function RecipientDocuments({ recipientId, recipientName }: { rec
     const blob = await (await request(endpoint, { signal })).blob();
     return blob;
   }));
+  useEffect(()=>{onDirty?.(editing&&JSON.stringify(saved)!==JSON.stringify(draft));return()=>onDirty?.(false);},[editing,saved,draft,onDirty]);
+  useEffect(()=>{onBusy?.(busy);return()=>onBusy?.(false);},[busy,onBusy]);
   const previewGeneration = useRef(0);
   const closePreview = () => { previewGeneration.current++; setPreview(null); setPreviewBusy(false); };
   useEffect(() => () => { previewGeneration.current++; imageCache.clear(); }, [imageCache]);

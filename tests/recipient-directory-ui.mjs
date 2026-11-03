@@ -1,0 +1,86 @@
+import assert from 'node:assert/strict';
+import {createServer as httpServer} from 'node:http';
+import {spawn} from 'node:child_process';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {once} from 'node:events';
+import {pathToFileURL} from 'node:url';
+import {DatabaseSync} from 'node:sqlite';
+import {createServer} from 'vite';
+import {recurrenceToday} from '../shared/work-recurrence.mjs';
+const {chromium}=await import(process.env.WORK_UI_PLAYWRIGHT_MODULE?pathToFileURL(process.env.WORK_UI_PLAYWRIGHT_MODULE).href:'playwright-core');
+const dir=await mkdtemp(join(tmpdir(),'miso-recipient-directory-')),dbPath=join(dir,'directory.sqlite');
+const auth=httpServer((req,res)=>{res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({id:'google-a',email:'a@example.com',email_confirmed_at:'2026-01-01',app_metadata:{provider:'google'},identities:[{provider:'google'}],user_metadata:{full_name:'사회복지사 테스트'}}));});
+await new Promise(resolve=>auth.listen(0,'127.0.0.1',resolve));
+const reservation=httpServer();await new Promise(resolve=>reservation.listen(0,'127.0.0.1',resolve));const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
+const api=spawn(process.execPath,['server/api.mjs'],{cwd:new URL('..',import.meta.url),env:{...process.env,PORT:String(port),MISO_BACKOFFICE_DB_PATH:dbPath,SUPABASE_URL:`http://127.0.0.1:${auth.address().port}`,SUPABASE_PUBLISHABLE_KEY:'sb_publishable_test',AUTH_ALLOWED_EMAILS:'a@example.com'},stdio:['ignore','pipe','pipe']});
+let server,browser;
+async function call(path,method='GET',body){const response=await fetch(`http://127.0.0.1:${port}/api/${path}`,{method,headers:{Authorization:'Bearer a','Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const value=await response.json();assert(response.ok,JSON.stringify(value));return value;}
+try{
+ await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('API start timeout')),10000);api.stdout.on('data',chunk=>{if(chunk.toString().includes('API running')){clearTimeout(timer);resolve();}});api.once('exit',code=>{clearTimeout(timer);reject(Error(`API exit ${code}`));});api.once('error',reject);});
+ const baseline=(await call('recipients')).length;
+ const ids=[randomUUID(),randomUUID(),randomUUID()];
+ await call('recipients/bulk-drafts','POST',{rows:ids.map((id,index)=>({id,name:index<2?'김확인':'정보 보완 대상'}))});
+ const db=new DatabaseSync(dbPath);try{for(const [index,id]of ids.slice(0,2).entries())db.prepare("UPDATE recipients SET is_draft=0,long_term_care_number=?,operational_name=?,birth_date='1940-01-01',care_grade='3등급',phone=?,address=?,representative_name='김보호',representative_relation='자녀',representative_phone='010-3333-3333',medical_history='방문 시 보행 유의',caregiver_requirements='오전 근무 조건',service_start_date='2026-01-01',service_end_date='2027-12-31',contract_registered_date='2026-01-01',contract_expired_date='2027-12-31' WHERE id=?").run(index?'L0987654321':'1234567890','김확인 / '+index,index?'010-2222-2222':'010-1111-1111','광주 테스트 주소 '+index,id);}finally{db.close();}
+ const month=recurrenceToday().slice(0,7);await call('work/service-month?month='+month,'PUT',{version:0,recipientIds:ids.slice(0,2)});
+ server=await createServer({server:{host:'127.0.0.1',port:0,proxy:{'/api':`http://127.0.0.1:${port}`}},logLevel:'error'});await server.listen();
+ browser=await chromium.launch({executablePath:process.env.WORK_UI_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
+ for(const [index,viewport]of[{width:1400,height:900},{width:390,height:844}].entries()){
+  const pause=await call('work/recipient-services/'+ids[1]+'/pause','POST',{startDate:recurrenceToday(),reason:'기초정보 신호등 확인'});
+  assert.equal((await call('recipients')).find(person=>person.id===ids[1]).servicePaused,true);assert.equal((await call('recipients/'+ids[1])).servicePaused,true);
+  const page=await browser.newPage({viewport}),errors=[];let confirm=true,confirms=0,planReads=0,documentReads=0;
+  page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>{confirms++;void(confirm?dialog.accept():dialog.dismiss());});
+  page.on('request',request=>{if(request.url().endsWith(`/recipients/${ids[0]}/plan`))planReads++;if(request.url().endsWith(`/recipients/${ids[0]}/documents`))documentReads++;});
+  await page.route('**/src/auth.ts',route=>route.fulfill({contentType:'application/javascript',body:"export const getAuthHeaders=async()=>({Authorization:'Bearer a'});export const authFailureEvent='test';"}));
+  await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.__copiedAddress=text;}},configurable:true}));
+  await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/center-practice-ui.html`);
+  await page.locator('.recipient-directory-row').first().waitFor();assert.equal(await page.locator('.recipient-directory-row').count(),baseline+3);
+  await page.locator('.recipient-directory-row').filter({hasText:'010-2222-2222'}).getByRole('img',{name:'김확인 서비스 상태: 서비스 일시정지',exact:true}).waitFor();
+  await page.getByRole('img',{name:'정보 보완 대상 서비스 상태: 기초 정보 입력 중',exact:true}).waitFor();
+  await page.getByRole('button',{name:/정보 보완 필요/}).click();assert.equal(await page.locator('.recipient-directory-row').count(),1);await page.getByRole('button',{name:/등록 명부/}).click();assert.equal(await page.locator('.recipient-directory-row').count(),baseline+3);
+  await page.getByRole('button',{name:'정보 보완 대상 수급자 상세',exact:true}).click();
+  const draftPanel=page.getByRole('dialog',{name:'정보 보완 대상 상세 정보',exact:true});await draftPanel.getByRole('button',{name:'연락처·주소 수정',exact:true}).click();await draftPanel.getByLabel('수급자 연락처',{exact:true}).fill(index?'010-4444-0001':'010-4444-0000');await draftPanel.getByRole('button',{name:'연락 정보 저장',exact:true}).click();await draftPanel.getByText('연락처와 방문 정보를 저장했습니다.',{exact:true}).waitFor();assert.equal((await call('recipients/'+ids[2])).isDraft,true);await draftPanel.getByRole('button',{name:'수급자 상세 닫기',exact:true}).click();
+  assert.equal(await page.getByText('오전 근무 조건',{exact:true}).count(),0,'long care notes should not be in the default directory');
+  const open=async()=>{const before=await call('recipients/'+ids[0]);await page.locator('.recipient-directory-row').filter({hasText:before.phone}).getByRole('button',{name:'김확인 수급자 상세',exact:true}).click();};
+  const current=await call('recipients/'+ids[0]);const row=page.locator('.recipient-directory-row').filter({hasText:current.phone});
+  await row.getByText('L1234567890',{exact:true}).waitFor();await row.getByRole('button',{name:'김확인 주소 복사',exact:true}).click();assert.equal(await page.evaluate(()=>window.__copiedAddress),current.address);assert.equal(await page.getByRole('dialog').count(),0);
+  await open();const panel=page.getByRole('dialog',{name:'김확인 상세 정보',exact:true});
+  assert.equal(planReads,0,'opening the overview must not load the plan editor');assert.equal(documentReads,0,'opening the overview must not load document lists');
+  await panel.getByRole('link',{name:'010-3333-3333',exact:true}).waitFor();assert.equal(await panel.getByText('내부 ID',{exact:true}).count(),0);
+  await panel.getByRole('button',{name:'연락처·주소 수정',exact:true}).click();const nextPhone=index?'010-7777-7777':'010-8888-8888';
+  await panel.getByLabel('수급자 연락처',{exact:true}).fill(nextPhone);
+  const contactResponse=page.waitForResponse(response=>response.url().endsWith('/api/recipients/'+ids[0]+'/contact')&&response.request().method()==='PUT');
+  await panel.getByRole('button',{name:'연락 정보 저장',exact:true}).click();const response=await contactResponse;assert(response.ok(),await response.text());await panel.getByText('연락처와 방문 정보를 저장했습니다.',{exact:true}).waitFor();
+  const saved=await call('recipients/'+ids[0]);assert.equal(saved.phone,nextPhone);assert.equal(saved.caregiverRequirements,'오전 근무 조건');assert.equal(saved.medicalHistory,'방문 시 보행 유의');assert.equal(saved.serviceEndDate,'2027-12-31');
+  // Contact conflicts must preserve the typed values and offer a usable reload.
+  await panel.getByRole('button',{name:'연락처·주소 수정',exact:true}).click();await panel.getByLabel('수급자 연락처',{exact:true}).fill('010-9999-9999');
+  await call('recipients/'+ids[0]+'/contact','PUT',{phone:saved.phone,address:saved.address+' 최신',representativeName:saved.representativeName,representativeRelation:saved.representativeRelation,representativePhone:saved.representativePhone,updatedAt:saved.updatedAt});
+  await panel.getByRole('button',{name:'연락 정보 저장',exact:true}).click();await panel.getByRole('alert').waitFor();assert.equal(await panel.getByLabel('수급자 연락처',{exact:true}).inputValue(),'010-9999-9999');
+  await panel.getByRole('button',{name:'최신 연락 정보 불러오기',exact:true}).click();await panel.getByText('최신 정보를 불러왔습니다. 다시 수정해 주세요.',{exact:true}).waitFor();assert.equal(await panel.getByLabel('수급자 연락처',{exact:true}).inputValue(),nextPhone);await panel.getByRole('button',{name:'편집 취소',exact:true}).click();
+  await panel.getByRole('button',{name:'관련 서류',exact:true}).click();await panel.getByText('수급자 서류',{exact:true}).waitFor();assert(documentReads>0);
+  await panel.getByRole('button',{name:'돌봄·계획',exact:true}).click();await panel.getByRole('button',{name:'계획 작성·변경',exact:true}).waitFor();assert(planReads>0);
+  await panel.getByRole('button',{name:'계획 작성·변경',exact:true}).click();if(errors.length)throw new Error(errors.join(' / '));await panel.getByLabel('병력 · 건강 메모',{exact:true}).fill('저장하지 않은 계획 메모');
+  confirm=false;await panel.getByRole('button',{name:'연락·요약',exact:true}).click();assert.equal(await panel.getByLabel('병력 · 건강 메모',{exact:true}).inputValue(),'저장하지 않은 계획 메모');
+  confirm=true;await panel.getByRole('button',{name:'연락·요약',exact:true}).click();await panel.getByRole('button',{name:'연락처·주소 수정',exact:true}).waitFor();assert(confirms>=2);
+  await panel.getByRole('button',{name:'계약·관리',exact:true}).click();await panel.getByRole('button',{name:'계약 기간 수정·갱신',exact:true}).waitFor();
+  await panel.getByRole('button',{name:'수급자 상세 닫기',exact:true}).click();
+  await page.evaluate(()=>window.scrollTo(0,0));
+  await page.waitForFunction(()=>!document.querySelector('.recipient-directory-workspace .heading-actions button:disabled'));
+  await page.screenshot({path:`/private/tmp/miso-recipient-directory-${viewport.width}.png`,fullPage:true,animations:'disabled'});
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),'directory horizontal overflow');
+  await open();await panel.getByRole('button',{name:'이 달의 서비스 명단',exact:false}).click();
+  await page.locator('.service-month-table tbody tr').first().waitFor();assert.equal(await page.locator('.service-month-table tbody tr').count(),1,'duplicate names must still focus the selected recipient ID');
+  assert.equal((await call('work/service-month?month='+month)).rows.filter(row=>row.checked).length,2,'handoff must not modify service selection');
+  await page.getByRole('button',{name:'수급자 기초정보',exact:true}).click();await open();
+  await panel.getByRole('button',{name:'라운딩 계획·방문 확인',exact:false}).click();
+  const roster=page.getByRole('region',{name:'월간 라운딩 명단'});await roster.locator('.visit-person').first().waitFor();assert.equal(await roster.locator('.visit-person').count(),1);
+  assert.equal((await call('work/visits/'+month)).rows.length,2,'handoff must not alter the monthly visit roster');
+  await call('work/recipient-services/'+ids[1]+'/resume','POST',{returnedDate:recurrenceToday(),pauseId:pause.id,version:pause.version});
+  assert.equal((await call('recipients/'+ids[1])).servicePaused,false);
+  await page.getByRole('button',{name:'수급자 기초정보',exact:true}).click();
+  await page.locator('.recipient-directory-row').filter({hasText:'010-2222-2222'}).getByRole('img',{name:'김확인 서비스 상태: 서비스 진행 중',exact:true}).waitFor();
+  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: concise overview, contact save and conflicts without data loss, draft contact editing, lazy plan/documents, unsaved-change protection, contract controls, exact-recipient service/visit handoff, no overflow`);await page.close();
+ }
+}finally{await browser?.close();await server?.close();if(api.exitCode===null){api.kill();await once(api,'exit');}await new Promise(resolve=>auth.close(resolve));await rm(dir,{recursive:true,force:true});}

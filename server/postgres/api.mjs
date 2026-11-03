@@ -1,3 +1,4 @@
+import {prepareRecipientContact} from '../recipient-contact.mjs';
 import { handleWorkTasks } from "../work-tasks.mjs";
 import { recipientNotDeleted } from '../recipient-deletions.mjs';
 import { createPostgresWorkStore } from "../work-task-stores.mjs";
@@ -301,6 +302,12 @@ const planStore = createPostgresPlanStore(pool, recipientFromRow, async (executo
   return result.rows.map(row=>({recipient_id:row.recipient_id,periods:(row.periods??[]).map(p=>({id:p.id,startDate:p.startDate,endDate:p.endDate}))}));
 });
 
+const withRecipientPauses = async (people) => {
+  const rows = (await pool.query('SELECT DISTINCT recipient_id FROM recipient_service_pauses WHERE returned_date IS NULL')).rows;
+  const paused = new Set(rows.map(row => row.recipient_id));
+  return people.map(person => ({...person, servicePaused: paused.has(person.id)}));
+};
+
 const readRecipient = async (recipientId) => {
   const { rows } = await pool.query(
     `
@@ -317,7 +324,7 @@ const readRecipient = async (recipientId) => {
     [recipientId]
   );
 
-  return rows[0] ? (await planStore.enrich([recipientFromRow(rows[0])]))[0] : null;
+  return rows[0] ? (await withRecipientPauses(await planStore.enrich([recipientFromRow(rows[0])])))[0] : null;
 };
 
 const normalizeRecipient = (body, existing = null) => {
@@ -830,6 +837,14 @@ export const handlePostgresRequest = async (request, response) => {
       }
     })) return;
     const parts = parsePath(request.url ?? "/");
+    if(parts[0]==='api'&&parts[1]==='recipients'&&parts[2]&&parts[3]==='contact'&&!parts[4]){
+      if(request.method!=='PUT'){sendJson(response,405,{error:'지원하지 않는 연락처 요청입니다.'});return;}
+      const body=await readBody(request),existing=await readRecipient(parts[2]),value=prepareRecipientContact(body,existing);
+      const saved=await pool.query('UPDATE recipients SET phone=$1,address=$2,representative_name=$3,representative_relation=$4,representative_phone=$5,updated_at=$6 WHERE id=$7 AND updated_at=$8 RETURNING id',[value.phone,value.address,value.representativeName,value.representativeRelation,value.representativePhone,value.updatedAt,parts[2],body.updatedAt]);
+      if(!saved.rowCount)throw Object.assign(new Error('다른 화면에서 수급자 정보가 변경되었습니다. 최신 정보를 다시 확인해 주세요.'),{status:409});
+      sendJson(response,200,await readRecipient(parts[2]));return;
+    }
+
     if (parts[0] === 'api' && parts[1] === 'recipients' && parts[2] && parts[3] === 'service-period' && !parts[4] && request.method === 'PUT') {
       const body = await readBody(request), client = await pool.connect();
       try {
@@ -1016,7 +1031,7 @@ export const handlePostgresRequest = async (request, response) => {
         WHERE ${recipientNotDeleted()}
         ORDER BY contract_expired_date ASC, name ASC
       `);
-      sendJson(response, 200, await planStore.enrich(rows.map(recipientFromRow)));
+      sendJson(response, 200, await withRecipientPauses(await planStore.enrich(rows.map(recipientFromRow))));
       return;
     }
 

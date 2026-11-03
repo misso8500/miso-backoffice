@@ -15,14 +15,16 @@ export const planNoteFields: { key: keyof RecipientPlanNotes; label: string; pla
 const emptyNotes: RecipientPlanNotes={medicalHistory:'',caregiverRequirements:'',familyNotes:'',hospitalNotes:'',servicePlanNotes:''};
 const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 function PlanNotes({notes}: {notes:RecipientPlanNotes}) {return <dl className="recipient-plan-notes">{planNoteFields.map(field=><div key={field.key}><dt>{field.label}</dt><dd>{notes[field.key]||'미등록'}</dd></div>)}</dl>;}
-export default function RecipientPlanPanel({ recipientId, focusOnMount=false, initiallyEditing=false, onSaved }: {
-  recipientId:string; focusOnMount?:boolean; initiallyEditing?:boolean; onSaved:(state:RecipientPlanState)=>void;
+export default function RecipientPlanPanel({ recipientId, focusOnMount=false, initiallyEditing=false, onDirty, onBusy, onSaved }: {
+  onDirty?:(value:boolean)=>void;onBusy?:(value:boolean)=>void;recipientId:string; focusOnMount?:boolean; initiallyEditing?:boolean; onSaved:(state:RecipientPlanState)=>void;
 }) {
   const [state,setState]=useState<RecipientPlanState|null>(null),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false);
   const [editing,setEditing]=useState(false),[notes,setNotes]=useState<RecipientPlanNotes>(emptyNotes),[effectiveDate,setEffectiveDate]=useState(today);
   const [kind,setKind]=useState<'change'|'correction'|'progress'>('change'),[reason,setReason]=useState(''),[source,setSource]=useState<RecipientPlanVersion|null>(null);
   const [schedule,setSchedule]=useState<RecipientPlanScheduleInput>({category:'initial',status:'draft',endDate:'',writtenDate:null,notifiedDate:null,recognitionPeriod:null});
   const [error,setError]=useState(''),[notice,setNotice]=useState(''),[showHistory,setShowHistory]=useState(false),[attempt,setAttempt]=useState(0);
+  useEffect(()=>{onDirty?.(editing);return()=>onDirty?.(false);},[editing,onDirty]);
+  useEffect(()=>{onBusy?.(saving);return()=>onBusy?.(false);},[saving,onBusy]);
   const panel=useRef<HTMLElement>(null),form=useRef<HTMLFormElement>(null),errorBox=useRef<HTMLParagraphElement>(null);
   useEffect(()=>{
     let active=true;setLoading(true);setError('');
@@ -72,7 +74,7 @@ export default function RecipientPlanPanel({ recipientId, focusOnMount=false, in
           }setSchedule(next);
         }} institution={source?.schedule?.institutionPeriod??state.context.institutionPeriod} periods={state.context.recognitionPeriods} today={today()} locked={Boolean(source)} busy={saving}/>
         <p className="contract-attachment-note">빈 메모는 ‘미등록’으로 표시됩니다. 해당 사항이 없다면 ‘해당 없음’이라고 적어 주세요. 작성 중인 계획은 실행 중으로 표시하지 않습니다. 작성·통보 완료 후 실행기간에 맞춰 표시합니다.</p>
-        <div className="plan-edit-fields">{planNoteFields.map(field=><label key={field.key}>{field.label}<textarea maxLength={5000} disabled={saving} value={notes[field.key]} placeholder={field.placeholder} onChange={event=>setNotes(current=>({...current,[field.key]:event.target.value}))}/></label>)}</div>
+        <div className="plan-edit-fields">{planNoteFields.map(field=><label key={field.key}>{field.label}<textarea aria-label={field.label} maxLength={5000} disabled={saving} value={notes[field.key]} placeholder={field.placeholder} onChange={event=>setNotes(current=>({...current,[field.key]:event.target.value}))}/></label>)}</div>
         <label className="plan-reason-field">변경 사유<textarea required maxLength={1000} disabled={saving} value={reason} onChange={event=>setReason(event.target.value)} placeholder="예: 인정 갱신, 등급 변경, 가족 사정 변경, 오탈자 정정"/></label>
         <p className="contract-attachment-note">작성자는 로그인한 계정으로 자동 기록합니다. 저장하지 않고 닫으면 입력 내용이 사라집니다.</p>
         {error&&<p ref={errorBox} tabIndex={-1} role="alert" className="form-error">{error}</p>}

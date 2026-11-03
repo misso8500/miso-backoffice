@@ -1,4 +1,5 @@
 export type Recipient = {
+  servicePaused?: boolean;
   isDraft?: boolean;
   id: string;
   name: string;
