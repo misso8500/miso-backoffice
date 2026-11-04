@@ -52,6 +52,17 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
+    const counselingPath=/^\/api\/work\/staff-counseling(?:\/([^/]+)(\/archive)?)?$/.exec(path);
+    if(counselingPath){
+      const [,id,archive]=counselingPath;
+      if(id==='context'&&!archive&&request.method==='GET')sendJson(response,200,await store.staffCounselingContext(current));
+      else if(!id&&request.method==='GET')sendJson(response,200,await store.staffCounselingList());
+      else if(!id&&request.method==='POST')sendJson(response,200,await store.saveStaffCounseling(null,await readWorkBody(request,90000),current));
+      else if(id&&archive&&request.method==='POST')sendJson(response,200,await store.archiveStaffCounseling(id,await readWorkBody(request),current));
+      else if(id&&!archive&&request.method==='GET')sendJson(response,200,await store.staffCounselingDetail(id));
+      else if(id&&!archive&&request.method==='PUT')sendJson(response,200,await store.saveStaffCounseling(id,await readWorkBody(request,90000),current));
+      else throw workError(405,'지원하지 않는 직원 상담일지 요청입니다.');return true;
+    }
     const institutionPath=/^\/api\/work\/institution\/(contacts|template-settings|templates)(?:\/([^/]+)(\/download)?)?$/.exec(path);
     if(institutionPath){
       const [,resource,id,download]=institutionPath;
