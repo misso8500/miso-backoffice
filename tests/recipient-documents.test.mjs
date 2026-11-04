@@ -14,6 +14,7 @@ test('document payload validates real dates, periods, types and page order', () 
 });
 test('folder parsing and allowlist reject arbitrary domains and unapproved IDs', () => {
   assert.equal(parseFolderId(`https://drive.google.com/drive/folders/${folderId}?usp=sharing`),folderId);
+  assert.equal(parseFolderId(`https://drive.google.com/drive/u/0/folders/${folderId}`),folderId);
   assert.throws(() => parseFolderId(`https://evil.example/drive/folders/${folderId}`));
   assert.throws(() => recipientReader(folderId,{}),{status:403});
 });

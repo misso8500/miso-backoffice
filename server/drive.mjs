@@ -62,7 +62,7 @@ export function createDriveReader(env = process.env, dependencies = {}) {
       if (!validId(parent) || seen.has(parent)) break;
       seen.add(parent); current = await metadata(parent);
     }
-    throw new DriveError(404, '연결한 폴더에서 조회할 수 없는 이미지입니다.');
+    throw new DriveError(404, '연결한 폴더에서 조회할 수 없는 파일입니다.');
   }
   return {
     async assertRootAllowed(allowedRoots) {
@@ -95,7 +95,7 @@ export function createDriveReader(env = process.env, dependencies = {}) {
             if (file.mimeType === 'application/vnd.google-apps.folder') queue.push({ id: file.id, path: `${folder.path}${file.name}/`, depth: folder.depth + 1 });
             else if ((dependencies.fileTypes??imageTypes).has(file.mimeType)) files.push({ ...file, path: folder.path });
           }
-          if (files.length > 300) throw new DriveError(422, '사람별 폴더에 이미지는 300장까지 지원합니다.');
+          if (files.length > 300) throw new DriveError(422, '폴더의 파일은 300개까지 조회할 수 있습니다.');
           pageToken = data.nextPageToken;
         } while (pageToken);
       }
@@ -115,6 +115,17 @@ export function createDriveReader(env = process.env, dependencies = {}) {
         if (files.length > 300) throw new DriveError(422, '테스트 폴더의 이미지가 너무 많습니다. 300장 이하로 준비해 주세요.');
       } while (pageToken);
       return { folderName: folder.name, sharedDrive: Boolean(folder.driveId), files };
+    },
+    async file(id) {
+      if(!validId(id))throw new DriveError(400,'잘못된 파일 식별자입니다.');
+      const file=await metadata(id);
+      if(file.trashed||!(dependencies.fileTypes??imageTypes).has(file.mimeType))throw new DriveError(404,'다운로드할 수 없는 파일입니다.');
+      if(env.DRIVE_INCLUDE_SUBFOLDERS==='true')await assertWithinRoot(file);
+      else if(!file.parents?.includes(folderId))throw new DriveError(404,'연결 폴더에서 다운로드할 수 없는 파일입니다.');
+      const maximum=20*1024*1024;if(Number(file.size)>maximum)throw new DriveError(413,'20MB 이하의 서식만 다운로드할 수 있습니다.');
+      const response=await call(`files/${id}`,{alt:'media'}),chunks=[];let size=0;
+      for await(const chunk of response.body){size+=chunk.length;if(size>maximum)throw new DriveError(413,'20MB 이하의 서식만 다운로드할 수 있습니다.');chunks.push(Buffer.from(chunk));}
+      return {bytes:Buffer.concat(chunks),mimeType:file.mimeType,name:file.name};
     },
     async image(id) {
       if (!validId(id)) throw new DriveError(400, '잘못된 파일 식별자입니다.');

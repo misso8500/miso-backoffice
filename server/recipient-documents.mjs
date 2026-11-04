@@ -7,7 +7,7 @@ export function parseFolderId(value) {
   if (id.startsWith('https://')) {
     let url; try { url = new URL(id); } catch { throw new DriveError(400, '폴더 링크를 확인해 주세요.'); }
     if (url.hostname !== 'drive.google.com') throw new DriveError(400, 'Google Drive 폴더 링크를 입력해 주세요.');
-    id = /^\/drive\/folders\/([A-Za-z0-9_-]+)\/?$/.exec(url.pathname)?.[1] ?? '';
+    id = /^\/drive\/(?:u\/\d+\/)?folders\/([A-Za-z0-9_-]+)\/?$/.exec(url.pathname)?.[1] ?? '';
   }
   if (!/^[A-Za-z0-9_-]{10,200}$/.test(id)) throw new DriveError(400, '폴더 링크를 확인해 주세요.');
   return id;
