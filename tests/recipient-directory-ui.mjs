@@ -31,9 +31,9 @@ try{
  for(const [index,viewport]of[{width:1400,height:900},{width:390,height:844}].entries()){
   const pause=await call('work/recipient-services/'+ids[1]+'/pause','POST',{startDate:recurrenceToday(),reason:'기초정보 신호등 확인'});
   assert.equal((await call('recipients')).find(person=>person.id===ids[1]).servicePaused,true);assert.equal((await call('recipients/'+ids[1])).servicePaused,true);
-  const page=await browser.newPage({viewport}),errors=[];let confirm=true,confirms=0,planReads=0,documentReads=0;
+  const page=await browser.newPage({viewport}),errors=[];let confirm=true,confirms=0,planReads=0,documentReads=0,basicWrites=0,legacyWrites=0;
   page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>{confirms++;void(confirm?dialog.accept():dialog.dismiss());});
-  page.on('request',request=>{if(request.url().endsWith(`/recipients/${ids[0]}/plan`))planReads++;if(request.url().endsWith(`/recipients/${ids[0]}/documents`))documentReads++;});
+  page.on('request',request=>{if(request.method()==='PUT'&&/\/recipients\/[^/]+\/basic-info$/.test(request.url()))basicWrites++;if(request.method()==='PUT'&&/\/recipients\/[^/]+\/(contact|care-number|service-period)$/.test(request.url()))legacyWrites++;if(request.url().endsWith(`/recipients/${ids[0]}/plan`))planReads++;if(request.url().endsWith(`/recipients/${ids[0]}/documents`))documentReads++;});
   await page.route('**/src/auth.ts',route=>route.fulfill({contentType:'application/javascript',body:"export const getAuthHeaders=async()=>({Authorization:'Bearer a'});export const authFailureEvent='test';"}));
   await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.__copiedAddress=text;}},configurable:true}));
   await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/center-practice-ui.html`);
@@ -56,34 +56,42 @@ try{
   await page.getByRole('img',{name:'정보 보완 대상 서비스 상태: 기초 정보 입력 중',exact:true}).waitFor();
   await page.getByRole('button',{name:/정보 보완 필요/}).click();assert.equal(await page.locator('.recipient-directory-row').count(),1);await page.getByRole('button',{name:/등록 명부/}).click();assert.equal(await page.locator('.recipient-directory-row').count(),baseline+3);
   await page.getByRole('button',{name:'정보 보완 대상 수급자 상세',exact:true}).click();
-  const draftPanel=page.getByRole('dialog',{name:'정보 보완 대상 상세 정보',exact:true});await draftPanel.getByRole('button',{name:index?'인정번호 수정':'인정번호 입력',exact:true}).click();await draftPanel.getByLabel('장기요양인정번호',{exact:true}).fill('1234567890');await draftPanel.getByRole('button',{name:'인정번호 저장',exact:true}).click();await draftPanel.getByRole('alert').waitFor();assert.match(await draftPanel.getByRole('alert').innerText(),/다른 수급자/);await draftPanel.getByLabel('장기요양인정번호',{exact:true}).fill(index?'5555555556':'5555555555');await draftPanel.getByRole('button',{name:'인정번호 저장',exact:true}).click();await draftPanel.getByText('장기요양인정번호를 저장했습니다.',{exact:true}).waitFor();assert.equal((await call('recipients/'+ids[2])).longTermCareNumber,index?'L5555555556':'L5555555555');await draftPanel.getByRole('button',{name:'연락처·주소 수정',exact:true}).click();await draftPanel.getByLabel('수급자 연락처',{exact:true}).fill(index?'010-4444-0001':'010-4444-0000');await draftPanel.getByRole('button',{name:'연락 정보 저장',exact:true}).click();await draftPanel.getByText('연락처와 방문 정보를 저장했습니다.',{exact:true}).waitFor();assert.equal((await call('recipients/'+ids[2])).isDraft,true);await draftPanel.getByRole('button',{name:'수급자 상세 닫기',exact:true}).click();
+  const draftPanel=page.getByRole('dialog',{name:'정보 보완 대상 상세 정보',exact:true});
+  const draftSave=draftPanel.getByRole('button',{name:'입력한 내용 함께 저장',exact:true});
+  await draftPanel.getByLabel('장기요양인정번호',{exact:true}).fill('1234567890');await draftSave.click();await draftPanel.getByRole('alert').waitFor();assert.match(await draftPanel.getByRole('alert').innerText(),/다른 수급자/);
+  await draftPanel.getByLabel('장기요양인정번호',{exact:true}).fill(index?'5555555556':'5555555555');
+  await draftPanel.getByLabel('수급자 연락처',{exact:true}).fill(index?'01044440001':'01044440000');
+  await draftPanel.getByLabel('업무식별명',{exact:true}).fill('통합 입력 테스트');
+  const beforeSave=basicWrites;await draftSave.click();await draftPanel.getByText('기초정보·연락처·담당자·계약정보를 함께 저장했습니다.',{exact:true}).waitFor();assert.equal(basicWrites,beforeSave+1);assert.equal(legacyWrites,0);
+  const partial=await call('recipients/'+ids[2]);assert.equal(partial.longTermCareNumber,index?'L5555555556':'L5555555555');assert.equal(partial.operationalName,'통합 입력 테스트');assert.equal(partial.isDraft,true);assert(await draftPanel.getByRole('button',{name:'저장하고 등록 완료',exact:true}).isDisabled());
+  await draftPanel.getByRole('button',{name:'수급자 상세 닫기',exact:true}).click();
   assert.equal(await page.getByText('오전 근무 조건',{exact:true}).count(),0,'long care notes should not be in the default directory');
   const open=async()=>{const before=await call('recipients/'+ids[0]);await page.locator('.recipient-directory-row').filter({hasText:before.phone}).getByRole('button',{name:'김확인 수급자 상세',exact:true}).click();};
   const current=await call('recipients/'+ids[0]);const row=page.locator('.recipient-directory-row').filter({hasText:current.phone});
   await row.getByText('L1234567890',{exact:true}).waitFor();await row.getByRole('button',{name:'김확인 주소 복사',exact:true}).click();assert.equal(await page.evaluate(()=>window.__copiedAddress),current.address);assert.equal(await page.getByRole('dialog').count(),0);
   await open();const panel=page.getByRole('dialog',{name:'김확인 상세 정보',exact:true});
   assert.equal(planReads,0,'opening the overview must not load the plan editor');assert.equal(documentReads,0,'opening the overview must not load document lists');
-  await panel.getByRole('link',{name:'010-3333-3333',exact:true}).waitFor();assert.equal(await panel.getByText('내부 ID',{exact:true}).count(),0);
-  await panel.getByRole('button',{name:'연락처·주소 수정',exact:true}).click();const nextPhone=index?'010-7777-7777':'010-8888-8888';
+  assert.equal(await panel.getByLabel('대표 연락자 연락처',{exact:true}).inputValue(),'010-3333-3333');assert.equal(await panel.getByText('내부 ID',{exact:true}).count(),0);
+  const nextPhone=index?'010-7777-7777':'010-8888-8888';
   const phoneInput=panel.getByLabel('수급자 연락처',{exact:true});await phoneInput.fill('');await phoneInput.pressSequentially('0100000');assert.equal(await phoneInput.inputValue(),'010-0000');await phoneInput.pressSequentially('1111');assert.equal(await phoneInput.inputValue(),'010-0000-1111');
   await phoneInput.evaluate(node=>node.setSelectionRange(4,4));await phoneInput.press('Backspace');assert.equal(await phoneInput.inputValue(),'010-0001-111');assert.equal(await phoneInput.evaluate(node=>node.selectionStart),2);
-  const guardian=panel.getByLabel('연락자 전화번호',{exact:true});await guardian.fill('0212345678');assert.equal(await guardian.inputValue(),'02-1234-5678');await guardian.fill('01033333333');assert.equal(await guardian.inputValue(),'010-3333-3333');
+  const guardian=panel.getByLabel('대표 연락자 연락처',{exact:true});await guardian.fill('0212345678');assert.equal(await guardian.inputValue(),'02-1234-5678');await guardian.fill('01033333333');assert.equal(await guardian.inputValue(),'010-3333-3333');
   await phoneInput.fill(nextPhone.replaceAll('-',''));assert.equal(await phoneInput.inputValue(),nextPhone);
 
-  const contactResponse=page.waitForResponse(response=>response.url().endsWith('/api/recipients/'+ids[0]+'/contact')&&response.request().method()==='PUT');
-  await panel.getByRole('button',{name:'연락 정보 저장',exact:true}).click();const response=await contactResponse;assert(response.ok(),await response.text());await panel.getByText('연락처와 방문 정보를 저장했습니다.',{exact:true}).waitFor();
+  const contactResponse=page.waitForResponse(response=>response.url().endsWith('/api/recipients/'+ids[0]+'/basic-info')&&response.request().method()==='PUT');
+  await panel.getByRole('button',{name:'변경사항 함께 저장',exact:true}).click();const response=await contactResponse;assert(response.ok(),await response.text());await panel.getByText('기초정보·연락처·담당자·계약정보를 함께 저장했습니다.',{exact:true}).waitFor();
   const saved=await call('recipients/'+ids[0]);assert.equal(saved.phone,nextPhone);assert.equal(saved.caregiverRequirements,'오전 근무 조건');assert.equal(saved.medicalHistory,'방문 시 보행 유의');assert.equal(saved.serviceEndDate,'2027-12-31');
   // Contact conflicts must preserve the typed values and offer a usable reload.
-  await panel.getByRole('button',{name:'연락처·주소 수정',exact:true}).click();await panel.getByLabel('수급자 연락처',{exact:true}).fill('010-9999-9999');
+  await panel.getByLabel('수급자 연락처',{exact:true}).fill('010-9999-9999');
   await call('recipients/'+ids[0]+'/contact','PUT',{phone:saved.phone,address:saved.address+' 최신',representativeName:saved.representativeName,representativeRelation:saved.representativeRelation,representativePhone:saved.representativePhone,updatedAt:saved.updatedAt});
-  await panel.getByRole('button',{name:'연락 정보 저장',exact:true}).click();await panel.getByRole('alert').waitFor();assert.equal(await panel.getByLabel('수급자 연락처',{exact:true}).inputValue(),'010-9999-9999');
-  await panel.getByRole('button',{name:'최신 연락 정보 불러오기',exact:true}).click();await panel.getByText('최신 정보를 불러왔습니다. 다시 수정해 주세요.',{exact:true}).waitFor();assert.equal(await panel.getByLabel('수급자 연락처',{exact:true}).inputValue(),nextPhone);await panel.getByRole('button',{name:'편집 취소',exact:true}).click();
+  await panel.getByRole('button',{name:'변경사항 함께 저장',exact:true}).click();await panel.getByRole('alert').waitFor();assert.equal(await panel.getByLabel('수급자 연락처',{exact:true}).inputValue(),'010-9999-9999');
+  await panel.getByRole('button',{name:'최신 기초정보 불러오기',exact:true}).click();await panel.getByText('최신 정보를 불러왔습니다. 다시 수정해 주세요.',{exact:true}).waitFor();assert.equal(await panel.getByLabel('수급자 연락처',{exact:true}).inputValue(),nextPhone);
   await panel.getByRole('button',{name:'관련 서류',exact:true}).click();await panel.getByText('수급자 서류',{exact:true}).waitFor();assert(documentReads>0);
   await panel.getByRole('button',{name:'돌봄·계획',exact:true}).click();await panel.getByRole('button',{name:'계획 작성·변경',exact:true}).waitFor();assert(planReads>0);
   await panel.getByRole('button',{name:'계획 작성·변경',exact:true}).click();if(errors.length)throw new Error(errors.join(' / '));await panel.getByLabel('병력 · 건강 메모',{exact:true}).fill('저장하지 않은 계획 메모');
   confirm=false;await panel.getByRole('button',{name:'연락·요약',exact:true}).click();assert.equal(await panel.getByLabel('병력 · 건강 메모',{exact:true}).inputValue(),'저장하지 않은 계획 메모');
-  confirm=true;await panel.getByRole('button',{name:'연락·요약',exact:true}).click();await panel.getByRole('button',{name:'연락처·주소 수정',exact:true}).waitFor();assert(confirms>=2);
-  await panel.getByRole('button',{name:'계약·관리',exact:true}).click();await panel.getByRole('button',{name:'계약 기간 수정·갱신',exact:true}).waitFor();
+  confirm=true;await panel.getByRole('button',{name:'연락·요약',exact:true}).click();await panel.getByLabel('수급자 연락처',{exact:true}).waitFor();assert(confirms>=2);
+  await panel.getByRole('button',{name:'이력·관리',exact:true}).click();await panel.getByRole('button',{name:'기초정보·계약 함께 수정',exact:true}).waitFor();
   await panel.getByRole('button',{name:'수급자 상세 닫기',exact:true}).click();
   await page.evaluate(()=>window.scrollTo(0,0));
   await page.waitForFunction(()=>!document.querySelector('.recipient-directory-workspace .heading-actions button:disabled'));
@@ -100,6 +108,20 @@ try{
   assert.equal((await call('recipients/'+ids[1])).servicePaused,false);
   await page.getByRole('button',{name:'수급자 기초정보',exact:true}).click();
   await page.locator('.recipient-directory-row').filter({hasText:'010-2222-2222'}).getByRole('img',{name:'김확인 서비스 상태: 서비스 진행 중',exact:true}).waitFor();
-  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: live phone formatting and cursor editing, contract dates and monthly shading, sorting and saved preference, concise overview, contact save and conflicts without data loss, draft contact editing, lazy plan/documents, unsaved-change protection, contract controls, exact-recipient service/visit handoff, no overflow`);await page.close();
+  await page.getByRole('button',{name:'정보 보완 대상 수급자 상세',exact:true}).click();
+  await draftPanel.getByLabel('수급자 연락처',{exact:true}).fill('01012345678');await draftPanel.getByRole('button',{name:'수급자 본인이 연락자',exact:true}).click();
+  await draftPanel.getByLabel('생년월일',{exact:true}).fill('1940-01-01');await draftPanel.getByLabel('장기요양등급',{exact:true}).selectOption('3등급');await draftPanel.getByLabel('방문 주소',{exact:true}).fill('통합저장 주소');
+  await draftPanel.getByLabel('이용계약 시작일',{exact:true}).fill('2026-01-01');await draftPanel.getByLabel('이용계약 만료일',{exact:true}).fill('2028-12-31');
+  await draftPanel.getByLabel('업무식별명',{exact:true}).fill('');
+  await draftPanel.getByLabel('대표 연락자 연락처',{exact:true}).fill('01098765432');const requestsBeforeCopy=basicWrites;
+  await draftPanel.getByRole('button',{name:'보호자와 연락처 동일',exact:true}).click();assert.equal(await draftPanel.getByLabel('수급자 연락처',{exact:true}).inputValue(),'010-9876-5432');assert.equal(basicWrites,requestsBeforeCopy,'copy is local until unified save');
+  const phoneBox=await draftPanel.getByLabel('수급자 연락처',{exact:true}).boundingBox(),addressBox=await draftPanel.getByLabel('방문 주소',{exact:true}).boundingBox();assert.equal(phoneBox.height,addressBox.height,'phone and address inputs have equal heights');if(!index)assert(Math.abs(phoneBox.y-addressBox.y)<2,'desktop first-row inputs align');
+  await draftPanel.getByText('등록 준비 · 필수정보 10/10개 입력',{exact:true}).waitFor();const statusGuide=draftPanel.getByLabel('신호등 상태 안내',{exact:true});assert.match(await statusGuide.innerText(),/현재 신호등: 기초 정보 입력 중/);assert.match(await statusGuide.innerText(),/등록 완료 후 예상: 서비스 진행 중/);assert.match(await statusGuide.innerText(),/초록색 신호등 조건/);assert(await statusGuide.getByRole('button',{name:'등록 완료하고 상태 반영',exact:true}).isEnabled());
+
+  const footer=draftPanel.locator('.recipient-basic-save-footer');const box=await footer.boundingBox();assert(box.y>=0&&box.y+box.height<=viewport.height,'save footer remains visible');assert(await draftPanel.evaluate(node=>node.scrollWidth<=node.clientWidth+2),'dialog horizontal overflow');
+  await page.screenshot({path:`/private/tmp/miso-recipient-unified-${viewport.width}.png`,animations:'disabled'});
+  if(index){const writes=basicWrites;await draftPanel.getByRole('button',{name:'저장하고 등록 완료',exact:true}).click();await draftPanel.getByText('기초정보와 계약정보를 저장하고 등록을 완료했습니다.',{exact:true}).waitFor();assert.equal(basicWrites,writes+1);const complete=await call('recipients/'+ids[2]);assert.equal(complete.isDraft,false);assert.equal(complete.operationalName??'','');assert.equal(complete.serviceEndDate,'2028-12-31');assert.equal(legacyWrites,0);await draftPanel.getByRole('button',{name:'이력·관리',exact:true}).click();await draftPanel.getByRole('button',{name:'등록·계약 변경 이력 보기',exact:true}).click();await draftPanel.getByText('기초정보 등록 완료',{exact:true}).waitFor();}else{confirm=false;await draftPanel.getByRole('button',{name:'수급자 상세 닫기',exact:true}).click();assert(await draftPanel.isVisible());confirm=true;}
+  await draftPanel.getByRole('button',{name:'수급자 상세 닫기',exact:true}).click();
+  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: live phone formatting and cursor editing, contract dates and monthly shading, sorting and saved preference, unified save in one request, explicit registration completion, conflicts without data loss, draft editing, lazy plan/documents, unsaved-change protection, contract controls, exact-recipient service/visit handoff, no overflow`);await page.close();
  }
 }finally{await browser?.close();await server?.close();if(api.exitCode===null){api.kill();await once(api,'exit');}await new Promise(resolve=>auth.close(resolve));await rm(dir,{recursive:true,force:true});}

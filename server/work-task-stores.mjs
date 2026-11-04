@@ -1,3 +1,4 @@
+import {createRecipientBasicInfoStore} from './recipient-basic-info.mjs';
 import {createStaffCounselingStore} from './staff-counseling.mjs';
 import {createInstitutionStore} from './institution-resources.mjs';
 import {createRecipientImportStore} from './recipient-import.mjs';
@@ -105,6 +106,7 @@ function createWorkStore(transaction, canEdit) {
     }
   };
   return {
+    ...createRecipientBasicInfoStore(transaction),
     ...createRecipientImportStore(transaction),
     ...createStaffCounselingStore(transaction),
     ...createInstitutionStore(transaction),
