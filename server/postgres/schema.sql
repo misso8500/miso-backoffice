@@ -493,3 +493,17 @@ ALTER TABLE work_prospects ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE work_prospects FROM anon, authenticated;
 ALTER TABLE work_prospect_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE work_prospect_events FROM anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS work_institution_contacts (
+ id TEXT PRIMARY KEY,payload TEXT NOT NULL,version INTEGER NOT NULL,
+ updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS work_institution_template_settings (
+ id TEXT PRIMARY KEY,payload TEXT NOT NULL,version INTEGER NOT NULL,
+ updated_by TEXT NOT NULL,updated_at TEXT NOT NULL
+);
+
+ALTER TABLE work_institution_contacts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_institution_contacts FROM anon, authenticated;
+ALTER TABLE work_institution_template_settings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_institution_template_settings FROM anon, authenticated;

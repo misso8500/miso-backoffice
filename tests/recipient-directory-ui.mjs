@@ -65,7 +65,11 @@ try{
   assert.equal(planReads,0,'opening the overview must not load the plan editor');assert.equal(documentReads,0,'opening the overview must not load document lists');
   await panel.getByRole('link',{name:'010-3333-3333',exact:true}).waitFor();assert.equal(await panel.getByText('내부 ID',{exact:true}).count(),0);
   await panel.getByRole('button',{name:'연락처·주소 수정',exact:true}).click();const nextPhone=index?'010-7777-7777':'010-8888-8888';
-  await panel.getByLabel('수급자 연락처',{exact:true}).fill(nextPhone);
+  const phoneInput=panel.getByLabel('수급자 연락처',{exact:true});await phoneInput.fill('');await phoneInput.pressSequentially('0100000');assert.equal(await phoneInput.inputValue(),'010-0000');await phoneInput.pressSequentially('1111');assert.equal(await phoneInput.inputValue(),'010-0000-1111');
+  await phoneInput.evaluate(node=>node.setSelectionRange(4,4));await phoneInput.press('Backspace');assert.equal(await phoneInput.inputValue(),'010-0001-111');assert.equal(await phoneInput.evaluate(node=>node.selectionStart),2);
+  const guardian=panel.getByLabel('연락자 전화번호',{exact:true});await guardian.fill('0212345678');assert.equal(await guardian.inputValue(),'02-1234-5678');await guardian.fill('01033333333');assert.equal(await guardian.inputValue(),'010-3333-3333');
+  await phoneInput.fill(nextPhone.replaceAll('-',''));assert.equal(await phoneInput.inputValue(),nextPhone);
+
   const contactResponse=page.waitForResponse(response=>response.url().endsWith('/api/recipients/'+ids[0]+'/contact')&&response.request().method()==='PUT');
   await panel.getByRole('button',{name:'연락 정보 저장',exact:true}).click();const response=await contactResponse;assert(response.ok(),await response.text());await panel.getByText('연락처와 방문 정보를 저장했습니다.',{exact:true}).waitFor();
   const saved=await call('recipients/'+ids[0]);assert.equal(saved.phone,nextPhone);assert.equal(saved.caregiverRequirements,'오전 근무 조건');assert.equal(saved.medicalHistory,'방문 시 보행 유의');assert.equal(saved.serviceEndDate,'2027-12-31');
@@ -96,6 +100,6 @@ try{
   assert.equal((await call('recipients/'+ids[1])).servicePaused,false);
   await page.getByRole('button',{name:'수급자 기초정보',exact:true}).click();
   await page.locator('.recipient-directory-row').filter({hasText:'010-2222-2222'}).getByRole('img',{name:'김확인 서비스 상태: 서비스 진행 중',exact:true}).waitFor();
-  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: contract dates and monthly shading, sorting and saved preference, concise overview, contact save and conflicts without data loss, draft contact editing, lazy plan/documents, unsaved-change protection, contract controls, exact-recipient service/visit handoff, no overflow`);await page.close();
+  assert.deepEqual(errors,[]);console.log(`PASS ${viewport.width}px: live phone formatting and cursor editing, contract dates and monthly shading, sorting and saved preference, concise overview, contact save and conflicts without data loss, draft contact editing, lazy plan/documents, unsaved-change protection, contract controls, exact-recipient service/visit handoff, no overflow`);await page.close();
  }
 }finally{await browser?.close();await server?.close();if(api.exitCode===null){api.kill();await once(api,'exit');}await new Promise(resolve=>auth.close(resolve));await rm(dir,{recursive:true,force:true});}

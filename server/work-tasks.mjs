@@ -1,3 +1,4 @@
+import {sendInstitutionFile} from './institution-resources.mjs';
 import { randomUUID } from 'node:crypto';
 import { canManageCategories } from './work-recurrence.mjs';
 
@@ -51,6 +52,29 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
+    const institutionPath=/^\/api\/work\/institution\/(contacts|template-settings|templates)(?:\/([^/]+)(\/download)?)?$/.exec(path);
+    if(institutionPath){
+      const [,resource,id,download]=institutionPath;
+      if(resource==='contacts'&&!download){
+        if(!id&&request.method==='GET')sendJson(response,200,await store.institutionContacts());
+        else if(request.method===(id?'PUT':'POST'))sendJson(response,200,await store.saveInstitutionContact(id||null,await readWorkBody(request),current));
+        else throw workError(405,'지원하지 않는 기관 연락처 요청입니다.');
+      }else if(resource==='template-settings'&&!id){
+        if(request.method==='GET')sendJson(response,200,await store.institutionTemplateSettings());
+        else if(request.method==='PUT')sendJson(response,200,await store.saveInstitutionTemplateSettings(await readWorkBody(request),current));
+        else throw workError(405,'지원하지 않는 서식 폴더 요청입니다.');
+      }else if(resource==='templates'&&request.method==='GET'){
+        if(id&&download)sendInstitutionFile(response,await store.downloadInstitutionTemplate(id));
+        else if(!id)sendJson(response,200,await store.institutionTemplates());
+        else throw workError(404,'서식 경로를 확인해 주세요.');
+      }else throw workError(405,'지원하지 않는 공문 서식 요청입니다.');
+      return true;
+    }
+
+    if(path==='/api/work/prospect-document-files'){
+      if(request.method!=='GET')throw workError(405,'파일 목록 조회만 지원합니다.');
+      sendJson(response,200,await store.prospectDocumentFiles(new URL(request.url,'http://localhost').searchParams.get('folderId')));return true;
+    }
     const prospectRoute=/^\/api\/work\/prospects(?:\/([^/]+))?(\/activities)?$/.exec(path);
     if(prospectRoute){
       const id=prospectRoute[1]?decodeURIComponent(prospectRoute[1]):null;
@@ -192,7 +216,7 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       } else throw workError(405, '지원하지 않는 요청입니다.');
     }
   } catch (error) {
-    const status = [400, 401, 403, 404, 405, 409, 413].includes(error.status) ? error.status : 500;
+    const status = [400, 401, 403, 404, 405, 409, 413, 502, 503].includes(error.status) ? error.status : 500;
     sendJson(response, status, { error: status === 500 ? '업무를 저장하거나 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.' : error.message });
   }
   return true;

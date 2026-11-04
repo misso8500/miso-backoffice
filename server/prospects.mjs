@@ -1,12 +1,19 @@
+import {normalizeProspectDocuments,verifyProspectDocuments,listProspectFiles,prospectReader} from './prospect-documents.mjs';
 import {workError} from './work-tasks.mjs';
 import {workDate,workRequestId} from './work-journal.mjs';
 import {recurrenceToday} from '../shared/work-recurrence.mjs';
 import {prospectStages,prospectActivityKinds,prospectClosed} from '../shared/prospects.mjs';
 import {recipientNotDeleted} from './recipient-deletions.mjs';
 const string=(value,max=1000)=>{if(typeof value!=='string'||value.length>max)throw workError(400,'입력 길이와 내용을 확인해 주세요.');return value.trim();};
-const fromRow=row=>({id:row.id,...JSON.parse(row.payload),version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at});
+const fromRow=row=>({residentRegistrationNumber:'',contactResidentRegistrationNumber:'',registeredAddress:'',driveFolderId:'',documents:[],id:row.id,...JSON.parse(row.payload),version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at});
 const version=(row,value)=>{if(!Number.isInteger(value)||value!==(row?Number(row.version):0))throw workError(409,'다른 화면에서 잠재고객 기록이 변경되었습니다. 입력은 유지됩니다. 최신 기록을 불러와 비교해 주세요.');};
-export function createProspectStore(transaction){
+function residentNumber(value,label){
+ if(value===undefined||value==='')return '';
+ if(typeof value!=='string'||!/^\d{6}-?\d{7}$/.test(value.trim()))throw workError(400,`${label}는 숫자 13자리로 입력해 주세요.`);
+ const digits=value.replace('-','').trim();return digits.slice(0,6)+'-'+digits.slice(6);
+}
+export function createProspectStore(transaction,dependencies={}){
+ const reader=dependencies.reader??prospectReader;
  async function record(q,id,lock=false){const row=(await q(`SELECT * FROM work_prospects WHERE id=$1${lock?q.forUpdate??'':''}`,[id])).rows[0];if(!row)throw workError(404,'잠재고객을 찾을 수 없습니다.');return row;}
  async function recipientOptions(q){return (await q(`SELECT * FROM recipients WHERE ${recipientNotDeleted()} ORDER BY name,id`,[])).rows;}
  async function detail(q,id){const row=await record(q,id),person=fromRow(row),options=await recipientOptions(q);return {prospect:{...person,linkedRecipientName:options.find(r=>r.id===person.linkedRecipientId)?.name||person.linkedRecipientName||''},events:(await q('SELECT e.*,m.name AS actor_name FROM work_prospect_events e JOIN work_members m ON m.id=e.actor_id WHERE e.prospect_id=$1 ORDER BY e.created_at DESC,e.id DESC',[id])).rows.map(e=>({id:e.id,kind:e.kind,...JSON.parse(e.payload),actorName:e.actor_name,createdAt:e.created_at})).sort((a,b)=>(b.recordVersion??0)-(a.recordVersion??0))};}
@@ -14,6 +21,7 @@ export function createProspectStore(transaction){
  function normalize(body,current){
   if(!Object.hasOwn(prospectStages,body.stage)||typeof body.archived!=='boolean')throw workError(400,'진행 단계와 보관 상태를 확인해 주세요.');
   const value={name:string(body.name,100),phone:string(body.phone,60),contactName:string(body.contactName,100),contactRelation:string(body.contactRelation,100),contactPhone:string(body.contactPhone,60),address:string(body.address,500),source:string(body.source,200),needs:string(body.needs,5000),stage:body.stage,stageReason:string(body.stageReason,1000),ownerId:string(body.ownerId,100),receivedDate:workDate(body.receivedDate),nextAction:string(body.nextAction,500),nextDate:body.nextDate?workDate(body.nextDate):'',linkedRecipientId:string(body.linkedRecipientId,100),archived:body.archived};
+  Object.assign(value,{residentRegistrationNumber:residentNumber(body.residentRegistrationNumber,'고객 주민번호'),contactResidentRegistrationNumber:residentNumber(body.contactResidentRegistrationNumber,'보호자 주민번호'),registeredAddress:string(body.registeredAddress??'',500)},normalizeProspectDocuments(body));
   if(!value.name)throw workError(400,'잠재고객 이름을 입력해 주세요.');
   if(value.receivedDate>recurrenceToday())throw workError(400,'접수일은 오늘까지 입력할 수 있습니다.');
   if(value.ownerId&&!current.assignees.some(person=>person.id===value.ownerId))throw workError(400,'명부에 있는 담당자를 선택해 주세요.');
@@ -25,9 +33,16 @@ export function createProspectStore(transaction){
   return value;
  }
  return {
-  prospects(current){return transaction(async q=>{const people=await recipientOptions(q);return {prospects:(await q('SELECT * FROM work_prospects ORDER BY updated_at DESC,id',[])).rows.map(row=>{const p=fromRow(row);return {...p,linkedRecipientName:people.find(r=>r.id===p.linkedRecipientId)?.name||p.linkedRecipientName||''};}),assignees:current.assignees,recipientOptions:people.filter(r=>!r.is_draft&&r.service_start_date&&r.service_end_date).map(r=>({id:r.id,name:r.name,startDate:r.service_start_date,endDate:r.service_end_date}))};});},
+  prospects(current){return transaction(async q=>{const people=await recipientOptions(q);return {prospects:(await q('SELECT * FROM work_prospects ORDER BY updated_at DESC,id',[])).rows.map(row=>{const p=fromRow(row);return {...p,residentRegistrationNumber:'',contactResidentRegistrationNumber:'',linkedRecipientName:people.find(r=>r.id===p.linkedRecipientId)?.name||p.linkedRecipientName||''};}),assignees:current.assignees,recipientOptions:people.filter(r=>!r.is_draft&&r.service_start_date&&r.service_end_date).map(r=>({id:r.id,name:r.name,startDate:r.service_start_date,endDate:r.service_end_date}))};});},
   prospect(id){return transaction(q=>detail(q,id));},
-  async saveProspect(id,body,current){const value=normalize(body,current),requestId=workRequestId(body.requestId);return transaction(async q=>{
+  prospectDocumentFiles(folder){return listProspectFiles(folder,reader);},
+  async saveProspect(id,body,current){
+   const previous=id?fromRow(await transaction(q=>record(q,id))):null;
+   if(previous)version(previous,body.version);
+   const requestId=workRequestId(body.requestId);
+   let value=normalize({...previous,...body},current);
+   const verified=await verifyProspectDocuments(value,previous,reader);value={...value,documents:verified.documents};
+   return transaction(async q=>{
    const prospectId=id||requestId,old=id?await record(q,id,true):(await q(`SELECT * FROM work_prospects WHERE id=$1${q.forUpdate??''}`,[prospectId])).rows[0];
    if(!id&&old){const original=(await q("SELECT * FROM work_prospect_events WHERE id=$1 AND prospect_id=$2 AND kind='created'",[requestId,prospectId])).rows[0];if(original?.actor_id===current.me.id&&JSON.stringify(JSON.parse(original.payload).value)===JSON.stringify(value))return detail(q,prospectId);throw workError(409,'등록 요청이 이미 처리되었습니다. 명단을 다시 불러와 주세요.');}
    version(old,body.version);

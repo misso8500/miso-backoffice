@@ -1,3 +1,5 @@
+import PhoneInput from './PhoneInput';
+import {formatPhoneNumberInput} from './lib/phone-input';
 import { useState, type ClipboardEvent } from "react";
 import { Plus, Save, Trash2, X } from "lucide-react";
 import { saveRecipientDraftRows, saveEmploymentDraftRows, type RecipientDraftRow, type EmploymentDraftRow } from "./storage";
@@ -38,7 +40,7 @@ export default function BasicEntryGrid({ existing = [], existingContracts = [], 
       setRows((current) => {
         const next = current.map((row) => ({ ...row }));
         while (next.length < rowIndex + pasted.length) next.push(newRow());
-        pasted.forEach((row, offset) => row.forEach((value, column) => { next[rowIndex + offset][columns[columnIndex + column]] = value; }));
+        pasted.forEach((row, offset) => row.forEach((value, column) => { const field=columns[columnIndex + column];next[rowIndex + offset][field] = field==='phone'||field==='workerPhone'?formatPhoneNumberInput(value):value; }));
         return next;
       });
       setErrors({}); setMessage("");
@@ -107,10 +109,10 @@ export default function BasicEntryGrid({ existing = [], existingContracts = [], 
               ? row.workerName.trim() && existingContracts.some((contract) => contract.workerName === row.workerName.trim() && contract.id !== row.id)
               : row.name.trim() && existing.some((recipient) => recipient.name === row.name.trim() && recipient.id !== row.id);
             return <tr key={row.id} className={errors[row.id] ? "has-error" : ""}><th scope="row">{rowIndex + 1}</th>
-              {columns.map((field, columnIndex) => <td key={field}><input autoFocus={rowIndex === 0 && columnIndex === 0}
+              {columns.map((field, columnIndex) => {const Input=field==='phone'||field==='workerPhone'?PhoneInput:'input';return <td key={field}><Input autoFocus={rowIndex === 0 && columnIndex === 0}
                 aria-label={`${rowIndex + 1}행 ${labels[columnIndex]}`} aria-invalid={Boolean(errors[row.id])}
                 value={row[field]} placeholder={field === "birthDate" ? "19440510" : field === "careGrade" ? "3등급" : field.startsWith("contract") ? "20260101" : undefined}
-                onChange={(event) => change(row.id, field, event.target.value)} onPaste={(event) => paste(event, rowIndex, columnIndex)} /></td>)}
+                onChange={(event) => change(row.id, field, event.target.value)} onPaste={(event) => paste(event, rowIndex, columnIndex)} /></td>;})}
               <td><div className="recipient-grid-row-tools"><small>{errors[row.id] || (similar ? employment ? "같은 이름의 계약이 있습니다. 추가 계약인지 확인해 주세요." : "같은 이름이 있습니다. 동명이인인지 확인해 주세요." : "")}</small>
                 <button type="button" className="icon-button" aria-label={`${rowIndex + 1}행 삭제`} onClick={() => setRows((current) => current.length === 1 ? [newRow()] : current.filter((item) => item.id !== row.id))}><Trash2 size={15} /></button></div></td>
             </tr>;

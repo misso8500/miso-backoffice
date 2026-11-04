@@ -25,3 +25,18 @@
 - PostgreSQL은 `server/postgres/schema.sql`, SQLite는 `server/prospects-schema.sql`로 두 테이블을 초기화한다. PostgreSQL RLS 및 anon/authenticated 직접 접근 차단을 포함한다. API가 시작될 때 스키마를 초기화하므로 실행 중인 API는 새 코드로 재시작해야 한다.
 - `node --test tests/prospects.test.mjs`: SQLite·PostgreSQL 어댑터의 단계/활동 분리, 다음 업무 완료, 보관·복원, 충돌, 중복 등록, 계약 연결, 원자적 롤백, API 디스패치와 SQLite 재개 후 보존을 검증한다. PostgreSQL 어댑터 검증은 SQLite SQL 브리지이며 실제 운영 PostgreSQL 검증은 아니다.
 - `tests/prospects-ui.mjs`: 실제 임시 API를 사용한 PC·모바일 브라우저 검증 스크립트.
+
+## 입력 QA
+
+고객 연락처와 주요 연락자 전화번호는 숫자를 입력하면 하이픈을 자동 표시하고 저장한다. 접수일·다음 확인일·실제 활동일은 기존 날짜 선택 UI에 공통 DateInput을 적용해 연도를 4자리까지 제한한다. PC·모바일 UI 검증에서 숫자만 입력한 두 연락처, 6자리 연도 입력의 4자리 보정과 저장값을 확인한다.
+
+## 고객·보호자 정보와 관련 서류
+
+- 고객과 보호자의 주민번호를 각각 선택 입력한다. 숫자 13자리를 입력하면 `000000-0000000`으로 정리한다. 상세에서는 뒤 7자리를 기본으로 가리며 보기/숨기기로 확인한다. 입력 중에는 기본적으로 전체를 가린다. 목록 API에는 전체 주민번호를 반환하지 않으며, 화면의 저장 당시 이력도 가려서 표시한다.
+- 기존 `address`는 실제 거주지로 유지하고 `registeredAddress`를 주민등록지로 추가한다. 이전 주소를 임의로 주민등록지에 복제하지 않는다. ‘주민등록지와 동일’로 실제 거주지를 채울 수 있고, 두 주소는 입력·상세 화면에서 각각 복사할 수 있다.
+- 관련 파일은 고객별 구글드라이브 폴더 링크를 넣고 파일 목록을 불러온 뒤 선택한다. 장기요양신청서·고객 신분증·보호자 신분증으로 분류해 고객 정보와 함께 저장한다. PDF, JPG/PNG/WebP, Word/HWP 계열 파일을 연결하며 열기는 구글드라이브 원본으로 이동한다. 앱에서 원본 파일을 업로드하거나 복제하지 않는다.
+- `GET /api/work/prospect-document-files?folderId=...`는 기존 로그인·허용 계정 확인 후 승인 폴더 내부의 파일만 조회한다. 기존 서비스 계정의 읽기 권한을 재사용한다. 선택한 파일 ID를 저장 전에 서버에서 다시 조회해 검증하고, 이름과 MIME 타입은 Drive 응답으로 저장한다.
+- 잠재고객 전용 승인 범위는 `DRIVE_PROSPECT_ROOT_IDS` 또는 `DRIVE_PROSPECT_FOLDER_IDS`로 지정한다. 비어 있으면 기존 `DRIVE_RECIPIENT_ROOT_IDS`/`DRIVE_RECIPIENT_FOLDER_IDS`를 재사용한다. 서비스 계정에 해당 폴더를 공유해야 한다.
+- 새 정보는 기존 `work_prospects.payload`와 변경 이력에 저장한다. 새 DB 열이나 마이그레이션은 없다. 구버전 요청에 새 항목이 빠져 있으면 기존 값을 보존한다. 기존 버전 검사·재시도·트랜잭션을 유지한다.
+
+`tests/prospect-details.test.mjs`는 SQLite/PG 어댑터의 신규 정보·파일 참조 저장, 중복/외부 파일 거부, 목록 주민번호 제외, 구버전 요청 보존, 롤백을 검증한다. Drive 응답은 테스트 자료를 사용한다. `tests/prospects-ui.mjs --details-qa`는 PC·모바일의 주민번호 입력·마스킹·주소 복사·파일 목록/분류/링크 UI를 확인한다. 실제 Google 계정의 파일 열기와 특정 고객 폴더 연결은 별도로 확인한다.

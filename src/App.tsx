@@ -1,3 +1,6 @@
+import InstitutionResources from './InstitutionResources';
+import PhoneInput from './PhoneInput';
+import {formatPhoneNumberInput} from './lib/phone-input';
 import {compareRecipients,loadRecipientSort,saveRecipientSort,recipientSortFields,type RecipientSortField} from './lib/recipient-sort';
 import RecipientImport from './RecipientImport';
 import RecipientContactCard from './RecipientContactCard';
@@ -206,34 +209,6 @@ const createEmploymentContractId = () => {
   return `employment-contract-${Date.now()}`;
 };
 
-const formatPhoneNumberInput = (value: string) => {
-  const digits = value.replace(/\D/g, "").slice(0, 11);
-
-  if (digits.startsWith("02")) {
-    if (digits.length <= 2) {
-      return digits;
-    }
-
-    if (digits.length <= 6) {
-      return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-    }
-
-    if (digits.length <= 10) {
-      return `${digits.slice(0, 2)}-${digits.slice(2, digits.length - 4)}-${digits.slice(-4)}`;
-    }
-  }
-
-  if (digits.length <= 3) {
-    return digits;
-  }
-
-  if (digits.length <= 7) {
-    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  }
-
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
-};
-
 const formatResidentNumberInput = (value: string) => {
   const digits = value.replace(/\D/g, "").slice(0, 13);
 
@@ -425,14 +400,16 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [copayRecipientRevision,setCopayRecipientRevision]=useState(0);
   const [copayLinkBusy,setCopayLinkBusy]=useState(false),[copayLinkError,setCopayLinkError]=useState('');
   const [copayPendingLink,setCopayPendingLink]=useState<{row:CopayRecipientRequest;recipient:Recipient}|null>(null);
-  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay" | "visits" | "rfid" | "prospects">(
+  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay" | "visits" | "rfid" | "prospects" | "institution">(
     "recipients"
   );
+  const [institutionBusy,setInstitutionBusy]=useState(false),[institutionDirty,setInstitutionDirty]=useState(false);
   const [prospectBusy,setProspectBusy]=useState(false),[prospectDirty,setProspectDirty]=useState(false);
   const [visitsBusy,setVisitsBusy]=useState(false),[visitsDirty,setVisitsDirty]=useState(false),[rfidBusy,setRfidBusy]=useState(false);
   const [recipientHandoff,setRecipientHandoff]=useState<{id:string;name:string}|null>(null);
   function setActiveView(next: typeof activeView, focus?:{id:string;name:string}) {
     if(next===activeView&&!focus)return;
+    if(next!==activeView&&activeView==='institution'){if(institutionBusy)return;if(institutionDirty&&!window.confirm('저장하지 않은 기관 자료 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='prospects'){if(prospectBusy)return;if(prospectDirty&&!window.confirm('저장하지 않은 잠재고객 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='visits'){if(visitsBusy)return;if(visitsDirty&&!window.confirm('저장하지 않은 라운딩 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='rfid'&&rfidBusy&&!window.confirm('저장하지 않은 RFID 변경을 버리고 이동할까요?'))return;
@@ -1562,7 +1539,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <button type="button" className={activeView === "records" ? "is-active" : ""} aria-current={activeView === "records" ? "page" : undefined} onClick={() => { setActiveView("records"); setSelectedRecipientId(null); setSelectedEmploymentContractId(null); setIsCreatePanelOpen(false); setIsEmploymentCreatePanelOpen(false); }}><ClipboardCheck size={16}/>근무기록</button>
             {([['visits','라운딩'],['rfid','RFID 확인']] as const).map(([view,label])=><button key={view} type="button" className={activeView===view?'is-active':''} aria-current={activeView===view?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView(view);setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>{label}</button>)}
             </SidebarGroup>
-            <SidebarGroup title="기관 운영 서류 업무"><button type="button" disabled className="sidebar-coming-soon">추가중</button></SidebarGroup>
+            <SidebarGroup title="기관 운영 서류 업무" active={activeView==='institution'}><button type="button" className={activeView==='institution'?'is-active':''} aria-current={activeView==='institution'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('institution');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><Briefcase size={16}/>기관 연락처·공문 서식</button></SidebarGroup>
           </nav>
           <div className="runtime-badge">
             <Database size={16} />
@@ -1574,11 +1551,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
       <main className="main-content">
         <WorkOperationStatus/>
-        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인',prospects:'잠재고객 관리'}[activeView]}</strong></div>}
+        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인',prospects:'잠재고객 관리',institution:'기관 연락처·공문 서식'}[activeView]}</strong></div>}
         {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
         {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}
         {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy} onRecipient={row=>void openCopayRecipient(row)} recipientRevision={copayRecipientRevision} active={activeView==='copay'}/></section>}
-        {activeView === "prospects" ? <ProspectManagement onDirty={setProspectDirty} onBusy={setProspectBusy}/> : activeView === "visits" ? <section className="work-hub"><WorkVisits key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
+        {activeView === "institution" ? <InstitutionResources onDirty={setInstitutionDirty} onBusy={setInstitutionBusy}/> : activeView === "prospects" ? <ProspectManagement onDirty={setProspectDirty} onBusy={setProspectBusy}/> : activeView === "visits" ? <section className="work-hub"><WorkVisits key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
           <section className="recipient-directory-workspace">
         <PageHeading title="수급자 기초정보" description="연락처·방문 주소·보호자·담당자를 확인하고 필요한 업무로 이어갑니다.">
           <div className="heading-actions">
@@ -2092,7 +2069,7 @@ null
                   </label>
                   <label>
                     <span>수급자 연락처</span>
-                    <input
+                    <PhoneInput
                       value={formState.phone}
                       onChange={(event) =>
                         updateFormField("phone", formatPhoneNumberInput(event.target.value))
@@ -2135,7 +2112,7 @@ null
                   </label>
                   <label>
                     <span>연락처</span>
-                    <input
+                    <PhoneInput
                       value={formState.representativePhone}
                       onChange={(event) =>
                         updateFormField(
