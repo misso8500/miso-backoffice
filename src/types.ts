@@ -180,7 +180,7 @@ export type RecipientPlanNotes = {
 };
 export type RecipientPlanVersion = {
   id: string; version: number; notes: RecipientPlanNotes; effectiveDate: string | null; changeReason: string;
-  changeKind: 'change' | 'correction' | 'progress' | 'legacy'; sourceVersion: number | null; authorName: string; createdAt: string; planId: string | null; schedule: RecipientPlanSchedule | null;
+  changeKind: 'change' | 'correction' | 'progress' | 'legacy' | 'import'; sourceVersion: number | null; authorName: string; createdAt: string; planId: string | null; schedule: RecipientPlanSchedule | null;
 };
 export type RecipientPlanState = {
   context: { institutionPeriod: { startDate: string; endDate: string }; careGrade: string; recognitionPeriods: RecognitionPeriod[] };
@@ -192,9 +192,10 @@ export type RecipientPlanInput = { version: number; notes: RecipientPlanNotes; e
 
 export type RecognitionPeriod = { id: string; startDate: string; endDate: string; careGrade?: string };
 export type RecipientPlanScheduleInput = {
-  category: 'initial' | 'regular' | 'recognition_renewal' | 'grade_change' | 'needs_change';
+  category: 'initial' | 'regular' | 'recognition_renewal' | 'grade_change' | 'needs_change' | 'external';
   status: 'draft' | 'completed'; endDate: string; writtenDate: string | null; notifiedDate: string | null;
   recognitionPeriod: RecognitionPeriod | null;
+  external?: {provider:'longtermcare';sourceKey:string;planNumber:string;serviceType:string;name:string;number:string;birthDate:string;careGrade:string;writtenDate:string;notifiedDate:string;periodRaw:string;recognitionRaw:string;contractDate:string;filename:string;sourceRow:string;importedAt:string;warnings:string[];originalCells:{column:number;header:string;value:string}[]};
 };
 export type RecipientPlanSchedule = RecipientPlanScheduleInput & { deadline: string | null; institutionPeriod: { startDate: string; endDate: string } };
 export type PlanExecution = Omit<RecipientPlanVersion,'schedule'> & { schedule: RecipientPlanSchedule; executionEndDate: string; executionStatus: string; deadlineStatus: string; active: boolean };

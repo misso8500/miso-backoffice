@@ -1,4 +1,4 @@
-import {executionPlans,regularRequirement,normalizePlanSchedule,planContext} from './care-plan-schedule.mjs';
+import {comparePlanOrder,executionPlans,regularRequirement,normalizePlanSchedule,planContext} from './care-plan-schedule.mjs';
 import { randomUUID } from 'node:crypto';
 export const planFields = ['medicalHistory','caregiverRequirements','familyNotes','hospitalNotes','servicePlanNotes'];
 export const planToday = () => new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -9,11 +9,12 @@ export const planFromRow = row => ({ id:row.id, version:Number(row.revision), no
 export function buildPlanState(recipient, versions, today=planToday(), recognitionPeriods=[]) {
   const ordered=[...versions].sort((a,b)=>b.version-a.version);
   const plans=executionPlans(ordered,today);
-  const executionCurrent=[...plans].reverse().find(p=>p.active)??null;
+  const executionCurrent=[...plans].reverse().find(p=>p.active&&(!p.schedule.external||p.schedule.external.serviceType==='방문요양'))??null;
   const latestIds=new Set(plans.map(p=>p.id));
-  const reference=ordered.filter(p=>(!p.schedule||latestIds.has(p.id))&&p.effectiveDate&&p.effectiveDate<=today&&(!p.schedule||p.schedule.status==='completed')).sort((a,b)=>b.effectiveDate.localeCompare(a.effectiveDate)||b.version-a.version)[0]??null;
+  const reference=ordered.filter(p=>(!p.schedule?.external||p.schedule.external.serviceType==='방문요양')&&(!p.schedule||latestIds.has(p.id))&&p.effectiveDate&&p.effectiveDate<=today&&(!p.schedule||p.schedule.external||p.schedule.status==='completed')).sort((a,b)=>comparePlanOrder(b,a))[0]??null;
   const current=executionCurrent??reference;
-  return {context:planContext(recipient,recognitionPeriods),plans,executionCurrent,regularRequirement:regularRequirement(recipient,plans,today),nextEffectiveDate:ordered.filter(p=>(!p.schedule||p.schedule.status==='completed')&&p.effectiveDate>today&&(!p.schedule||latestIds.has(p.id))).map(p=>p.effectiveDate).sort()[0]??null,version:ordered[0]?.version??0,current,latest:ordered[0]??null,history:ordered,legacyNotes:legacyPlanNotes(recipient)};
+  const importedPeriods=plans.filter(p=>p.schedule.external&&p.schedule.recognitionPeriod).map(p=>p.schedule.recognitionPeriod);const periodMap=new Map([...recognitionPeriods,...importedPeriods].filter(p=>p.startDate&&p.endDate).map(p=>[`${p.startDate}/${p.endDate}/${p.careGrade||''}`,p]));
+  return {context:planContext(recipient,[...periodMap.values()]),plans,executionCurrent,regularRequirement:regularRequirement(recipient,plans,today),nextEffectiveDate:ordered.filter(p=>(!p.schedule||p.schedule.external||p.schedule.status==='completed')&&p.effectiveDate>today&&(!p.schedule||latestIds.has(p.id))).map(p=>p.effectiveDate).sort()[0]??null,version:ordered[0]?.version??0,current,latest:ordered[0]??null,history:ordered,legacyNotes:legacyPlanNotes(recipient)};
 }
 export function attachRecipientPlan(recipient, rows, today=planToday()) {
   const state=buildPlanState(recipient,rows.map(planFromRow),today);
@@ -26,8 +27,10 @@ export function preparePlanVersions(body, recipient, versions, user, today=planT
   if(!body.notes || typeof body.notes!=='object' || Array.isArray(body.notes))throw Object.assign(new Error('계획 내용을 확인해 주세요.'),{status:400});
   const notes={};
   for(const key of planFields){if(typeof body.notes[key]!=='string'||body.notes[key].length>5000)throw Object.assign(new Error('각 메모는 5,000자 이내로 입력해 주세요.'),{status:400});notes[key]=body.notes[key].trim();}
-  const date=body.effectiveDate;
-  if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||date<'1000-01-01'||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)throw Object.assign(new Error('계획 적용일을 올바르게 입력해 주세요.'),{status:400});
+  const externalSource=['correction','progress'].includes(body.changeKind)?versions.find(v=>v.version===body.sourceVersion&&v.schedule?.external):null;
+  const date=externalSource?(externalSource.effectiveDate||null):body.effectiveDate;
+  if(externalSource&&(body.effectiveDate||null)!==date)throw Object.assign(new Error('롱텀케어 원본 기간은 엑셀 재업로드로 갱신해 주세요.'),{status:400});
+  if(!externalSource&&(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||date<'1000-01-01'||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date))throw Object.assign(new Error('계획 적용일을 올바르게 입력해 주세요.'),{status:400});
   if(!['change','correction','progress'].includes(body.changeKind)||typeof body.changeReason!=='string'||!body.changeReason.trim()||body.changeReason.length>1000)throw Object.assign(new Error('변경 구분과 사유를 입력해 주세요.'),{status:400});
   if(!user?.id||!user?.name)throw Object.assign(new Error('작성자를 확인할 수 없습니다. 다시 로그인해 주세요.'),{status:401});
   let sourceVersion=null,source=null;

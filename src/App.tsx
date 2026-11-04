@@ -1,3 +1,4 @@
+import CarePlanImport from './CarePlanImport';
 import {getRecipientStatus} from '../shared/recipient-directory.mjs';
 import StaffCounseling from './StaffCounseling';
 import InstitutionResources from './InstitutionResources';
@@ -433,6 +434,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [recipientSort,setRecipientSort]=useState(loadRecipientSort);
   useEffect(()=>saveRecipientSort(recipientSort),[recipientSort]);
   const [isRecipientGridOpen, setIsRecipientGridOpen] = useState(false);
+  const [isCarePlanImportOpen,setIsCarePlanImportOpen]=useState(false);
   const [isRecipientImportOpen,setIsRecipientImportOpen]=useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -1505,7 +1507,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           <section className="recipient-directory-workspace">
         <PageHeading title="수급자 기초정보" description="연락처·방문 주소·보호자·담당자를 확인하고 필요한 업무로 이어갑니다.">
           <div className="heading-actions">
-            <button type="button" className="secondary-button" onClick={()=>setIsRecipientImportOpen(true)}>엑셀로 등록·업데이트</button>
+            <button type="button" className="secondary-button" onClick={()=>setIsRecipientImportOpen(true)}>엑셀로 등록·업데이트</button><button type="button" className="secondary-button" onClick={()=>setIsCarePlanImportOpen(true)}>롱텀케어 계획 가져오기</button>
             <button type="button" className="secondary-button" onClick={() => setIsRecipientGridOpen(true)}>
               <Plus size={18} /> 표로 여러 명 입력
             </button>
@@ -1524,7 +1526,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
           </div>
         </PageHeading>
-        <div className="recipient-directory-summary">{([{key:'all',label:'등록 명부',count:enabledRecipientCount},{key:'renewal',label:'기간 확인 필요',count:renewalCount},{key:'unassigned',label:'담당 미배정',count:recipients.filter(r=>isRecipientEnabled(r)&&!r.assignedBackofficeUserId).length},{key:'draft',label:'정보 보완 필요',count:recipients.filter(r=>isRecipientEnabled(r)&&r.isDraft).length}] as const).map(item=><button type="button" key={item.key} aria-pressed={recipientAttention===item.key&&(item.key!=='all'||selectedStatus==='전체'&&selectedAssignedUserId==='all'&&showEnabledOnly&&!searchQuery.trim())} onClick={()=>{setSearchQuery('');setRecipientAttention(item.key);setSelectedStatus('전체');setSelectedAssignedUserId('all');setShowEnabledOnly(true);}}><span>{item.label}</span><strong>{item.count}<small>명</small></strong><ChevronRight size={16}/></button>)}</div>
+        <div className="recipient-directory-summary">{([{key:'all',label:'등록 명부',count:enabledRecipientCount},{key:'renewal',label:'기간 확인 필요',count:renewalCount},{key:'unassigned',label:'담당 미배정',count:recipients.filter(r=>isRecipientEnabled(r)&&!r.assignedBackofficeUserId).length},{key:'draft',label:'정보 보완 필요',count:recipients.filter(r=>r.isDraft).length}] as const).map(item=><button type="button" key={item.key} aria-pressed={recipientAttention===item.key&&(item.key!=='all'||selectedStatus==='전체'&&selectedAssignedUserId==='all'&&showEnabledOnly&&!searchQuery.trim())} onClick={()=>{setSearchQuery('');setRecipientAttention(item.key);setSelectedStatus('전체');setSelectedAssignedUserId('all');setShowEnabledOnly(item.key!=='draft');}}><span>{item.label}</span><strong>{item.count}<small>명</small></strong><ChevronRight size={16}/></button>)}</div>
         <nav className="app-navigation-tabs recipient-directory-tabs" aria-label="수급자 보기">{([['basic','기본·연락처'],['validity','기간·갱신'],['plan','돌봄·계획']] as const).map(([value,label])=><button type="button" key={value} aria-current={recipientView===value?'page':undefined} onClick={()=>setRecipientView(value)}>{label}</button>)}</nav>
 
         {errorMessage && (
@@ -1767,6 +1769,7 @@ null
           showNotification(`${saved.length}건의 기본 정보를 저장했습니다. 이름을 눌러 상세 정보를 보완해 주세요.`);
         }} />}
 
+      {isCarePlanImportOpen&&<CarePlanImport onClose={()=>setIsCarePlanImportOpen(false)} onApplied={()=>{setRecipientAttention('all');setSelectedStatus('전체');setSearchQuery('');setSelectedAssignedUserId('all');setShowEnabledOnly(false);void fetchRecipients();}} onFollowup={()=>{setIsCarePlanImportOpen(false);setIsRecipientImportOpen(true);}} onView={()=>{setIsCarePlanImportOpen(false);setRecipientView('plan');}}/>}
       {isRecipientImportOpen&&<RecipientImport onClose={()=>setIsRecipientImportOpen(false)} onApplied={result=>{setIsRecipientImportOpen(false);setRecipientAttention('all');setSelectedStatus('전체');setSearchQuery('');setSelectedAssignedUserId('all');setShowEnabledOnly(false);void fetchRecipients();showNotification(`신규 ${result.created}명 등록 · ${result.updated}명 업데이트를 완료했습니다.`);}}/>}
 
       {isRecipientGridOpen && <BasicEntryGrid existing={recipients}

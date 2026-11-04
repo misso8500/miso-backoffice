@@ -533,3 +533,12 @@ CREATE TABLE IF NOT EXISTS recipient_service_workers (
 );
 ALTER TABLE recipient_service_workers ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE recipient_service_workers FROM anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS recipient_plan_imports (
+ source_key TEXT PRIMARY KEY,recipient_id TEXT NOT NULL REFERENCES recipients(id),
+ plan_id TEXT NOT NULL,source_hash TEXT NOT NULL,source_payload TEXT NOT NULL,updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_recipient_plan_imports_person ON recipient_plan_imports(recipient_id);
+
+ALTER TABLE recipient_plan_imports ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE recipient_plan_imports FROM anon, authenticated;

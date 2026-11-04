@@ -95,6 +95,11 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       else throw workError(405,'지원하지 않는 잠재고객 요청입니다.');
       return true;
     }
+    if(path==='/api/work/care-plan-import/preview'||path==='/api/work/care-plan-import/apply'){
+      if(request.method!=='POST')throw workError(405,'지원하지 않는 가져오기 요청입니다.');
+      const body=await readWorkBody(request,3000000);
+      sendJson(response,200,path.endsWith('/preview')?await store.previewCarePlanImport(body):await store.applyCarePlanImport(body,current));return true;
+    }
     if(path==='/api/work/recipient-import/preview'||path==='/api/work/recipient-import/apply') {
       if(request.method!=='POST')throw workError(405,'지원하지 않는 가져오기 요청입니다.');
       const body=await readWorkBody(request,3000000);
