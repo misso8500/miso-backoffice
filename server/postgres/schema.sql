@@ -507,3 +507,38 @@ ALTER TABLE work_institution_contacts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE work_institution_contacts FROM anon, authenticated;
 ALTER TABLE work_institution_template_settings ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE work_institution_template_settings FROM anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS work_staff_counseling (
+ id TEXT PRIMARY KEY,employee_contract_id TEXT NOT NULL REFERENCES employment_contracts(id),
+ consultation_date TEXT NOT NULL,payload TEXT NOT NULL,version INTEGER NOT NULL,
+ created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_staff_counseling_employee ON work_staff_counseling(employee_contract_id,consultation_date DESC);
+CREATE TABLE IF NOT EXISTS work_staff_counseling_events (
+ id TEXT PRIMARY KEY,counseling_id TEXT NOT NULL REFERENCES work_staff_counseling(id),
+ version INTEGER NOT NULL,kind TEXT NOT NULL,payload TEXT NOT NULL,
+ actor_id TEXT NOT NULL,actor_name TEXT NOT NULL,created_at TEXT NOT NULL,
+ UNIQUE(counseling_id,version)
+);
+
+ALTER TABLE work_staff_counseling ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_staff_counseling FROM anon, authenticated;
+ALTER TABLE work_staff_counseling_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_staff_counseling_events FROM anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS recipient_service_workers (
+ month TEXT NOT NULL,recipient_id TEXT NOT NULL REFERENCES recipients(id),
+ payload TEXT NOT NULL,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL,
+ PRIMARY KEY(month,recipient_id)
+);
+ALTER TABLE recipient_service_workers ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE recipient_service_workers FROM anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS recipient_plan_imports (
+ source_key TEXT PRIMARY KEY,recipient_id TEXT NOT NULL REFERENCES recipients(id),
+ plan_id TEXT NOT NULL,source_hash TEXT NOT NULL,source_payload TEXT NOT NULL,updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_recipient_plan_imports_person ON recipient_plan_imports(recipient_id);
+
+ALTER TABLE recipient_plan_imports ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE recipient_plan_imports FROM anon, authenticated;

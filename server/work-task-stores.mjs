@@ -1,3 +1,6 @@
+import {createCarePlanImportStore} from './care-plan-import.mjs';
+import {createRecipientBasicInfoStore} from './recipient-basic-info.mjs';
+import {createStaffCounselingStore} from './staff-counseling.mjs';
 import {createInstitutionStore} from './institution-resources.mjs';
 import {createRecipientImportStore} from './recipient-import.mjs';
 import {createProspectStore} from './prospects.mjs';
@@ -104,7 +107,10 @@ function createWorkStore(transaction, canEdit) {
     }
   };
   return {
+    ...createRecipientBasicInfoStore(transaction),
     ...createRecipientImportStore(transaction),
+    ...createCarePlanImportStore(transaction),
+    ...createStaffCounselingStore(transaction),
     ...createInstitutionStore(transaction),
     ...createProspectStore(transaction),
     ...createRfidStore(transaction),
@@ -228,10 +234,12 @@ function createWorkStore(transaction, canEdit) {
 }
 
 export function createSqliteWorkStore(db, canEdit) {
+  db.exec(readFileSync(new URL('./care-plan-import-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./copay-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./work-task-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./prospects-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./institution-schema.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('./staff-counseling-schema.sql', import.meta.url), 'utf8'));
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'roster_assignee_id')) db.exec('ALTER TABLE work_tasks ADD COLUMN roster_assignee_id TEXT REFERENCES work_assignees(id)');
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'completed_at')) db.exec('ALTER TABLE work_tasks ADD COLUMN completed_at TEXT');
   db.exec(readFileSync(new URL('./work-journal-schema.sql', import.meta.url), 'utf8'));

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {formatCareNumber,recipientServiceSignal,recipientContractMonth} from '../shared/recipient-directory.mjs';
+import {getRecipientStatus,formatCareNumber,recipientServiceSignal,recipientContractMonth} from '../shared/recipient-directory.mjs';
 test('recognition number displays one L without changing storage',()=>{
  for(const value of ['1234567890','L1234567890','l1234567890',' LL1234567890 '])assert.equal(formatCareNumber(value),'L1234567890');
  for(const value of [undefined,'','__draft__:123'])assert.equal(formatCareNumber(value),'인정번호 미등록');
@@ -21,4 +21,15 @@ test('contract shading compares the full month; expiry wins when both dates are 
  assert.deepEqual(recipientContractMonth({serviceStartDate:'2026-11-01',serviceEndDate:'2026-11-30'},'2026-11'),{starts:true,ends:true,tone:'end'});
  assert.equal(recipientContractMonth({serviceStartDate:'',serviceEndDate:'2026-02-30'},'2026-02').tone,null);
  assert.equal(recipientContractMonth({serviceStartDate:'2026-12-31',serviceEndDate:'2027-01-31'},'2027-01').tone,'end');
+});
+
+
+// Registration readiness alone must not skip the explicit completion step.
+test('registration completion previews use the same status rules as the directory',()=>{
+ const now=new Date(2026,10,4),person={isDraft:true,enabled:true,serviceStartDate:'2026-01-01',serviceEndDate:'2028-12-31'};
+ const signal=value=>recipientServiceSignal(value,getRecipientStatus(value,now));
+ assert.equal(signal(person).state,'black');assert.equal(signal({...person,isDraft:false}).state,'green');
+ assert.equal(signal({...person,isDraft:false,enabled:false}).state,'red');assert.equal(signal({...person,isDraft:false,servicePaused:true}).state,'red');
+ assert.equal(signal({...person,isDraft:false,serviceEndDate:'2026-12-01'}).state,'yellow');assert.equal(signal({...person,isDraft:false,serviceEndDate:'2026-10-31'}).state,'red');
+ assert.equal(signal({...person,isDraft:false,serviceStartDate:'2026-12-01'}).state,'idle');
 });

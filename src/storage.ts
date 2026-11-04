@@ -218,3 +218,5 @@ export const loadRecipientPlan = (id: string) => requestJson<RecipientPlanState>
 export const saveRecipientPlan = (id: string, input: RecipientPlanInput) => requestJson<RecipientPlanState>(`/api/recipients/${id}/plan`, { method: 'PUT', body: JSON.stringify(input) }).then(validatePlanResponse);
 
 export const updateRecipientCareNumber=(id:string,input:{longTermCareNumber:string;updatedAt:string})=>requestJson<Recipient>(`/api/recipients/${id}/care-number`,{method:'PUT',body:JSON.stringify(input)}).then(normalizeRecipient);
+
+export const saveRecipientBasicInfo=(id:string,input:import('../shared/recipient-basic-info.mjs').RecipientBasicInfoValues & {updatedAt:string;completeRegistration:boolean;periodReason:'initial'|'renewal'|'correction'})=>requestJson<Recipient>(`/api/recipients/${id}/basic-info`,{method:'PUT',body:JSON.stringify(input)}).then(normalizeRecipient);

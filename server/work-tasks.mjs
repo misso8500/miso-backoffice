@@ -52,6 +52,17 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
+    const counselingPath=/^\/api\/work\/staff-counseling(?:\/([^/]+)(\/archive)?)?$/.exec(path);
+    if(counselingPath){
+      const [,id,archive]=counselingPath;
+      if(id==='context'&&!archive&&request.method==='GET')sendJson(response,200,await store.staffCounselingContext(current));
+      else if(!id&&request.method==='GET')sendJson(response,200,await store.staffCounselingList());
+      else if(!id&&request.method==='POST')sendJson(response,200,await store.saveStaffCounseling(null,await readWorkBody(request,90000),current));
+      else if(id&&archive&&request.method==='POST')sendJson(response,200,await store.archiveStaffCounseling(id,await readWorkBody(request),current));
+      else if(id&&!archive&&request.method==='GET')sendJson(response,200,await store.staffCounselingDetail(id));
+      else if(id&&!archive&&request.method==='PUT')sendJson(response,200,await store.saveStaffCounseling(id,await readWorkBody(request,90000),current));
+      else throw workError(405,'지원하지 않는 직원 상담일지 요청입니다.');return true;
+    }
     const institutionPath=/^\/api\/work\/institution\/(contacts|template-settings|templates)(?:\/([^/]+)(\/download)?)?$/.exec(path);
     if(institutionPath){
       const [,resource,id,download]=institutionPath;
@@ -84,6 +95,11 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       else throw workError(405,'지원하지 않는 잠재고객 요청입니다.');
       return true;
     }
+    if(path==='/api/work/care-plan-import/preview'||path==='/api/work/care-plan-import/apply'){
+      if(request.method!=='POST')throw workError(405,'지원하지 않는 가져오기 요청입니다.');
+      const body=await readWorkBody(request,3000000);
+      sendJson(response,200,path.endsWith('/preview')?await store.previewCarePlanImport(body):await store.applyCarePlanImport(body,current));return true;
+    }
     if(path==='/api/work/recipient-import/preview'||path==='/api/work/recipient-import/apply') {
       if(request.method!=='POST')throw workError(405,'지원하지 않는 가져오기 요청입니다.');
       const body=await readWorkBody(request,3000000);
@@ -112,6 +128,10 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       if(request.method!=='PUT')throw workError(405,'지원하지 않는 요청입니다.');
       const body=await readWorkBody(request);
       sendJson(response,200,await store.saveServiceRounding(new URL(request.url,'http://localhost').searchParams.get('month'),body.recipientId,body,current));return true;
+    }
+    if(path==='/api/work/service-workers'){
+      if(request.method!=='GET')throw workError(405,'지원하지 않는 요청입니다.');
+      sendJson(response,200,await store.serviceWorkers());return true;
     }
     if(path==='/api/work/service-month') {
       const month=new URL(request.url,'http://localhost').searchParams.get('month');
