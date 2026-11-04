@@ -65,6 +65,8 @@ export async function parseRecipientWorkbook(body){
  }
  if(!rows.length)throw fail('가져올 수급자가 없습니다. 성명·생년월일 또는 인정번호 제목이 있는 표를 확인해 주세요.');
  if(rows.length>500)throw fail('한 번에 최대 500명까지 가져올 수 있습니다.');
+ const missingNumbers=rows.filter(row=>!row.data.longTermCareNumber).length;
+ if(missingNumbers)warnings.push(`인정번호가 없는 행이 ${missingNumbers}개 있습니다. 엑셀에 ‘장기요양인정번호’ 열을 추가하면 함께 가져옵니다. 기존 인정번호는 유지됩니다.`);
  return {rows,warnings};
 }
 

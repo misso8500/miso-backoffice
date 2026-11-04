@@ -1,3 +1,4 @@
+import {prepareRecipientCareNumber,duplicateCareNumberMessage} from './recipient-care-number.mjs';
 import {prepareRecipientContact} from './recipient-contact.mjs';
 import { handleWorkTasks } from "./work-tasks.mjs";
 import { recipientNotDeleted, backfillRecipientDeletions } from './recipient-deletions.mjs';
@@ -1194,6 +1195,16 @@ const server = createServer(async (request, response) => {
       }
     })) return;
     const parts = parsePath(request.url ?? "/");
+    if(parts[0]==='api'&&parts[1]==='recipients'&&parts[2]&&parts[3]==='care-number'&&!parts[4]){
+      if(request.method!=='PUT'){sendJson(response,405,{error:'지원하지 않는 인정번호 요청입니다.'});return;}
+      const body=await readBody(request),existing=readRecipient(parts[2]),value=prepareRecipientCareNumber(body,existing);
+      const duplicate=db.prepare("SELECT id FROM recipients WHERE id<>? AND upper(replace(long_term_care_number,' ','')) IN (?,?)").get(parts[2],value.longTermCareNumber,value.longTermCareNumber.slice(1));
+      if(duplicate)throw Object.assign(new Error(duplicateCareNumberMessage),{status:409});
+      const saved=db.prepare('UPDATE recipients SET long_term_care_number=?,updated_at=? WHERE id=? AND updated_at=? RETURNING id').get(value.longTermCareNumber,value.updatedAt,parts[2],body.updatedAt);
+      if(!saved)throw Object.assign(new Error('다른 화면에서 수급자 정보가 변경되었습니다. 최신 정보를 다시 확인해 주세요.'),{status:409});
+      sendJson(response,200,readRecipient(parts[2]));return;
+    }
+
     if(parts[0]==='api'&&parts[1]==='recipients'&&parts[2]&&parts[3]==='contact'&&!parts[4]){
       if(request.method!=='PUT'){sendJson(response,405,{error:'지원하지 않는 연락처 요청입니다.'});return;}
       const body=await readBody(request),existing=readRecipient(parts[2]),value=prepareRecipientContact(body,existing);

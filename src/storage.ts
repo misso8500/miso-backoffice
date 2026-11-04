@@ -216,3 +216,5 @@ export const loadRecipientPeriodEvents = (id: string) => requestJson<RecipientPe
 
 export const loadRecipientPlan = (id: string) => requestJson<RecipientPlanState>(`/api/recipients/${id}/plan`).then(validatePlanResponse);
 export const saveRecipientPlan = (id: string, input: RecipientPlanInput) => requestJson<RecipientPlanState>(`/api/recipients/${id}/plan`, { method: 'PUT', body: JSON.stringify(input) }).then(validatePlanResponse);
+
+export const updateRecipientCareNumber=(id:string,input:{longTermCareNumber:string;updatedAt:string})=>requestJson<Recipient>(`/api/recipients/${id}/care-number`,{method:'PUT',body:JSON.stringify(input)}).then(normalizeRecipient);
