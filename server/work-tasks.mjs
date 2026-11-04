@@ -124,6 +124,10 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       const body=await readWorkBody(request);
       sendJson(response,200,await store.saveServiceRounding(new URL(request.url,'http://localhost').searchParams.get('month'),body.recipientId,body,current));return true;
     }
+    if(path==='/api/work/service-workers'){
+      if(request.method!=='GET')throw workError(405,'지원하지 않는 요청입니다.');
+      sendJson(response,200,await store.serviceWorkers());return true;
+    }
     if(path==='/api/work/service-month') {
       const month=new URL(request.url,'http://localhost').searchParams.get('month');
       if(request.method==='GET')sendJson(response,200,await store.recipientServiceMonth(month));

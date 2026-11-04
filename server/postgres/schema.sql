@@ -525,3 +525,11 @@ ALTER TABLE work_staff_counseling ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE work_staff_counseling FROM anon, authenticated;
 ALTER TABLE work_staff_counseling_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE work_staff_counseling_events FROM anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS recipient_service_workers (
+ month TEXT NOT NULL,recipient_id TEXT NOT NULL REFERENCES recipients(id),
+ payload TEXT NOT NULL,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL,
+ PRIMARY KEY(month,recipient_id)
+);
+ALTER TABLE recipient_service_workers ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE recipient_service_workers FROM anon, authenticated;

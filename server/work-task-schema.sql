@@ -128,3 +128,9 @@ CREATE TABLE IF NOT EXISTS recipient_deletions (
   recipient_id TEXT PRIMARY KEY REFERENCES recipients(id),
   deleted_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS recipient_service_workers (
+ month TEXT NOT NULL,recipient_id TEXT NOT NULL REFERENCES recipients(id),
+ payload TEXT NOT NULL,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL,
+ PRIMARY KEY(month,recipient_id)
+);
