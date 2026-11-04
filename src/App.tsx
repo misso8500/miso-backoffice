@@ -1,3 +1,5 @@
+import PhoneInput from './PhoneInput';
+import {formatPhoneNumberInput} from './lib/phone-input';
 import {compareRecipients,loadRecipientSort,saveRecipientSort,recipientSortFields,type RecipientSortField} from './lib/recipient-sort';
 import RecipientImport from './RecipientImport';
 import RecipientContactCard from './RecipientContactCard';
@@ -204,34 +206,6 @@ const createEmploymentContractId = () => {
   }
 
   return `employment-contract-${Date.now()}`;
-};
-
-const formatPhoneNumberInput = (value: string) => {
-  const digits = value.replace(/\D/g, "").slice(0, 11);
-
-  if (digits.startsWith("02")) {
-    if (digits.length <= 2) {
-      return digits;
-    }
-
-    if (digits.length <= 6) {
-      return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-    }
-
-    if (digits.length <= 10) {
-      return `${digits.slice(0, 2)}-${digits.slice(2, digits.length - 4)}-${digits.slice(-4)}`;
-    }
-  }
-
-  if (digits.length <= 3) {
-    return digits;
-  }
-
-  if (digits.length <= 7) {
-    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  }
-
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 };
 
 const formatResidentNumberInput = (value: string) => {
@@ -2092,7 +2066,7 @@ null
                   </label>
                   <label>
                     <span>수급자 연락처</span>
-                    <input
+                    <PhoneInput
                       value={formState.phone}
                       onChange={(event) =>
                         updateFormField("phone", formatPhoneNumberInput(event.target.value))
@@ -2135,7 +2109,7 @@ null
                   </label>
                   <label>
                     <span>연락처</span>
-                    <input
+                    <PhoneInput
                       value={formState.representativePhone}
                       onChange={(event) =>
                         updateFormField(

@@ -93,7 +93,7 @@ export function createDriveReader(env = process.env, dependencies = {}) {
           const data = await (await call('files', { q: `'${folder.id}' in parents and trashed = false`, fields: 'nextPageToken,files(id,name,mimeType,size)', pageSize: '100', includeItemsFromAllDrives: 'true', orderBy: 'name', ...(pageToken ? { pageToken } : {}) })).json();
           for (const file of data.files ?? []) {
             if (file.mimeType === 'application/vnd.google-apps.folder') queue.push({ id: file.id, path: `${folder.path}${file.name}/`, depth: folder.depth + 1 });
-            else if (imageTypes.has(file.mimeType)) files.push({ ...file, path: folder.path });
+            else if ((dependencies.fileTypes??imageTypes).has(file.mimeType)) files.push({ ...file, path: folder.path });
           }
           if (files.length > 300) throw new DriveError(422, '사람별 폴더에 이미지는 300장까지 지원합니다.');
           pageToken = data.nextPageToken;

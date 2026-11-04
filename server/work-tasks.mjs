@@ -51,6 +51,10 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
+    if(path==='/api/work/prospect-document-files'){
+      if(request.method!=='GET')throw workError(405,'파일 목록 조회만 지원합니다.');
+      sendJson(response,200,await store.prospectDocumentFiles(new URL(request.url,'http://localhost').searchParams.get('folderId')));return true;
+    }
     const prospectRoute=/^\/api\/work\/prospects(?:\/([^/]+))?(\/activities)?$/.exec(path);
     if(prospectRoute){
       const id=prospectRoute[1]?decodeURIComponent(prospectRoute[1]):null;
