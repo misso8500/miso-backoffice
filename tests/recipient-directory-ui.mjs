@@ -38,6 +38,54 @@ try{
   await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.__copiedAddress=text;}},configurable:true}));
   await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/center-practice-ui.html`);
   await page.locator('.recipient-directory-row').first().waitFor();assert.equal(await page.locator('.recipient-directory-row').count(),baseline+3);
+  const menu = page.getByRole('navigation', { name: '관리 메뉴' });
+  const recipientsTab = menu.getByRole('button', { name: '수급자 기초정보', exact: true });
+  const employmentTab = menu.getByRole('button', { name: '근로계약서', exact: true });
+  async function selectTab(tab, group) {
+    if (!(await tab.isVisible())) await menu.getByRole('button', { name: group, exact: true }).click();
+    await tab.click();
+  }
+  const recipientSearch = page.getByLabel('수급자 검색', { exact: true });
+  await recipientSearch.fill('김확인');
+  let employmentReads = 0;
+  await page.route('**/api/employment-contracts', route => {
+    employmentReads++;
+    return route.continue();
+  });
+  await selectTab(employmentTab, '요양보호사, 사회복지사');
+  const employmentSearch = page.getByPlaceholder('이름, 주민번호, 전화번호 검색');
+  await employmentSearch.fill('명부 재방문');
+  await page.getByText('검색 결과가 없습니다.', { exact: true }).waitFor();
+  let reads = 0;
+  let releaseRefresh;
+  const pendingRefresh = new Promise(resolve => { releaseRefresh = resolve; });
+  await page.route('**/api/recipients', async route => {
+    reads++;
+    await pendingRefresh;
+    await route.fulfill({ status: 503, json: { error: '테스트 갱신 실패' } });
+  });
+  await selectTab(recipientsTab, '수급자');
+  assert.equal(await recipientSearch.inputValue(), '김확인');
+  assert.equal(await page.locator('.recipient-directory-row').count(), 2);
+  assert.equal(reads, 0);
+  await selectTab(employmentTab, '요양보호사, 사회복지사');
+  assert.equal(await employmentSearch.inputValue(), '명부 재방문');
+  assert.equal(employmentReads, 1);
+  await page.unroute('**/api/employment-contracts');
+  await page.clock.setFixedTime(new Date(Date.now() + 31_000));
+  const refresh = page.waitForRequest(request => request.url().endsWith('/api/recipients'));
+  await selectTab(recipientsTab, '수급자');
+  await refresh;
+  try {
+    assert.equal(await page.locator('.recipient-directory-row').count(), 2);
+    assert.equal(await page.locator('.app-data-loading').count(), 0);
+  } finally { releaseRefresh(); }
+  await page.getByText('최신 정보를 불러오지 못했습니다.', { exact: true }).waitFor();
+  assert.equal(await page.locator('.recipient-directory-row').count(), 2);
+  await page.unroute('**/api/recipients');
+  await page.getByRole('button', { name: '다시 시도', exact: true }).click();
+  await page.getByText('최신 정보를 불러오지 못했습니다.', { exact: true }).waitFor({ state: 'hidden' });
+  await recipientSearch.fill('');
   const sort=page.getByRole('combobox',{name:'수급자 정렬 기준',exact:true}),asc=page.getByRole('button',{name:'↑ 오름차순',exact:true}),desc=page.getByRole('button',{name:'↓ 내림차순',exact:true});
   const names=()=>page.locator('.recipient-directory-identity>strong').evaluateAll(nodes=>nodes.map(node=>node.firstChild.textContent));
   assert.equal(await sort.inputValue(),'serviceEndDate');assert.equal(await asc.getAttribute('aria-pressed'),'true');
@@ -106,6 +154,7 @@ try{
   assert.equal((await call('work/visits/'+month)).rows.length,2,'handoff must not alter the monthly visit roster');
   await call('work/recipient-services/'+ids[1]+'/resume','POST',{returnedDate:recurrenceToday(),pauseId:pause.id,version:pause.version});
   assert.equal((await call('recipients/'+ids[1])).servicePaused,false);
+  await page.clock.setFixedTime(new Date(await page.evaluate(() => Date.now()) + 31_000));
   await page.getByRole('button',{name:'수급자 기초정보',exact:true}).click();
   await page.locator('.recipient-directory-row').filter({hasText:'010-2222-2222'}).getByRole('img',{name:'김확인 서비스 상태: 서비스 진행 중',exact:true}).waitFor();
   await page.getByRole('button',{name:'정보 보완 대상 수급자 상세',exact:true}).click();

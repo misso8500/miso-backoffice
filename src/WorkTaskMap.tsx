@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { requestJson } from './storage';
 import { workCategoryLabels, type WorkContext } from './lib/work-tasks';
 
-import { trafficBoard, trafficLabels, type TrafficState, type TrafficStep as Step, type TrafficTemplate as Template, type TrafficRun as Run, type TrafficNode } from '../shared/work-traffic.mjs';
+import { isTrafficRunVisible, trafficBoard, trafficLabels, type TrafficState, type TrafficStep as Step, type TrafficTemplate as Template, type TrafficRun as Run, type TrafficNode } from '../shared/work-traffic.mjs';
 import DateInput from './DateInput';
 import { workCache } from './lib/work-cache';
 import { useWorkCacheUpdates } from './lib/use-work-cache';
@@ -41,7 +41,14 @@ export default function WorkTaskMap({ context, date, onChanged, mode = 'map', on
   const [actionTemplateId, setActionTemplateId] = useState('');
   useWorkCacheUpdates<typeof data>(`/api/work/task-maps?month=${month}`,value=>{setData(value);setReady(true);});
   const actionLock = useRef(false);
-  function applyRun(run: Run) { setData(previous=>{const runs=[run,...previous.runs.filter(r=>r.id!==run.id)];return {...previous,runs,nodes:trafficBoard(previous.templates,runs,month,previous.today)};}); }
+  function applyRun(run: Run) {
+    setData(previous => {
+      const runs = previous.runs.filter(row => row.id !== run.id);
+      const kind = previous.templates.find(template => template.id === run.templateId)?.kind;
+      if (isTrafficRunVisible(run, kind, month)) runs.unshift(run);
+      return { ...previous, runs, nodes: trafficBoard(previous.templates, runs, month, previous.today) };
+    });
+  }
   function applyTemplate(template: Template) { setData(previous=>{const templates=[...previous.templates.filter(t=>t.id!==template.id),template];return {...previous,templates,nodes:trafficBoard(templates,previous.runs,month,previous.today)};}); }
   useEffect(() => { onBusy?.(busy); return () => onBusy?.(false); }, [busy, onBusy]);
   useEffect(() => { onDirty?.(design && Boolean(title || editing)); return () => onDirty?.(false); }, [design, title, editing, onDirty]);

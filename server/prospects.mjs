@@ -15,8 +15,17 @@ function residentNumber(value,label){
 export function createProspectStore(transaction,dependencies={}){
  const reader=dependencies.reader??prospectReader;
  async function record(q,id,lock=false){const row=(await q(`SELECT * FROM work_prospects WHERE id=$1${lock?q.forUpdate??'':''}`,[id])).rows[0];if(!row)throw workError(404,'잠재고객을 찾을 수 없습니다.');return row;}
- async function recipientOptions(q){return (await q(`SELECT * FROM recipients WHERE ${recipientNotDeleted()} ORDER BY name,id`,[])).rows;}
- async function detail(q,id){const row=await record(q,id),person=fromRow(row),options=await recipientOptions(q);return {prospect:{...person,linkedRecipientName:options.find(r=>r.id===person.linkedRecipientId)?.name||person.linkedRecipientName||''},events:(await q('SELECT e.*,m.name AS actor_name FROM work_prospect_events e JOIN work_members m ON m.id=e.actor_id WHERE e.prospect_id=$1 ORDER BY e.created_at DESC,e.id DESC',[id])).rows.map(e=>({id:e.id,kind:e.kind,...JSON.parse(e.payload),actorName:e.actor_name,createdAt:e.created_at})).sort((a,b)=>(b.recordVersion??0)-(a.recordVersion??0))};}
+ async function detail(q,id){
+  const person=fromRow(await record(q,id));
+  const linked=person.linkedRecipientId
+   ? (await q(`SELECT name FROM recipients WHERE id=$1 AND ${recipientNotDeleted()}`,[person.linkedRecipientId])).rows[0]
+   : undefined;
+  const events=(await q('SELECT e.*,m.name AS actor_name FROM work_prospect_events e JOIN work_members m ON m.id=e.actor_id WHERE e.prospect_id=$1 ORDER BY e.created_at DESC,e.id DESC',[id])).rows;
+  return {
+   prospect:{...person,linkedRecipientName:linked?.name||person.linkedRecipientName||''},
+   events:events.map(e=>({id:e.id,kind:e.kind,...JSON.parse(e.payload),actorName:e.actor_name,createdAt:e.created_at})).sort((a,b)=>(b.recordVersion??0)-(a.recordVersion??0))
+  };
+ }
  async function event(q,id,kind,payload,current,eventId){await q('INSERT INTO work_prospect_events(id,prospect_id,kind,payload,actor_id,created_at) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[eventId,id,kind,JSON.stringify(payload),current.me.id,new Date().toISOString()]);}
  function normalize(body,current){
   if(!Object.hasOwn(prospectStages,body.stage)||typeof body.archived!=='boolean')throw workError(400,'진행 단계와 보관 상태를 확인해 주세요.');
@@ -33,7 +42,19 @@ export function createProspectStore(transaction,dependencies={}){
   return value;
  }
  return {
-  prospects(current){return transaction(async q=>{const people=await recipientOptions(q);return {prospects:(await q('SELECT * FROM work_prospects ORDER BY updated_at DESC,id',[])).rows.map(row=>{const p=fromRow(row);return {...p,residentRegistrationNumber:'',contactResidentRegistrationNumber:'',linkedRecipientName:people.find(r=>r.id===p.linkedRecipientId)?.name||p.linkedRecipientName||''};}),assignees:current.assignees,recipientOptions:people.filter(r=>!r.is_draft&&r.service_start_date&&r.service_end_date).map(r=>({id:r.id,name:r.name,startDate:r.service_start_date,endDate:r.service_end_date}))};});},
+  prospects(current){return transaction(async q=>{
+   const people=(await q(`SELECT id,name,is_draft,service_start_date,service_end_date FROM recipients WHERE ${recipientNotDeleted()} ORDER BY name,id`,[])).rows;
+   const names=new Map(people.map(person=>[person.id,person.name]));
+   const rows=(await q('SELECT * FROM work_prospects ORDER BY updated_at DESC,id',[])).rows;
+   return {
+    prospects:rows.map(row=>{
+     const person=fromRow(row);
+     return {...person,residentRegistrationNumber:'',contactResidentRegistrationNumber:'',linkedRecipientName:names.get(person.linkedRecipientId)||person.linkedRecipientName||''};
+    }),
+    assignees:current.assignees,
+    recipientOptions:people.filter(r=>!r.is_draft&&r.service_start_date&&r.service_end_date).map(r=>({id:r.id,name:r.name,startDate:r.service_start_date,endDate:r.service_end_date}))
+   };
+  });},
   prospect(id){return transaction(q=>detail(q,id));},
   prospectDocumentFiles(folder){return listProspectFiles(folder,reader);},
   async saveProspect(id,body,current){

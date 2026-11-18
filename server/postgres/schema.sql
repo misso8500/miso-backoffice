@@ -303,6 +303,7 @@ CREATE TABLE IF NOT EXISTS recipient_service_pause_events (
 );
 CREATE TABLE IF NOT EXISTS work_map_templates (id TEXT PRIMARY KEY, payload TEXT NOT NULL, version INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS work_map_runs (id TEXT PRIMARY KEY, run_key TEXT NOT NULL UNIQUE, work_date TEXT NOT NULL, payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_work_map_runs_date_id ON work_map_runs(work_date DESC,id);
 CREATE TABLE IF NOT EXISTS recipient_service_months (
   month TEXT PRIMARY KEY,
   recipient_ids TEXT NOT NULL DEFAULT '[]',

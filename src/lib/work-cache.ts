@@ -1,5 +1,5 @@
 import { createWorkQueryCache } from '../../shared/work-query-cache.mjs';
-import { trafficBoard } from '../../shared/work-traffic.mjs';
+import { isTrafficRunVisible, trafficBoard } from '../../shared/work-traffic.mjs';
 export const workCache = createWorkQueryCache();
 let identity: string | undefined;
 export function useWorkCacheIdentity(next: string) { if(identity !== next) { identity=next; workCache.clear(); } }
@@ -31,8 +31,12 @@ export function applyWorkMutation(path:string,value:any) {
     const run=Boolean(value.templateId);
     workCache.update(key=>key.startsWith('/api/work/task-maps?'),data=>{
       const field=run?'runs':'templates';
-      const next={...data,[field]:[...data[field].filter((row:any)=>row.id!==value.id),value]};
-      return {...next,nodes:trafficBoard(next.templates,next.runs,next.month ?? next.today.slice(0,7),next.today)};
+      const month=data.month ?? data.today.slice(0,7);
+      const kind=run ? data.templates.find((template:any)=>template.id===value.templateId)?.kind : undefined;
+      const rows=data[field].filter((row:any)=>row.id!==value.id);
+      if(!run || isTrafficRunVisible(value,kind,month)) rows.push(value);
+      const next={...data,[field]:rows};
+      return {...next,nodes:trafficBoard(next.templates,next.runs,month,next.today)};
     });
     if(run && base.endsWith('/check')) workCache.invalidate(key=>key.startsWith('/api/work/day?')||key.startsWith('/api/work/calendar?')||key.startsWith('/api/work/tasks?')||key.startsWith('/api/work/service-month?'));
     return;

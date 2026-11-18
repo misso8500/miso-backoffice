@@ -61,7 +61,10 @@ for (const mode of ['sqlite', 'postgres-adapter']) test(`${mode}: members, cross
 
 test('Postgres bootstrap includes the portable schema and blocks direct client access', () => {
   const pg = readFileSync(new URL('../server/postgres/schema.sql', import.meta.url), 'utf8');
-  assert(pg.includes(readFileSync(new URL('../server/work-task-schema.sql', import.meta.url), 'utf8')));
+  const portable = readFileSync(new URL('../server/work-task-schema.sql', import.meta.url), 'utf8');
+  for (const statement of portable.match(/[^;]+;/g) ?? []) {
+    assert(pg.includes(statement.trim()), `Missing portable SQL: ${statement.trim().split('\n')[0]}`);
+  }
   for (const name of ['work_members', 'work_assignees', 'work_tasks', 'work_task_events']) {
     assert(pg.includes(`ALTER TABLE ${name} ENABLE ROW LEVEL SECURITY`));
     assert(pg.includes(`REVOKE ALL ON TABLE ${name} FROM anon, authenticated`));

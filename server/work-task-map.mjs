@@ -1,4 +1,4 @@
-import { trafficBoard, monthDates } from '../shared/work-traffic.mjs';
+import { trafficBoard, monthDates, isTrafficRunVisible } from '../shared/work-traffic.mjs';
 import { newWorkId, workError } from './work-tasks.mjs';
 import { workDate, journalEvent } from './work-journal.mjs';
 
@@ -60,7 +60,33 @@ export function createTaskMapStore(transaction, resolveRelated, visitHooks) {
       if(ensureDaily)await visitHooks?.ensure(q,month,current);
       const templates = (await q(`SELECT * FROM work_map_templates ORDER BY id${ensureDaily ? q.forUpdate ?? '' : ''}`, [])).rows.map(decode).sort((a,b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
       if(ensureDaily) await generateDaily(q,templates,today);
-      const runs = (await q('SELECT * FROM work_map_runs ORDER BY work_date DESC,id', [])).rows.map(row => { const run = decode(row); return { ...run, templateId: run.templateId ?? JSON.parse(row.run_key)[0] }; });
+      const templateKinds = new Map(templates.map(template => [template.id, template.kind]));
+      const start = month + '-01', end = monthDates(month).at(-1);
+      const columns = 'id,run_key,work_date,payload,version';
+      const rows = (await q(`SELECT ${columns} FROM work_map_runs WHERE work_date BETWEEN $1 AND $2 ORDER BY work_date DESC,id`, [start, end])).rows;
+      const runs = [];
+      const appendVisible = batch => {
+        for (const row of batch) {
+          const run = decode(row);
+          run.templateId ??= JSON.parse(row.run_key)[0];
+          if (isTrafficRunVisible(run, templateKinds.get(run.templateId), month)) runs.push(run);
+        }
+      };
+      appendVisible(rows);
+      if (templates.some(template => template.kind === 'event')) {
+        // Existing payloads carry the completion dates. Read history in bounded
+        // batches without changing the stored snapshots or skipping same-day runs.
+        const batchSize = 250;
+        let cursor;
+        for (;;) {
+          const range = cursor ? 'work_date <= $1 AND (work_date < $1 OR id > $3)' : 'work_date < $1';
+          const values = cursor ? [cursor.work_date, batchSize, cursor.id] : [start, batchSize];
+          const batch = (await q(`SELECT ${columns} FROM work_map_runs WHERE ${range} ORDER BY work_date DESC,id LIMIT $2`, values)).rows;
+          appendVisible(batch);
+          if (batch.length < batchSize) break;
+          cursor = batch.at(-1);
+        }
+      }
       return { templates, runs, month, today, nodes: trafficBoard(templates, runs, month, today) };
     }); },
     saveTaskMap(body, current) {

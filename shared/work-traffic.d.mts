@@ -5,4 +5,5 @@ export type TrafficRun = TrafficTemplate & { templateId: string; date: string; d
 export type TrafficNode = { template: TrafficTemplate; state: TrafficState; expected: number; due: number; completed: number; runs: TrafficRun[]; cells: { date: string; state: TrafficState; required: boolean; completed: boolean; runIds: string[] }[]; asOf: string };
 export const trafficLabels: Record<TrafficState, string>;
 export function monthDates(month: string): string[];
+export function isTrafficRunVisible(run: TrafficRun, kind: TrafficTemplate['kind'] | undefined, month: string): boolean;
 export function trafficBoard(templates: TrafficTemplate[], runs: TrafficRun[], month: string, today: string): TrafficNode[];

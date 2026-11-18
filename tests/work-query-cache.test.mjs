@@ -25,3 +25,18 @@ test('invalidation during an old request still allows a forced fresh result',asy
  let now=0;const cache=createWorkQueryCache({ttl:1,now:()=>now});await cache.get('a',async()=>1);now=2;const old=deferred();await cache.get('a',()=>old.promise);cache.invalidate(()=>true);
  const fresh=cache.get('a',async()=>3,{force:true});old.resolve(2);assert.equal(await fresh,3);assert.equal(cache.peek('a'),3);
 });
+
+test('the entry limit is restored after pending requests and subscriptions release entries', async () => {
+  const cache = createWorkQueryCache({ limit: 2 });
+  const wait = deferred();
+  const stops = ['a', 'b', 'c'].map(key => cache.subscribe(key, () => {}));
+  const requests = ['a', 'b', 'c', 'd'].map(key => cache.get(key, () => wait.promise.then(() => key)));
+  wait.resolve();
+  assert.deepEqual(await Promise.all(requests), ['a', 'b', 'c', 'd']);
+  assert.equal(cache.peek('d'), undefined);
+  stops[0]();
+  assert.equal(cache.peek('a'), undefined);
+  assert.equal(cache.peek('c'), 'c');
+  stops[1]();
+  stops[2]();
+});

@@ -17,7 +17,9 @@ import type {
 export const API_UNAVAILABLE_MESSAGE =
   "API 서버에 연결할 수 없습니다. 터미널에서 `npm run api`를 실행한 뒤 다시 시도하세요.";
 
-export const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> => {
+export const directoryChangedEvent = 'miso-directory-changed';
+
+export const requestJson = async <T,>(path: string, options?: RequestInit, background = false): Promise<T> => {
   const method=(options?.method ?? 'GET').toUpperCase();
   const cached=/^\/api\/work\/(?:context|tasks|task-maps|day|calendar|recurrences|categories|service-month)(?:[/?]|$)/.test(path) && method==='GET';
   if(path.startsWith('/api/work/')) {
@@ -26,12 +28,19 @@ export const requestJson = async <T,>(path: string, options?: RequestInit): Prom
   }
   const tracked = path.startsWith('/api/');
   const id = crypto.randomUUID();
-  const notify = (phase: 'start' | 'success' | 'error') => { if (tracked) window.dispatchEvent(new CustomEvent(workOperationEvent, { detail: { id, phase, read: method==='GET' } })); };
+  const notify = (phase: 'start' | 'success' | 'error') => { if (tracked) window.dispatchEvent(new CustomEvent(workOperationEvent, { detail: { id, phase, read: method==='GET' && !background } })); };
   notify('start');
   try {
     const result = cached ? await workCache.get<T>(path,()=>requestJsonImpl<T>(path,options),{force:options?.cache==='reload'||options?.cache==='no-store'}) : await requestJsonImpl<T>(path, options);
     if(path.startsWith('/api/work/') && method!=='GET') applyWorkMutation(path,result);
     if(path.startsWith('/api/recipients') && method!=='GET') workCache.invalidate(key=>key==='/api/work/context'||key.startsWith('/api/work/service-month?'));
+    if (method !== 'GET') {
+      const endpoint = path.split('?')[0];
+      const directory = /^\/api\/(?:recipients|work\/recipient-services)(?:\/|$)/.test(endpoint) ||
+        /^\/api\/work\/(?:recipient-import|care-plan-import)\/apply$/.test(endpoint) ? 'recipient'
+        : /^\/api\/employment-contracts(?:\/|$)/.test(endpoint) ? 'worker' : null;
+      if (directory) window.dispatchEvent(new CustomEvent(directoryChangedEvent, { detail: directory }));
+    }
     notify('success'); return result;
   }
   catch (error) {
@@ -87,8 +96,8 @@ const normalizeRecipient = (recipient: Recipient): Recipient => ({
   recontractCount: recipient.recontractCount ?? 0
 });
 
-export const loadRecipients = async () => {
-  const recipients = await requestJson<Recipient[]>("/api/recipients");
+export const loadRecipients = async (background = false) => {
+  const recipients = await requestJson<Recipient[]>("/api/recipients", undefined, background);
   return recipients.map(normalizeRecipient);
 };
 
@@ -175,8 +184,8 @@ const normalizeEmploymentContract = (contract: EmploymentContract): EmploymentCo
   contractTerms: contract.contractTerms ?? []
 });
 
-export const loadEmploymentContracts = async () => {
-  const contracts = await requestJson<EmploymentContract[]>("/api/employment-contracts");
+export const loadEmploymentContracts = async (background = false) => {
+  const contracts = await requestJson<EmploymentContract[]>("/api/employment-contracts", undefined, background);
   return contracts.map(normalizeEmploymentContract);
 };
 
