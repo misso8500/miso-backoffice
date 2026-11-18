@@ -6,6 +6,12 @@ export function useWorkCacheIdentity(next: string) { if(identity !== next) { ide
 export function invalidateWorkData() { workCache.invalidate(()=>true); }
 export function applyWorkMutation(path:string,value:any) {
   const base=path.split('?')[0];
+  if (base.startsWith('/api/work/quick-memos')) {
+    if (value?.task) applyWorkMutation(`/api/work/tasks/${value.task.id}`, value.task);
+    if (value?.plan) applyWorkMutation('/api/work/plans', value.plan);
+    if (value?.execution) applyWorkMutation('/api/work/executions', value.execution);
+    return;
+  }
   if(base==='/api/work/recipient-import/apply'||base==='/api/work/care-plan-import/apply') { workCache.invalidate(()=>true); return; }
   if(base==='/api/work/service-rounding' && value?.rounding) {
     workCache.update(key=>key===`/api/work/service-month?month=${value.month}`,data=>({...data,rows:data.rows.map((r:any)=>r.id===value.recipientId?{...r,rounding:value.rounding}:r)}));

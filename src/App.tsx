@@ -1567,7 +1567,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       {import.meta.env.DEV && <div className="development-indicator" role="note" aria-label="개발 환경">DEV · 개발 환경</div>}
 
       <main className="main-content">
-        <WorkOperationStatus/>
+        <WorkOperationStatus compact={activeView === "work"}/>
         {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인',prospects:'잠재고객 관리',institution:'기관 연락처·공문 서식',staffCounseling:'직원 상담일지'}[activeView]}</strong></div>}
         {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
         {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}

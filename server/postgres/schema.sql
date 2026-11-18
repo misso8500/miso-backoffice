@@ -543,3 +543,14 @@ CREATE INDEX IF NOT EXISTS idx_recipient_plan_imports_person ON recipient_plan_i
 
 ALTER TABLE recipient_plan_imports ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE recipient_plan_imports FROM anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS work_quick_memos (
+  id TEXT PRIMARY KEY, title TEXT NOT NULL, related_name TEXT NOT NULL DEFAULT '', author_id TEXT NOT NULL REFERENCES work_members(id),
+  author_name TEXT NOT NULL, created_at TEXT NOT NULL, closed_at TEXT, closed_by_name TEXT,
+  task_id TEXT REFERENCES work_tasks(id)
+);
+CREATE INDEX IF NOT EXISTS idx_work_quick_memos_open ON work_quick_memos(created_at DESC,id DESC) WHERE closed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_work_quick_memos_closed ON work_quick_memos(closed_at DESC,id DESC) WHERE closed_at IS NOT NULL;
+ALTER TABLE work_quick_memos ADD COLUMN IF NOT EXISTS related_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_quick_memos ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE work_quick_memos FROM anon, authenticated;

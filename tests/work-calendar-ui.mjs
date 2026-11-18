@@ -24,8 +24,7 @@ try {
       if (task && url.pathname.endsWith('/reopen')) { task.status = 'open'; task.version++; return route.fulfill({ json: task }); }
       throw Error(`Unexpected ${url.pathname}`);
     });
-    await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/work-detail-ui.html`);
-    await page.locator('.work-primary-tabs button').nth(2).click();
+    await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/work-detail-ui.html?fixture=calendar`);
     await page.getByLabel('기준 날짜', { exact: true }).fill('2026-10-26');
     await page.getByRole('button', { name: '주간', exact: true }).click();
     await page.getByRole('button', { name: '2026-10-26 업무 0 상세 열기', exact: true }).click();
@@ -37,7 +36,7 @@ try {
     await page.getByRole('button', { name: '업무 상세 닫기', exact: true }).click();
     await page.getByRole('button', { name: '2026-10-27 수정한 주간 업무 상세 열기', exact: true }).waitFor();
     await page.getByRole('button', { name: '2026-10-28 수정한 주간 업무 상세 열기', exact: true }).waitFor();
-    await page.getByRole('checkbox', { name: '수정한 주간 업무 완료하기', exact: true }).first().check();
+    await page.getByRole('checkbox', { name: '수정한 주간 업무 완료하기', exact: true }).first().click();
     await page.getByRole('button', { name: '완료 되돌리기', exact: true }).click();
     await page.getByRole('button', { name: '월간', exact: true }).click();
     await page.getByRole('button', { name: '5개 더 보기', exact: true }).first().click();

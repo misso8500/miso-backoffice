@@ -5,13 +5,13 @@ import { useWorkCacheUpdates } from './lib/use-work-cache';
 import DateInput from './DateInput';
 import PlanExecutionActions from './PlanExecutionActions';
 import {
-  cancelWorkExecution, cancelWorkPlan, createWorkExecution, createWorkPlan, executeWorkPlan, loadWorkDay, updateWorkExecution,
+  cancelWorkExecution, cancelWorkPlan, createWorkExecution, executeWorkPlan, loadWorkDay, updateWorkExecution,
   workCategoryLabels, workPeriods, workToday, type WorkCategory, type WorkContext, type WorkDay, type WorkExecution, type WorkPeriod, type WorkPlan, type WorkTask
 } from './lib/work-tasks';
 
-export type WorkDayHandle = { plan: (task: WorkTask) => void; execution: (task?: WorkTask) => void; refresh: () => void };
+export type WorkDayHandle = { execution: (task?: WorkTask) => void; refresh: () => void };
 type Props = { context: WorkContext; date: string; assignee: string; onActivity: (day: WorkDay | null) => void; onBusy: (busy: boolean) => void; onReady: (ready: boolean) => void };
-type Editor = { kind: 'plan' | 'manual' | 'edit'; task?: WorkTask; execution?: WorkExecution; date: string; assigneeId: string; period: WorkPeriod; content: string; category: WorkCategory; related: { id: string; type: 'recipient' | 'worker' }[]; requestId: string };
+type Editor = { kind: 'manual' | 'edit'; task?: WorkTask; execution?: WorkExecution; date: string; assigneeId: string; period: WorkPeriod; content: string; category: WorkCategory; related: { id: string; type: 'recipient' | 'worker' }[]; requestId: string };
 const errorText = (error: unknown) => error instanceof Error ? error.message : '기록을 저장하지 못했습니다.';
 
 const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ context, date, assignee, onActivity, onBusy, onReady }, ref) {
@@ -47,12 +47,12 @@ const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ co
     if (!editor && dialog.current?.open) dialog.current?.close();
   }, [editor]);
   useEffect(() => { if (formError) errorRef.current?.focus(); }, [formError]);
-  function openEditor(kind: 'plan' | 'manual', task?: WorkTask) {
+  function openEditor(task?: WorkTask) {
     if (loading || busy || !scopedDay) { setError(previous => previous || '일간 기록을 불러온 뒤 다시 시도해 주세요.'); return; }
     const owner = context.assignees.some(p => p.id === task?.assigneeId) ? task!.assigneeId! : scope === 'all' ? '' : scope;
-    setFormError(''); setEditor({ kind, task, date, assigneeId: owner, period: 'unknown', content: task?.title ?? '', category: task?.category ?? 'unclassified', related: [], requestId: crypto.randomUUID() });
+    setFormError(''); setEditor({ kind: 'manual', task, date, assigneeId: owner, period: 'unknown', content: task?.title ?? '', category: task?.category ?? 'unclassified', related: [], requestId: crypto.randomUUID() });
   }
-  useImperativeHandle(ref, () => ({ plan: task => openEditor('plan', task), execution: task => openEditor('manual', task), refresh: () => setAttempt(v => v+1) }));
+  useImperativeHandle(ref, () => ({ execution: openEditor, refresh: () => setAttempt(v => v+1) }));
   const scopedDay = day?.date === date && day.assignee === scope ? day : null;
   useEffect(() => { onReady(Boolean(scopedDay) && !loading); return () => onReady(false); }, [scopedDay, loading, onReady]);
   const plans = scopedDay?.plans.filter(p => p.status === 'planned') ?? [], executions = scopedDay?.executions.filter(e => e.status === 'recorded') ?? [];
@@ -78,11 +78,7 @@ const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ co
     event.preventDefault(); if (!editor || savingRef.current) return;
     savingRef.current = true; setBusy(true); setFormError(''); setUndo(null);
     try {
-      if (editor.kind === 'plan') {
-        const row = await createWorkPlan({ taskId: editor.task!.id, assigneeId: editor.assigneeId, date: editor.date, period: editor.period, requestId: editor.requestId });
-        if (row.date === date && (scope === 'all' || row.assigneeId === scope)) retainPlan(row);
-        setNotice(`${row.date} · ${performer(row.assigneeId)} 계획을 저장했습니다.`);
-      } else if (editor.kind === 'edit') {
+      if (editor.kind === 'edit') {
         const saved = await updateWorkExecution(editor.execution!, { content: editor.content, period: editor.period, assigneeId: editor.assigneeId, date: editor.date });
         retainExecution(saved);
         setUndo({ saved, previous: editor.execution });
@@ -110,22 +106,50 @@ const WorkDayPanel = forwardRef<WorkDayHandle, Props>(function WorkDayPanel({ co
 
   return <section className="work-day-panel" aria-label="선택일 계획과 실제 수행">
     <header className="work-day-heading"><div><h2>{date === workToday() ? '오늘 배치된 근무내역' : '선택일 배치된 근무내역'}</h2><p>{date} · {scope === 'all' ? '전체 담당자' : performer(scope)} · 계획과 실제 수행</p></div><button type="button" className="secondary-button" disabled={busy || loading} onClick={() => { workCache.invalidate(key=>key===cachePath); setAttempt(v => v+1); }} aria-label="일간 기록 새로고침"><RefreshCw size={16}/></button></header>
-    {assignee === 'unassigned' && <p className="work-help">담당자 미정 업무 보기입니다. 오른쪽 계획·수행은 전체 담당자를 표시합니다.</p>}
+    {assignee === 'unassigned' && <p className="work-help">담당자 미정 업무 보기입니다. 계획·수행 기록은 전체 담당자를 표시합니다.</p>}
     {error && <p className="work-day-error" role="alert">{error} <button type="button" disabled={busy || loading} onClick={() => { workCache.invalidate(key=>key===cachePath); setAttempt(v => v+1); }}>최신 기록 불러오기</button></p>}
     {notice && <div className="work-day-notice" role="status">{notice}{undo && <button type="button" className="secondary-button" disabled={busy} onClick={() => void undoExecution()}>수행 기록 되돌리기</button>}</div>}
     {loading ? <p role="status" className="work-day-empty">일간 기록을 불러오는 중입니다.</p> : !scopedDay ? <p className="work-day-empty">일간 기록을 확인할 수 없어 계획·수행 입력을 잠시 사용할 수 없습니다. 위 오류 원인을 해결한 뒤 최신 기록을 불러와 주세요.</p> : <>
       <div className="work-day-summary" role="status"><strong>배치 {plans.length}건</strong><span>배치 중 미수행 {plans.filter(plan => ![...(scopedDay?.linkedExecutions ?? []), ...executions].some(e => e.planId === plan.id && e.status === 'recorded')).length}건</span><span>선택일 수행 {executions.length}건</span></div>
-      <div className="work-day-legend"><span>보라 · 계획</span><span>초록 · 실제 수행</span><span>수행 저장은 계획의 시간대로 즉시 저장됩니다. 수정·되돌리기 가능</span></div>
-      <div className="work-day-column-head"><span/><strong>계획 {plans.length}건</strong><strong>실제 수행 {executions.length}건</strong></div>
-      {(['morning', 'afternoon', 'unknown'] as const).map(period => <div className="work-day-row" key={period}><span className="work-day-period">{workPeriods[period]}</span><div className="work-day-cell">{plans.filter(p => p.period === period).map(plan => {
-        const recorded = [...(scopedDay?.linkedExecutions ?? []), ...executions].find(e => e.planId === plan.id && e.status === 'recorded');
-        return <article key={plan.id} className="work-plan"><strong>{plan.snapshot.title}</strong><small>{performer(plan.assigneeId)} · {workCategoryLabels[plan.snapshot.category]}{plan.snapshot.plannedStartTime&&` · 계획 ${plan.snapshot.plannedStartTime}–${plan.snapshot.plannedEndTime}`}</small><div className="work-day-actions"><PlanExecutionActions plan={plan} recorded={recorded} busy={busy} onExecute={(period, actualDate) => void quickExecute(plan, period, actualDate)} onEdit={editExecution}/><button type="button" disabled={busy} className="work-cancel" onClick={() => void act(async () => { retainPlan(await cancelWorkPlan(plan)); setNotice('계획을 취소했습니다. 기존 수행은 유지됩니다.'); })}>취소</button></div></article>;
-      })}{!plans.some(p => p.period === period) && <small className="work-day-placeholder">계획 없음</small>}</div><div className="work-day-cell">{executions.filter(e => e.period === period).map(execution => <article key={execution.id} className="work-execution"><p>{execution.content}</p><small>{performer(execution.assigneeId)} · {execution.planId ? '계획에서 수행' : '직접 기록'}{execution.period === 'unknown' ? ' · 시간대 확인 필요' : ''}</small><div className="work-day-actions"><button type="button" disabled={busy} onClick={() => editExecution(execution)}>수행일·처리자·내용 수정</button><button type="button" disabled={busy} className="work-cancel" onClick={() => void act(async () => { retainExecution(await cancelWorkExecution(execution)); setNotice('수행을 취소했습니다. 계획과 업무 전체 상태는 유지됩니다.'); })}>취소</button></div></article>)}{!executions.some(e => e.period === period) && <small className="work-day-placeholder">수행 기록 없음</small>}</div></div>)}
-      <div className="work-day-bottom"><button type="button" className="secondary-button" disabled={busy || !day} onClick={() => openEditor('manual')}>계획 없이 수행 남기기</button><p>수행 기록은 출근·근로시간이나 업무 전체 완료를 자동 확정하지 않습니다.</p></div>
+      <div className="work-day-record-columns">
+        <section className="work-day-cell">
+          <h3>기존·연계 계획</h3>
+          {plans.map(plan => {
+            const recorded = [...(scopedDay?.linkedExecutions ?? []), ...executions].find(e => e.planId === plan.id && e.status === 'recorded');
+            return <article key={plan.id} className="work-plan">
+              <strong>{plan.snapshot.title}</strong>
+              <small>{performer(plan.assigneeId)} · {workCategoryLabels[plan.snapshot.category]}{plan.snapshot.plannedStartTime && ` · 계획 ${plan.snapshot.plannedStartTime}–${plan.snapshot.plannedEndTime}`}</small>
+              <div className="work-day-actions">
+                {!plan.snapshot.sourceMemoId && <PlanExecutionActions plan={plan} recorded={recorded} busy={busy}
+                  onExecute={(period, actualDate) => void quickExecute(plan, period, actualDate)} onEdit={editExecution}/>}
+                {!plan.snapshot.sourceMemoId && <button type="button" disabled={busy} className="work-cancel" onClick={() => void act(async () => {
+                  retainPlan(await cancelWorkPlan(plan)); setNotice('계획을 취소했습니다. 기존 수행은 유지됩니다.');
+                })}>취소</button>}
+              </div>
+            </article>;
+          })}
+          {!plans.length && <small className="work-day-placeholder">계획 없음</small>}
+        </section>
+        <section className="work-day-cell">
+          <h3>실제 수행</h3>
+          {executions.map(execution => <article key={execution.id} className="work-execution">
+            <p>{execution.content}</p>
+            <small>{performer(execution.assigneeId)} · {execution.snapshot.sourceMemoId ? '이름 도장' : execution.planId ? '계획에서 수행' : '직접 기록'}{execution.period === 'unknown' ? ' · 시간대 확인 필요' : ''}</small>
+            <div className="work-day-actions">
+              <button type="button" disabled={busy} onClick={() => editExecution(execution)}>수행일·처리자·내용 수정</button>
+              {!execution.snapshot.sourceMemoId && <button type="button" disabled={busy} className="work-cancel" onClick={() => void act(async () => {
+                retainExecution(await cancelWorkExecution(execution)); setNotice('수행을 취소했습니다. 계획과 업무 전체 상태는 유지됩니다.');
+              })}>취소</button>}
+            </div>
+          </article>)}
+          {!executions.length && <small className="work-day-placeholder">수행 기록 없음</small>}
+        </section>
+      </div>
+      <div className="work-day-bottom"><button type="button" className="secondary-button" disabled={busy || !day} onClick={() => openEditor()}>계획 없이 수행 남기기</button><p>수행 기록은 출근·근로시간이나 업무 전체 완료를 자동 확정하지 않습니다.</p></div>
       {(cancelledPlans.length > 0 || voidedExecutions.length > 0) && <details className="work-day-cancelled"><summary>취소된 기록 · 계획 {cancelledPlans.length}건 / 수행 {voidedExecutions.length}건</summary>{cancelledPlans.map(p => <p key={p.id}>계획 취소 · {performer(p.assigneeId)} · {p.snapshot.title}</p>)}{voidedExecutions.map(e => <p key={e.id}>수행 취소 · {performer(e.assigneeId)} · {e.content}</p>)}</details>}
     </>}
     <dialog ref={dialog} className="work-entry-dialog" onCancel={event => { if (busy) event.preventDefault(); else setEditor(null); }} onClose={() => { if (!busy) setEditor(null); }}>
-      {editor && <form onSubmit={event => void saveEditor(event)}><div className="section-title-row"><h2>{editor.kind === 'plan' ? '계획에 넣기' : editor.kind === 'edit' ? '수행 내용 수정' : '실제로 한 일 남기기'}</h2><button type="button" className="icon-button" aria-label="기록 입력 닫기" disabled={busy} onClick={() => setEditor(null)}><X size={18}/></button></div><fieldset disabled={busy}><label>날짜<DateInput required max={editor.kind === 'plan' ? undefined : workToday()} value={editor.date} onChange={event => setEditor({ ...editor, date: event.target.value })}/></label><label>실제 수행자<select aria-label="실제 수행자" required value={editor.assigneeId} onChange={event => setEditor({ ...editor, assigneeId: event.target.value })}><option value="">담당자 선택</option>{context.assignees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label>시간대<select value={editor.period} onChange={event => setEditor({ ...editor, period: event.target.value as WorkPeriod })}>{Object.entries(workPeriods).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{editor.kind !== 'plan' && <label>실제로 한 일<textarea required maxLength={5000} value={editor.content} onChange={event => setEditor({ ...editor, content: event.target.value })}/></label>}{editor.kind === 'manual' && !editor.task && <><label>센터 업무 분류<select value={editor.category} onChange={event => setEditor({ ...editor, category: event.target.value as WorkCategory })}>{Object.entries(workCategoryLabels).filter(([id]) => !context.categories || context.categories.includes(id)).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>관련자 (선택)<select multiple aria-label="직접 수행 관련자" value={editor.related.map(r => `${r.type}:${r.id}`)} onChange={event => setEditor({ ...editor, related: Array.from(event.target.selectedOptions).map(option => { const [type,...id] = option.value.split(':'); return { type: type as 'recipient' | 'worker', id: id.join(':') }; }) })}>{context.references.map(r => <option key={`${r.type}:${r.id}`} value={`${r.type}:${r.id}`}>{r.type === 'recipient' ? '수급자' : '근로자'} · {r.name} {r.info}</option>)}</select></label></>}</fieldset><p className="work-help">입력한 시각이 아닌 실제 수행일·시간대를 선택합니다. 계획일과 별도로 실제 수행일·처리자를 수정할 수 있습니다. 기록 작성자와 수정자는 별도로 보존됩니다.</p>{formError && <p ref={errorRef} tabIndex={-1} className="work-day-error" role="alert">{formError} 입력 내용은 유지됩니다.</p>}<div className="work-day-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => setEditor(null)}>닫기</button><button type="submit" className="primary-button" disabled={busy}>{busy ? '저장 중…' : '저장'}</button></div></form>}
+      {editor && <form onSubmit={event => void saveEditor(event)}><div className="section-title-row"><h2>{editor.kind === 'edit' ? '수행 내용 수정' : '실제로 한 일 남기기'}</h2><button type="button" className="icon-button" aria-label="기록 입력 닫기" disabled={busy} onClick={() => setEditor(null)}><X size={18}/></button></div><fieldset disabled={busy}><label>날짜<DateInput required max={workToday()} value={editor.date} onChange={event => setEditor({ ...editor, date: event.target.value })}/></label><label>실제 수행자<select aria-label="실제 수행자" required value={editor.assigneeId} onChange={event => setEditor({ ...editor, assigneeId: event.target.value })}><option value="">담당자 선택</option>{context.assignees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label>시간대<select value={editor.period} onChange={event => setEditor({ ...editor, period: event.target.value as WorkPeriod })}>{Object.entries(workPeriods).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>실제로 한 일<textarea required maxLength={5000} value={editor.content} onChange={event => setEditor({ ...editor, content: event.target.value })}/></label>{editor.kind === 'manual' && !editor.task && <><label>센터 업무 분류<select value={editor.category} onChange={event => setEditor({ ...editor, category: event.target.value as WorkCategory })}>{Object.entries(workCategoryLabels).filter(([id]) => !context.categories || context.categories.includes(id)).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>관련자 (선택)<select multiple aria-label="직접 수행 관련자" value={editor.related.map(r => `${r.type}:${r.id}`)} onChange={event => setEditor({ ...editor, related: Array.from(event.target.selectedOptions).map(option => { const [type,...id] = option.value.split(':'); return { type: type as 'recipient' | 'worker', id: id.join(':') }; }) })}>{context.references.map(r => <option key={`${r.type}:${r.id}`} value={`${r.type}:${r.id}`}>{r.type === 'recipient' ? '수급자' : '근로자'} · {r.name} {r.info}</option>)}</select></label></>}</fieldset><p className="work-help">입력한 시각이 아닌 실제 수행일·시간대를 선택합니다. 계획일과 별도로 실제 수행일·처리자를 수정할 수 있습니다. 기록 작성자와 수정자는 별도로 보존됩니다.</p>{formError && <p ref={errorRef} tabIndex={-1} className="work-day-error" role="alert">{formError} 입력 내용은 유지됩니다.</p>}<div className="work-day-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => setEditor(null)}>닫기</button><button type="submit" className="primary-button" disabled={busy}>{busy ? '저장 중…' : '저장'}</button></div></form>}
     </dialog>
   </section>;
 });

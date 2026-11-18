@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { workError, newWorkId } from './work-tasks.mjs';
 import { workDate } from './work-journal.mjs';
 import { recurrenceToday } from '../shared/work-recurrence.mjs';
-import { documentDraft, monthDays, leaveTotals } from '../shared/staff-records.mjs';
+import { appendExecutionCandidates, documentDraft, monthDays, leaveTotals } from '../shared/staff-records.mjs';
 
 const text = (value, max = 5000) => { if (typeof value !== 'string' || value.length > max) throw workError(400, '입력 내용을 확인해 주세요.'); return value.trim(); };
 const halfDays = (value, max = 366) => { if (typeof value !== 'number' || value < 0 || value > max || !Number.isInteger(value * 2)) throw workError(400, '일수는 0.5일 단위로 입력해 주세요.'); return value; };
@@ -22,7 +22,10 @@ export function createStaffRecordStore(transaction) {
   }
   async function source(q, owner, month) {
     const person = await profile(q, owner), dates = monthDays(month);
-    const executions = (await q("SELECT * FROM work_executions WHERE assignee_id=$1 AND work_date BETWEEN $2 AND $3 AND status='recorded' ORDER BY work_date,created_at,id", [person.staffId, dates[0], dates.at(-1)])).rows.map(row => ({ id: row.id, version: row.version, date: row.work_date, period: row.period, content: row.content }));
+    const executions = (await q("SELECT * FROM work_executions WHERE assignee_id=$1 AND work_date BETWEEN $2 AND $3 AND status='recorded' ORDER BY work_date,created_at,id", [person.staffId, dates[0], dates.at(-1)])).rows.map(row => ({
+      id: row.id, version: row.version, date: row.work_date, period: row.period, content: row.content,
+      ...(JSON.parse(row.snapshot).sourceMemoId ? { stamped: true } : {})
+    }));
     const attendance = (await q("SELECT * FROM staff_record_documents WHERE owner_id=$1 AND kind='attendance' AND period=$2", [owner, month])).rows[0];
     const plans = (await q("SELECT payload FROM staff_leave_plans WHERE owner_id=$1 AND year=$2 AND status IN ('confirmed','used')", [owner, month.slice(0,4)])).rows;
     const leaveDates = plans.flatMap(row => JSON.parse(row.payload).dates).filter(row => row.date.startsWith(month)).sort((a,b) => a.date.localeCompare(b.date));
@@ -85,7 +88,11 @@ export function createStaffRecordStore(transaction) {
         const inputs = await source(q, current.me.id, month);
         if (kind === 'journal') inputs.sourceHash = hash([inputs.sourceHash, inputs.attendance?.version ?? 0, inputs.attendance?.status]);
         const row = (await q('SELECT * FROM staff_record_documents WHERE owner_id=$1 AND kind=$2 AND period=$3', [current.me.id, kind, month])).rows[0];
-        return { document: docFrom(row) ?? { kind, period: month, payload: documentDraft(kind, month, inputs.person, inputs.executions), version: 0, status: 'draft', sourceHash: '', confirmedAt: null }, executions: inputs.executions, leaveDates: inputs.leaveDates, attendance: inputs.attendance, sourceHash: inputs.sourceHash, sourceChanged: Boolean(row && row.source_hash !== inputs.sourceHash) };
+        const document = docFrom(row) ?? { kind, period: month, payload: documentDraft(kind, month, inputs.person, inputs.executions), version: 0, status: 'draft', sourceHash: '', confirmedAt: null };
+        if (row && kind === 'journal' && document.status === 'draft') {
+          document.payload = appendExecutionCandidates(document.payload, inputs.executions.filter(entry => entry.stamped));
+        }
+        return { document, executions: inputs.executions, leaveDates: inputs.leaveDates, attendance: inputs.attendance, sourceHash: inputs.sourceHash, sourceChanged: Boolean(row && row.source_hash !== inputs.sourceHash) };
       });
     },
     saveRecordMonth(kind, month, body, current) {

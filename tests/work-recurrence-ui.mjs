@@ -26,10 +26,11 @@ try {
         return route.fulfill({ json: { rule: row, created: method === 'POST' ? recurrenceDates(row, '2026-10').length : 0 } });
       }
       if (url.pathname.endsWith('/categories') && method === 'POST') { assert(canManage); const row = { id: 'custom', name: route.request().postDataJSON().name, active: 1, version: 1 }; categories.push(row); return route.fulfill({ json: row }); }
+      if (url.pathname.endsWith('/quick-memos')) return route.fulfill({ json: { items: [], next: null } });
       throw Error(`Unexpected ${method} ${url.pathname}`);
     });
     await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/work-detail-ui.html`);
-    await page.locator('.work-primary-tabs button').nth(1).click();
+    await page.getByRole('button', { name: '업무연관설계(태스크맵)', exact: true }).click();
     await page.getByRole('button', { name: '기존 반복 규칙', exact: true }).click();
     await page.getByLabel('업무 제목', { exact: true }).fill('월간 정산');
     await page.getByLabel('업무 담당자', { exact: true }).selectOption('staff');
@@ -55,10 +56,10 @@ try {
       await page.getByRole('button', { name: '카테고리 추가', exact: true }).click();
       await page.getByText('카테고리를 저장했습니다.').waitFor(); assert.equal(categories.length, 2);
     } else assert.equal(await page.getByRole('button', { name: '카테고리 추가', exact: true }).count(), 0);
-    await page.locator('.work-primary-tabs button').nth(2).click();
-    await page.getByRole('heading', { name: /하루 할 일/ }).waitFor();
+    await page.getByRole('button', { name: '이 달의 할 일', exact: true }).click();
+    await page.getByRole('heading', { name: '이 달의 할 일', exact: true }).waitFor();
     assert.deepEqual(errors, []);
-    console.log(`PASS ${viewport.width}px admin=${canManage}: monthly/daily preview, save, pause, category permissions, return to day`);
+    console.log(`PASS ${viewport.width}px admin=${canManage}: monthly/daily preview, save, pause, category permissions, return to board`);
     await page.close();
   }
 } finally { await browser?.close(); await server.close(); }
