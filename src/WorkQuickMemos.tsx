@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type FormEvent, type RefObject, type SetStateAction } from 'react';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { moveWorkCalendar } from '../shared/work-calendar.mjs';
 import { fixedWorkAssignees } from '../shared/work-assignees.mjs';
@@ -7,8 +7,19 @@ import { requestJson } from './storage';
 import { workToday } from './lib/work-tasks';
 
 type Draft = { title: string; relatedName: string };
-type Memo = Draft & { id: string; authorName: string; createdAt: string; closedAt: string | null; closedByName: string | null; stampAssigneeId: string | null };
+type Attempt = Draft & { id: string };
+type Memo = Draft & { id: string; authorName: string; createdAt: string; closedAt: string | null; closedByName: string | null; stampAssigneeId: string | null; canDelete?: boolean };
 type MemoPage = { items: Memo[]; next: string | null };
+const matches = (draft: Draft, attempt: Attempt) =>
+  draft.title.trim() === attempt.title && draft.relatedName.trim() === attempt.relatedName;
+
+function insertMemo(page: MemoPage | null, memo: Memo): MemoPage {
+  if (!page) return { items: [memo], next: null };
+  const items = [memo, ...page.items.filter(item => item.id !== memo.id)].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+  return { items: items.slice(0, 30), next: items.length > 30 ? items[29].id : page.next };
+}
+
 const endpoint = '/api/work/quick-memos';
 const stamps = fixedWorkAssignees.map(person => ({ id: person.id, label: person.order === 0 ? '센터장' : person.name }));
 const time = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -16,9 +27,14 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : '
 
 export default function WorkQuickMemos({ active, month, onMonthChange, draft, setDraft, request, onBusy }: {
   active: boolean; month: string; onMonthChange: (month: string) => void; onBusy: (busy: boolean) => void;
-  draft: Draft; setDraft: (draft: Draft) => void; request: RefObject<(Draft & { id: string }) | null>;
+  draft: Draft; setDraft: Dispatch<SetStateAction<Draft>>; request: RefObject<Attempt | null>;
 }) {
   const [pending, setPending] = useState(false);
+  const [saving, setSaving] = useState<Attempt | null>(null);
+  const [failed, setFailed] = useState<Attempt | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const historyCursor = useRef<string | null>(null);
+  const lastRefresh = useRef(0);
   const lock = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const completionButton = useRef<HTMLButtonElement>(null);
@@ -40,6 +56,7 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
 
   const load = useCallback(async (cursor: string | null = null) => {
     const revision = ++readRevision.current;
+    lastRefresh.current = Date.now();
     const query = new URLSearchParams({ month });
     if (cursor) query.set('before', cursor);
     try {
@@ -57,7 +74,7 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
   useEffect(() => {
     if (!active) return;
     void load(currentPage.current);
-    const refresh = () => { if (!lock.current && !document.hidden && !currentPage.current) void load(); };
+    const refresh = () => { if (!lock.current && !document.hidden && !currentPage.current && Date.now() - lastRefresh.current >= 2_000) void load(); };
     const timer = window.setInterval(refresh, 30_000);
     window.addEventListener('focus', refresh);
     return () => {
@@ -77,6 +94,7 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
     try {
       const page = await requestJson<MemoPage>(`${endpoint}?${query}`, undefined, true);
       if (revision !== historyRevision.current) return;
+      historyCursor.current = cursor ?? null;
       setHistory(page);
       setHistoryError('');
     } catch (cause) {
@@ -101,21 +119,52 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
     const value = draft.title.trim();
     const relatedName = draft.relatedName.trim();
     if (!value || lock.current || month !== thisMonth) return;
-    const attempt = request.current?.title === value && request.current.relatedName === relatedName
+    const attempt = request.current && matches(draft, request.current)
       ? request.current : { title: value, relatedName, id: crypto.randomUUID() };
+    if (failed && !matches(draft, failed)) return;
+    save(attempt);
+  }
+
+  function save(attempt: Attempt) {
+    if (lock.current) return;
     request.current = attempt;
+    setSaving(attempt);
+    setFailed(null);
     void write(async () => {
-      const memo = await requestJson<Memo>(endpoint, { method: 'POST', body: JSON.stringify({ title: attempt.title, relatedName: attempt.relatedName, requestId: attempt.id }) });
-      setDraft({ title: '', relatedName: '' });
-      request.current = null;
-      setStatus('포스트잇을 붙였습니다.');
-      if (!memo.closedAt) setOpen(previous => {
-        if (!previous || before) return { items: [memo], next: null };
-        const items = [memo, ...previous.items.filter(item => item.id !== memo.id)];
-        return { items: items.slice(0, 30), next: items.length > 30 ? items[29].id : previous.next };
-      });
-      void load();
-      input.current?.focus({ preventScroll: true });
+      try {
+        const memo = await requestJson<Memo>(endpoint, { method: 'POST', body: JSON.stringify({
+          title: attempt.title, relatedName: attempt.relatedName, requestId: attempt.id
+        }) });
+        setDraft(previous => matches(previous, attempt) ? { title: '', relatedName: '' } : previous);
+        request.current = null;
+        setStatus('포스트잇을 붙였습니다.');
+        if (before || !open) void load();
+        else {
+          readRevision.current++;
+          if (!memo.closedAt) setOpen(previous => insertMemo(previous, memo));
+        }
+      } catch (cause) {
+        setFailed(attempt);
+        throw cause;
+      } finally {
+        setSaving(null);
+      }
+    });
+  }
+
+  function remove(memo: Memo) {
+    if (lock.current || !window.confirm('이 포스트잇을 삭제할까요?')) return;
+    setDeleting(memo.id);
+    input.current?.focus({ preventScroll: true });
+    void write(async () => {
+      try {
+        await requestJson<{ id: string }>(`${endpoint}/${memo.id}`, { method: 'DELETE' });
+        readRevision.current++;
+        setOpen(previous => previous && { ...previous, items: previous.items.filter(item => item.id !== memo.id) });
+        setStatus('포스트잇을 삭제했습니다.');
+      } finally {
+        setDeleting(null);
+      }
     });
   }
 
@@ -124,12 +173,15 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
       const result = await requestJson<{ memo: Memo }>(`${endpoint}/${memo.id}/complete`, {
         method: 'POST', body: JSON.stringify({ assigneeId: person.id })
       });
+      readRevision.current++;
       setOpen(previous => previous && { ...previous, items: previous.items.filter(item => item.id !== memo.id) });
       setStampNote(null);
       setLastStamped(result.memo);
       setStatus(`${person.label} 도장으로 수행을 기록했습니다.`);
-      void load(before);
-      if (historyOpen) void loadHistory();
+      if (historyOpen && history && !historyCursor.current) {
+        historyRevision.current++;
+        setHistory(previous => insertMemo(previous, result.memo));
+      }
       input.current?.focus({ preventScroll: true });
     });
   }
@@ -160,36 +212,48 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
       </div>
     </PageHeading>
     <div className="work-board-surface">
-    <span className="sr-only" role="status">{status}</span>
+    <span className="sr-only" role="status">{deleting ? '포스트잇을 삭제하는 중입니다.' : status}</span>
     {error && <p className="work-board-message" role="alert">{error} <button type="button" className="secondary-button" onClick={() => { setError(''); void load(before); }}>새로고침</button></p>}
+    {failed && !matches(draft, failed) && <p className="work-board-message">
+      저장 실패 · {failed.title}{' '}
+      <button type="button" className="secondary-button" disabled={pending} onClick={() => save(failed)}>다시 저장</button>{' '}
+      <button type="button" className="secondary-button" disabled={pending} onClick={() => setFailed(null)}>닫기</button>
+    </p>}
     {loadError && <p className="work-board-message" role="alert">{loadError} <button type="button" className="secondary-button" onClick={() => void load(before)}>다시 불러오기</button></p>}
     {!open && !loadError && active && <p className="work-board-message" role="status">포스트잇을 불러오는 중입니다.</p>}
     <ul className="work-memo-list">
       {month === thisMonth && <li className="work-note is-composer">
         <form className="work-note-form" onSubmit={add}>
           <textarea ref={input} aria-label="공동 메모 한 줄" placeholder="할 일을 적으세요" value={draft.title} maxLength={200}
-            readOnly={pending} onChange={event => setDraft({ ...draft, title: event.target.value.replace(/[\r\n]+/g, ' ') })}
+            onChange={event => setDraft({ ...draft, title: event.target.value.replace(/[\r\n]+/g, ' ') })}
             onKeyDown={event => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+              if (!event.repeat && event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) {
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
               }
             }}/>
           <label className="work-note-name"><span>관련자</span><input placeholder="이름 (선택)" value={draft.relatedName} maxLength={80}
-            readOnly={pending} onChange={event => setDraft({ ...draft, relatedName: event.target.value })}/></label>
-          <button type="submit" className="primary-button work-note-action" disabled={pending || !draft.title.trim()}>
+            onChange={event => setDraft({ ...draft, relatedName: event.target.value })}/></label>
+          <button type="submit" className="primary-button work-note-action" disabled={pending || !draft.title.trim() || Boolean(failed && !matches(draft, failed))}>
             <Plus size={15} aria-hidden="true"/> 붙이기
           </button>
         </form>
       </li>}
-      {open?.items.map(memo => <li className="work-note" key={memo.id}>
+      {saving && <li className="work-note" key={saving.id} aria-busy="true">
+        <div className="work-note-copy"><strong>{saving.title}</strong>{saving.relatedName && <span className="work-note-related">관련자 · {saving.relatedName}</span>}</div>
+        <small role="status">저장 중…</small>
+      </li>}
+      {open?.items.filter(memo => memo.id !== deleting && memo.id !== saving?.id).map(memo => <li className="work-note" key={memo.id}>
         <div className="work-note-copy"><strong>{memo.title}</strong>{memo.relatedName && <span className="work-note-related">관련자 · {memo.relatedName}</span>}</div>
         <small>{memo.authorName} · {time.format(new Date(memo.createdAt))}</small>
-        <button type="button" className="secondary-button work-note-action"
+        <div className="work-note-actions"><button type="button" className="secondary-button work-note-action"
           disabled={pending} aria-expanded={stampNote === memo.id} onClick={event => {
             completionButton.current = event.currentTarget;
             setStampNote(stampNote === memo.id ? null : memo.id);
           }}>완료</button>
+          {memo.canDelete && <button type="button" className="secondary-button work-note-action" aria-label={`${memo.title} 삭제`}
+            disabled={pending} onClick={() => remove(memo)}>삭제</button>}
+        </div>
         {stampNote === memo.id && <div className="work-memo-stamps" role="group" aria-label={`${memo.title} 완료 도장`}
           onKeyDown={event => { if (event.key === 'Escape' && !pending) { event.preventDefault(); dismissStamps(); } }}>
           <div className="work-stamp-heading"><strong>수행자 도장</strong><button type="button" disabled={pending} onClick={dismissStamps} aria-label="도장 선택 닫기">×</button></div>
@@ -202,8 +266,8 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
     </ul>
     {open && month !== thisMonth && !open.items.length && !lastStamped && <p className="work-board-message">붙인 포스트잇이 없습니다.</p>}
     <div className="work-board-pages">
-      {before && <button type="button" className="secondary-button" onClick={() => void load()}>최신 포스트잇</button>}
-      {open?.next && <button type="button" className="secondary-button" onClick={() => void load(open.next)}>이전 포스트잇</button>}
+      {before && <button type="button" className="secondary-button" disabled={pending} onClick={() => void load()}>최신 포스트잇</button>}
+      {open?.next && <button type="button" className="secondary-button" disabled={pending} onClick={() => void load(open.next)}>이전 포스트잇</button>}
     </div>
     <details onToggle={event => {
       const expanded = event.currentTarget.open;
@@ -215,7 +279,7 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
       {historyError && <p className="work-board-message" role="alert">{historyError} <button type="button" className="secondary-button" onClick={() => void loadHistory()}>다시 불러오기</button></p>}
       {history && (history.items.length ? <ul className="work-memo-list">{history.items.map(finishedNote)}</ul>
         : <p className="work-board-message">완료한 포스트잇이 없습니다.</p>)}
-      {history?.next && <button type="button" className="secondary-button" onClick={() => void loadHistory(history.next)}>이전 완료 기록</button>}
+      {history?.next && <button type="button" className="secondary-button" disabled={pending} onClick={() => void loadHistory(history.next)}>이전 완료 기록</button>}
     </details>
     </div>
   </section>;

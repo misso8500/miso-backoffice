@@ -3,11 +3,12 @@ import { executionFromRow, journalEvent, planFromRow, workDate, workRequestId } 
 import { monthDates } from '../shared/work-traffic.mjs';
 
 const pageSize = 30;
-const selection = `SELECT m.id,m.title,m.related_name,m.author_name,m.created_at,m.closed_at,m.closed_by_name,m.task_id,
+const selection = `SELECT m.id,m.author_id,m.title,m.related_name,m.author_name,m.created_at,m.closed_at,m.closed_by_name,m.task_id,
   e.assignee_id AS stamp_assignee_id FROM work_quick_memos m LEFT JOIN work_executions e ON e.id=m.id`;
-const publicMemo = row => ({
+const publicMemo = (row, viewerId) => ({
   id: row.id, title: row.title, relatedName: row.related_name, authorName: row.author_name, createdAt: row.created_at,
-  closedAt: row.closed_at, closedByName: row.closed_by_name, taskId: row.task_id, stampAssigneeId: row.stamp_assignee_id ?? null
+  closedAt: row.closed_at, closedByName: row.closed_by_name, taskId: row.task_id, stampAssigneeId: row.stamp_assignee_id ?? null,
+  ...(viewerId ? { canDelete: !row.closed_at && row.author_id === viewerId } : {})
 });
 const seoulHour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', hourCycle: 'h23' });
 const seoulDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -20,10 +21,10 @@ export function createQuickMemoStore(transaction, createTask) {
   }
 
   return {
-    quickMemos(closed, before, month = null) {
+    quickMemos(closed, before, month = null, viewerId) {
       return transaction(async q => {
         const order = closed && month === null ? 'closed_at' : 'created_at';
-        const conditions = [closed ? 'm.closed_at IS NOT NULL' : 'm.closed_at IS NULL'];
+        const conditions = ['m.deleted_at IS NULL', closed ? 'm.closed_at IS NOT NULL' : 'm.closed_at IS NULL'];
         const values = [pageSize + 1];
         if (before) {
           const row = await read(q, workRequestId(before));
@@ -40,7 +41,7 @@ export function createQuickMemoStore(transaction, createTask) {
         }
         const { rows } = await q(`${selection} WHERE ${conditions.join(' AND ')}
           ORDER BY m.${order} DESC,m.id DESC LIMIT $1`, values);
-        const items = rows.slice(0, pageSize).map(publicMemo);
+        const items = rows.slice(0, pageSize).map(row => publicMemo(row, viewerId));
         return { items, next: rows.length > pageSize ? items.at(-1).id : null };
       });
     },
@@ -56,8 +57,20 @@ export function createQuickMemoStore(transaction, createTask) {
         const row = (await q(`INSERT INTO work_quick_memos(id,title,related_name,author_id,author_name,created_at)
           VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING RETURNING *`,
           [id, title, relatedName.trim(), current.me.id, current.me.name, new Date().toISOString()])).rows[0] ?? await read(q, id);
+        if (row.deleted_at) throw workError(409, '이미 삭제된 메모입니다.');
         if (row.author_id !== current.me.id || row.title !== title || row.related_name !== relatedName.trim()) throw workError(409, '이미 사용된 메모 저장 요청입니다.');
         return publicMemo(row);
+      });
+    },
+    deleteQuickMemo(id, current) {
+      return transaction(async q => {
+        const row = await read(q, workRequestId(id), true);
+        if (row.author_id !== current.me.id) throw workError(403, '작성자만 포스트잇을 삭제할 수 있습니다.');
+        if (row.closed_at) throw workError(409, '완료된 포스트잇은 삭제할 수 없습니다.');
+        if (!row.deleted_at) {
+          await q("UPDATE work_quick_memos SET deleted_at=$1,title='',related_name='' WHERE id=$2", [new Date().toISOString(), id]);
+        }
+        return { id };
       });
     },
     closeQuickMemo(id, body, current, convert) {
@@ -65,6 +78,7 @@ export function createQuickMemoStore(transaction, createTask) {
       if (!convert && !assignee) throw workError(400, '수행한 담당자의 이름 도장을 선택해 주세요.');
       return transaction(async q => {
         const row = await read(q, workRequestId(id), true);
+        if (row.deleted_at) throw workError(404, '삭제된 메모입니다.');
         if (row.closed_at) {
           if (convert && row.task_id) return { memo: publicMemo(row) };
           const existing = (await q('SELECT * FROM work_executions WHERE id=$1', [id])).rows[0];

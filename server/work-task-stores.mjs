@@ -238,8 +238,12 @@ export function createSqliteWorkStore(db, canEdit) {
   db.exec(readFileSync(new URL('./care-plan-import-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./copay-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./work-task-schema.sql', import.meta.url), 'utf8'));
-  if (!db.prepare('PRAGMA table_info(work_quick_memos)').all().some(column => column.name === 'related_name')) {
+  const memoColumns = db.prepare('PRAGMA table_info(work_quick_memos)').all();
+  if (!memoColumns.some(column => column.name === 'related_name')) {
     db.exec("ALTER TABLE work_quick_memos ADD COLUMN related_name TEXT NOT NULL DEFAULT ''");
+  }
+  if (!memoColumns.some(column => column.name === 'deleted_at')) {
+    db.exec('ALTER TABLE work_quick_memos ADD COLUMN deleted_at TEXT');
   }
   db.exec(readFileSync(new URL('./prospects-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./institution-schema.sql', import.meta.url), 'utf8'));

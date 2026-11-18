@@ -97,6 +97,13 @@ for (const mode of ['sqlite', 'postgres-adapter']) test(`${mode}: members, cross
   assert.equal((await store.list(a, 'all', 'open')).length, 1);
   for (let i = 0; i < 31; i++) await store.createQuickMemo({ title: '메모 ' + i, requestId: randomUUID() }, a);
   const page = await store.quickMemos(false);
+  const cursor = page.items.at(-1);
+  await assert.rejects(store.deleteQuickMemo(cursor.id, b), { status: 403 });
+  await assert.rejects(store.deleteQuickMemo(memo.id, a), { status: 409 });
+  assert.deepEqual(await store.deleteQuickMemo(cursor.id, a), { id: cursor.id });
+  assert.deepEqual(await store.deleteQuickMemo(cursor.id, a), { id: cursor.id });
+  await assert.rejects(store.closeQuickMemo(cursor.id, stamp, b, false), { status: 404 });
+  assert(!(await store.quickMemos(false)).items.some(item => item.id === cursor.id));
   const tail = await store.quickMemos(false, page.next);
   assert.equal(page.items.length, 30);
   assert.equal(tail.items.length, 1);

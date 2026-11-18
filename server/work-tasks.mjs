@@ -52,17 +52,19 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
     const emails = allowedWorkEmails();
     if (!emails.includes(user.email?.toLowerCase())) throw workError(403, '업무 공간 사용 권한이 없습니다.');
     const current = await store.members(user, emails);
-    const memoPath = /^\/api\/work\/quick-memos(?:\/([^/]+)\/(complete|convert))?$/.exec(path);
+    const memoPath = /^\/api\/work\/quick-memos(?:\/([^/]+)(?:\/(complete|convert))?)?$/.exec(path);
     if (memoPath) {
       const [, id, action] = memoPath;
       if (!id && request.method === 'GET') {
         const params = new URL(request.url, 'http://localhost').searchParams;
-        sendJson(response, 200, await store.quickMemos(params.get('closed') === '1', params.get('before'), params.get('month')));
-      } else if (request.method === 'POST') {
+        sendJson(response, 200, await store.quickMemos(params.get('closed') === '1', params.get('before'), params.get('month'), current.me.id));
+      } else if (id && !action && request.method === 'DELETE') {
+        sendJson(response, 200, await store.deleteQuickMemo(id, current));
+      } else if ((!id || action) && request.method === 'POST') {
         const body = await readWorkBody(request, 4096);
         sendJson(response, 200, id
           ? await store.closeQuickMemo(id, body, current, action === 'convert')
-          : await store.createQuickMemo(body, current));
+          : await store.createQuickMemo(body, current).then(memo => ({ ...memo, canDelete: !memo.closedAt })));
       } else throw workError(405, '지원하지 않는 메모 요청입니다.');
       return true;
     }

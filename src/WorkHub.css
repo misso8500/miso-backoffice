@@ -635,6 +635,7 @@
 .work-note-name { display: flex; align-items: center; gap: 6px; padding-top: 5px; border-top: 1px solid #e5dfed; font-size: 13px; color: #62566a; }
 .work-note-name span { flex-shrink: 0; font-weight: 650; }
 .work-hub .work-note-name input { flex: 1; min-height: 30px; }
+.work-note-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .work-hub .work-note .work-note-action {
   display: inline-flex;
   align-items: center;

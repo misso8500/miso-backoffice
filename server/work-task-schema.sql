@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS recipient_service_workers (
 
 CREATE TABLE IF NOT EXISTS work_quick_memos (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, related_name TEXT NOT NULL DEFAULT '', author_id TEXT NOT NULL REFERENCES work_members(id),
-  author_name TEXT NOT NULL, created_at TEXT NOT NULL, closed_at TEXT, closed_by_name TEXT,
+  author_name TEXT NOT NULL, created_at TEXT NOT NULL, closed_at TEXT, closed_by_name TEXT, deleted_at TEXT,
   task_id TEXT REFERENCES work_tasks(id)
 );
 CREATE INDEX IF NOT EXISTS idx_work_quick_memos_open ON work_quick_memos(created_at DESC,id DESC) WHERE closed_at IS NULL;
