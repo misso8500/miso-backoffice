@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { normalizeWorkTask } from '../server/work-tasks.mjs';
 import { createSqliteWorkStore, createPostgresWorkStore } from '../server/work-task-stores.mjs';
 
@@ -56,13 +57,75 @@ for (const mode of ['sqlite', 'postgres-adapter']) test(`${mode}: members, cross
   assert.equal((await store.list(a, 'all', 'open')).length, 0); assert.equal((await store.list(a, 'all', 'cancelled')).length, 1);
   await assert.rejects(store.update(created.id, input({ title: 'revive' }), 3, a), { status: 409 });
   assert.deepEqual(db.prepare('SELECT kind FROM work_task_events ORDER BY version').all().map(r => r.kind), ['created', 'updated', 'cancelled']);
+  const line = { title: '보호자에게 다시 연락', relatedName: ' 김테스트 ', requestId: randomUUID() };
+  assert.throws(() => store.createQuickMemo({ ...line, title: '두\n줄' }, a), { status: 400 });
+  const memo = await store.createQuickMemo(line, a);
+  assert.equal(memo.relatedName, '김테스트');
+  assert.deepEqual(await store.createQuickMemo(line, a), memo);
+  await assert.rejects(store.createQuickMemo(line, b), { status: 409 });
+  await assert.rejects(store.createQuickMemo({ ...line, relatedName: '다른 이름' }, a), { status: 409 });
+  assert.deepEqual((await store.quickMemos(false)).items, [memo]);
+  const stamp = { assigneeId: b.assignees[0].id };
+  assert.throws(() => store.closeQuickMemo(memo.id, {}, b, false), { status: 400 });
+  const stamped = await store.closeQuickMemo(memo.id, stamp, b, false);
+  assert.equal(stamped.memo.closedByName, b.assignees[0].name);
+  assert.equal(stamped.plan.period, 'unknown');
+  assert.equal(stamped.execution.createdBy, b.me.id);
+  assert.equal(stamped.execution.assigneeId, stamp.assigneeId);
+  assert.equal(stamped.execution.planId, stamped.plan.id);
+  assert.equal(stamped.execution.content, line.title);
+  assert.equal((await store.closeQuickMemo(memo.id, stamp, b, false)).execution.id, stamped.execution.id);
+  await assert.rejects(store.closeQuickMemo(memo.id, { assigneeId: b.assignees[1].id }, b, false), { status: 409 });
+  assert.equal((await store.day(stamped.execution.date, stamp.assigneeId, a)).executions.length, 1);
+  assert.equal((await store.quickMemos(false)).items.length, 0);
+  assert.equal((await store.quickMemos(true)).items[0].id, memo.id);
+  assert.equal((await store.list(a, 'all', 'open')).length, 0);
+
+  const next = await store.createQuickMemo({ title: '서류 확인', requestId: randomUUID() }, a);
+  await assert.rejects(store.closeQuickMemo(next.id, {}, b, true), { status: 400 });
+  db.exec("CREATE TRIGGER reject_memo_close BEFORE UPDATE ON work_quick_memos BEGIN SELECT RAISE(ABORT,'test-memo-failure'); END");
+  await assert.rejects(store.closeQuickMemo(next.id, stamp, b, false));
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM work_executions').get().count, 1);
+  await assert.rejects(store.closeQuickMemo(next.id, { dueDate: '2026-11-20' }, b, true));
+  assert.equal((await store.list(a, 'all', 'open')).length, 0);
+  assert.equal((await store.quickMemos(false)).items[0].id, next.id);
+  db.exec('DROP TRIGGER reject_memo_close');
+  const moved = await store.closeQuickMemo(next.id, { dueDate: '2026-11-20' }, b, true);
+  assert.equal(moved.memo.taskId, moved.task.id);
+  assert.equal(moved.task.title, next.title);
+  assert.equal((await store.closeQuickMemo(next.id, { dueDate: '2026-11-20' }, b, true)).memo.taskId, moved.task.id);
+  assert.equal((await store.list(a, 'all', 'open')).length, 1);
+  for (let i = 0; i < 31; i++) await store.createQuickMemo({ title: '메모 ' + i, requestId: randomUUID() }, a);
+  const page = await store.quickMemos(false);
+  const cursor = page.items.at(-1);
+  await assert.rejects(store.deleteQuickMemo(cursor.id, b), { status: 403 });
+  await assert.rejects(store.deleteQuickMemo(memo.id, a), { status: 409 });
+  assert.deepEqual(await store.deleteQuickMemo(cursor.id, a), { id: cursor.id });
+  assert.deepEqual(await store.deleteQuickMemo(cursor.id, a), { id: cursor.id });
+  await assert.rejects(store.closeQuickMemo(cursor.id, stamp, b, false), { status: 404 });
+  assert(!(await store.quickMemos(false)).items.some(item => item.id === cursor.id));
+  const tail = await store.quickMemos(false, page.next);
+  assert.equal(page.items.length, 30);
+  assert.equal(tail.items.length, 1);
+  assert(!page.items.some(item => item.id === tail.items[0].id));
+  const boundary = db.prepare('UPDATE work_quick_memos SET created_at=? WHERE id=?');
+  boundary.run('2026-10-31T15:00:00.000Z', page.items[0].id);
+  boundary.run('2026-10-31T14:59:59.999Z', page.items[1].id);
+  const november = (await store.quickMemos(false, null, '2026-11')).items;
+  assert(november.some(item => item.id === page.items[0].id));
+  assert(!november.some(item => item.id === page.items[1].id));
+  assert((await store.quickMemos(false, null, '2026-10')).items.some(item => item.id === page.items[1].id));
+  await assert.rejects(store.quickMemos(false, null, '2026-13'), { status: 400 });
   if (mode === 'postgres-adapter') assert(releases > 0);
 });
 
 test('Postgres bootstrap includes the portable schema and blocks direct client access', () => {
   const pg = readFileSync(new URL('../server/postgres/schema.sql', import.meta.url), 'utf8');
-  assert(pg.includes(readFileSync(new URL('../server/work-task-schema.sql', import.meta.url), 'utf8')));
-  for (const name of ['work_members', 'work_assignees', 'work_tasks', 'work_task_events']) {
+  const portable = readFileSync(new URL('../server/work-task-schema.sql', import.meta.url), 'utf8');
+  for (const statement of portable.match(/[^;]+;/g) ?? []) {
+    assert(pg.includes(statement.trim()), `Missing portable SQL: ${statement.trim().split('\n')[0]}`);
+  }
+  for (const name of ['work_members', 'work_assignees', 'work_tasks', 'work_task_events', 'work_quick_memos']) {
     assert(pg.includes(`ALTER TABLE ${name} ENABLE ROW LEVEL SECURITY`));
     assert(pg.includes(`REVOKE ALL ON TABLE ${name} FROM anon, authenticated`));
   }

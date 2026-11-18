@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS recipient_service_pause_events (
 );
 CREATE TABLE IF NOT EXISTS work_map_templates (id TEXT PRIMARY KEY, payload TEXT NOT NULL, version INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS work_map_runs (id TEXT PRIMARY KEY, run_key TEXT NOT NULL UNIQUE, work_date TEXT NOT NULL, payload TEXT NOT NULL, version INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_work_map_runs_date_id ON work_map_runs(work_date DESC,id);
 CREATE TABLE IF NOT EXISTS recipient_service_months (
   month TEXT PRIMARY KEY,
   recipient_ids TEXT NOT NULL DEFAULT '[]',
@@ -128,3 +129,17 @@ CREATE TABLE IF NOT EXISTS recipient_deletions (
   recipient_id TEXT PRIMARY KEY REFERENCES recipients(id),
   deleted_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS recipient_service_workers (
+ month TEXT NOT NULL,recipient_id TEXT NOT NULL REFERENCES recipients(id),
+ payload TEXT NOT NULL,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL,
+ PRIMARY KEY(month,recipient_id)
+);
+
+CREATE TABLE IF NOT EXISTS work_quick_memos (
+  id TEXT PRIMARY KEY, title TEXT NOT NULL, related_name TEXT NOT NULL DEFAULT '', author_id TEXT NOT NULL REFERENCES work_members(id),
+  author_name TEXT NOT NULL, created_at TEXT NOT NULL, closed_at TEXT, closed_by_name TEXT, deleted_at TEXT,
+  task_id TEXT REFERENCES work_tasks(id)
+);
+CREATE INDEX IF NOT EXISTS idx_work_quick_memos_open ON work_quick_memos(created_at DESC,id DESC) WHERE closed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_work_quick_memos_closed ON work_quick_memos(closed_at DESC,id DESC) WHERE closed_at IS NOT NULL;

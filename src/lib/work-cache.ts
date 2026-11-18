@@ -1,12 +1,18 @@
 import { createWorkQueryCache } from '../../shared/work-query-cache.mjs';
-import { trafficBoard } from '../../shared/work-traffic.mjs';
+import { isTrafficRunVisible, trafficBoard } from '../../shared/work-traffic.mjs';
 export const workCache = createWorkQueryCache();
 let identity: string | undefined;
 export function useWorkCacheIdentity(next: string) { if(identity !== next) { identity=next; workCache.clear(); } }
 export function invalidateWorkData() { workCache.invalidate(()=>true); }
 export function applyWorkMutation(path:string,value:any) {
   const base=path.split('?')[0];
-  if(base==='/api/work/recipient-import/apply') { workCache.invalidate(()=>true); return; }
+  if (base.startsWith('/api/work/quick-memos')) {
+    if (value?.task) applyWorkMutation(`/api/work/tasks/${value.task.id}`, value.task);
+    if (value?.plan) applyWorkMutation('/api/work/plans', value.plan);
+    if (value?.execution) applyWorkMutation('/api/work/executions', value.execution);
+    return;
+  }
+  if(base==='/api/work/recipient-import/apply'||base==='/api/work/care-plan-import/apply') { workCache.invalidate(()=>true); return; }
   if(base==='/api/work/service-rounding' && value?.rounding) {
     workCache.update(key=>key===`/api/work/service-month?month=${value.month}`,data=>({...data,rows:data.rows.map((r:any)=>r.id===value.recipientId?{...r,rounding:value.rounding}:r)}));
     workCache.invalidate(key=>key.startsWith('/api/work/task-maps?')||key.startsWith('/api/work/day?')||key.startsWith('/api/work/calendar?'));
@@ -31,8 +37,12 @@ export function applyWorkMutation(path:string,value:any) {
     const run=Boolean(value.templateId);
     workCache.update(key=>key.startsWith('/api/work/task-maps?'),data=>{
       const field=run?'runs':'templates';
-      const next={...data,[field]:[...data[field].filter((row:any)=>row.id!==value.id),value]};
-      return {...next,nodes:trafficBoard(next.templates,next.runs,next.month ?? next.today.slice(0,7),next.today)};
+      const month=data.month ?? data.today.slice(0,7);
+      const kind=run ? data.templates.find((template:any)=>template.id===value.templateId)?.kind : undefined;
+      const rows=data[field].filter((row:any)=>row.id!==value.id);
+      if(!run || isTrafficRunVisible(value,kind,month)) rows.push(value);
+      const next={...data,[field]:rows};
+      return {...next,nodes:trafficBoard(next.templates,next.runs,month,next.today)};
     });
     if(run && base.endsWith('/check')) workCache.invalidate(key=>key.startsWith('/api/work/day?')||key.startsWith('/api/work/calendar?')||key.startsWith('/api/work/tasks?')||key.startsWith('/api/work/service-month?'));
     return;

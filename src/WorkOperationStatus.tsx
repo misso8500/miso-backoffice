@@ -6,7 +6,7 @@ import './WorkOperationStatus.css';
 export const workOperationEvent = 'miso-work-operation';
 export type WorkOperation = { id: string; phase: 'start' | 'success' | 'error'; read?: boolean };
 
-export default function WorkOperationStatus() {
+export default function WorkOperationStatus({ compact = false }: { compact?: boolean }) {
   const [phase, setPhase] = useState<'hidden' | 'busy' | 'success' | 'error'>('hidden');
   const [reading,setReading]=useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -46,7 +46,7 @@ export default function WorkOperationStatus() {
     return () => { clear(); window.removeEventListener(workOperationEvent, update); };
   }, []);
   if (phase === 'hidden') return null;
-  return <>{reading&&createPortal(<div className="app-data-loading" role="status" aria-live="polite"><RefreshCw size={28} className="work-operation-spinner" aria-hidden="true"/><strong>데이터를 불러오는 중입니다.</strong><small>잠시만 기다려 주세요.</small></div>,document.body)}<div ref={indicator} popover="manual" className={`work-operation-status is-${phase} ${leaving ? 'is-leaving' : ''}`} role="status" aria-live="polite">
+  return <>{reading&&!compact&&createPortal(<div className="app-data-loading" role="status" aria-live="polite"><RefreshCw size={28} className="work-operation-spinner" aria-hidden="true"/><strong>데이터를 불러오는 중입니다.</strong><small>잠시만 기다려 주세요.</small></div>,document.body)}<div ref={indicator} popover="manual" className={`work-operation-status is-${phase} ${leaving ? 'is-leaving' : ''}`} role="status" aria-live="polite">
     <span className="work-operation-icons" aria-hidden="true"><RefreshCw className="work-operation-spinner" size={23}/><Check className="work-operation-check" size={25}/><X className="work-operation-error" size={23}/></span>
     <span>{phase === 'busy' ? '처리 중' : phase === 'success' ? '완료' : '처리 실패'}</span>
   </div></>;

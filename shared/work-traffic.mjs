@@ -4,11 +4,21 @@ export function monthDates(month) {
   return Array.from({ length: last.getUTCDate() }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`);
 }
 const complete = run => run.steps.length > 0 && run.steps.every(s => s.completedAt);
+export function isTrafficRunVisible(run, kind, month) {
+  const start = month + '-01';
+  return run.date.slice(0, 7) === month || (kind === 'event' && run.date < start &&
+    (!complete(run) || run.steps.some(step => step.completedAt?.slice(0, 10) >= start)));
+}
 const overdueRun = (run, today) => run.steps.some(s => !s.completedAt && (s.dueDate ?? run.dueDate ?? run.date) < today);
 export function trafficBoard(templates, runs, month, today) {
   const dates = monthDates(month), end = dates.at(-1);
+  const runsByTemplate = new Map();
+  for (const run of runs) {
+    if (!runsByTemplate.has(run.templateId)) runsByTemplate.set(run.templateId, []);
+    runsByTemplate.get(run.templateId).push(run);
+  }
   return templates.map(template => {
-    const linked = runs.filter(r => r.templateId === template.id);
+    const linked = runsByTemplate.get(template.id) ?? [];
     const schedule = template.schedule;
     const revisions = [...(template.scheduleHistory ?? []), { schedule, dueDay: template.dueDay }].filter(r => r.schedule).sort((a,b) => a.schedule.startDate.localeCompare(b.schedule.startDate));
     const configFor = date => revisions.filter(r => r.schedule.startDate <= date).at(-1);
@@ -17,11 +27,17 @@ export function trafficBoard(templates, runs, month, today) {
       if (!config || config.schedule.enabled === false || template.kind === 'event') return false;
       return template.kind === 'monthly' ? Number(date.slice(-2)) === Math.min(config.dueDay ?? 25, dates.length) : config.schedule.weekdays.includes(new Date(date+'T12:00:00Z').getUTCDay());
     });
-    const selected = linked.filter(r => r.date.slice(0, 7) === month || (template.kind === 'event' && r.date < month+'-01' && (!complete(r) || r.steps.some(s => s.completedAt?.slice(0, 10) >= month+'-01'))));
+    const selected = linked.filter(r => isTrafficRunVisible(r, template.kind, month));
+    const runsByDate = new Map();
+    for (const run of selected) {
+      if (!runsByDate.has(run.date)) runsByDate.set(run.date, []);
+      runsByDate.get(run.date).push(run);
+    }
+    const monthlyDone = template.kind === 'monthly' && selected.some(r => !r.related.length && complete(r));
     const cells = dates.map(date => {
-      const actual = linked.filter(r => r.date === date);
+      const actual = runsByDate.get(date) ?? [];
       const required = expected.includes(date);
-      const primaryDone = (template.kind === 'monthly' ? linked.filter(r=>r.date.slice(0,7)===month) : actual).some(r => !r.related.length && complete(r));
+      const primaryDone = monthlyDone || (template.kind !== 'monthly' && actual.some(r => !r.related.length && complete(r)));
       const missing = required && !primaryDone;
       const pending = actual.some(r => !complete(r));
       const missingOverdue = missing && date < today && !actual.some(r => (r.dueDate ?? r.date) >= today);

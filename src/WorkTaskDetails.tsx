@@ -3,13 +3,13 @@ import { Pencil, X } from 'lucide-react';
 import DateInput from './DateInput';
 import { saveEmploymentDraftRows, saveRecipientDraftRows } from './storage';
 import {
-  cancelWorkPlan, createWorkPlan, updateWorkTask, workCategoryLabels, workPeriods, workToday,
-  type WorkContext, type WorkDay, type WorkPeriod, type WorkPlan, type WorkReference, type WorkTask, type WorkTaskInput
+  cancelWorkPlan, updateWorkTask, workCategoryLabels, workPeriods,
+  type WorkContext, type WorkDay, type WorkPlan, type WorkReference, type WorkTask, type WorkTaskInput
 } from './lib/work-tasks';
 
 type Field = 'title' | 'assigneeId' | 'dueDate' | 'category' | 'description' | 'related';
 type Props = {
-  task: WorkTask; context: WorkContext; date: string; activity: WorkDay | null; disabled: boolean;
+  task: WorkTask; context: WorkContext; activity: WorkDay | null; disabled: boolean;
   onSaved: (task: WorkTask) => void; onPlansChanged: () => void;
   onReferenceCreated: (reference: WorkReference) => void;
   onBusy: (busy: boolean) => void; onEditing: (editing: boolean) => void;
@@ -27,8 +27,8 @@ function ReferencePicker({ task, context, value, onChange, onCreated, onBusy }: 
   const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const request = useRef({ key: '', id: crypto.randomUUID() });
   const lock = useRef(false);
+  const request = useRef({ key: '', id: crypto.randomUUID() });
   const candidates = context.references.filter(r => r.type === kind && query.trim() && `${r.name} ${r.info}`.toLowerCase().includes(query.trim().toLowerCase()));
   const references = [...task.related, ...context.references];
   async function create() {
@@ -56,7 +56,7 @@ function ReferencePicker({ task, context, value, onChange, onCreated, onBusy }: 
   </>;
 }
 
-export default function WorkTaskDetails({ task, context, date, activity, disabled, onSaved, onPlansChanged, onReferenceCreated, onBusy, onEditing }: Props) {
+export default function WorkTaskDetails({ task, context, activity, disabled, onSaved, onPlansChanged, onReferenceCreated, onBusy, onEditing }: Props) {
   const [field, setField] = useState<Field | null>(null);
   const [fields, setFields] = useState<Field[]>([]);
   const [draft, setDraft] = useState(() => inputFor(task));
@@ -64,24 +64,17 @@ export default function WorkTaskDetails({ task, context, date, activity, disable
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  const [planDate, setPlanDate] = useState(date);
-  const [planOwner, setPlanOwner] = useState(task.assigneeId ?? '');
-  const [planPeriod, setPlanPeriod] = useState<WorkPeriod>('unknown');
   const [planError, setPlanError] = useState('');
-  const [planDirty, setPlanDirty] = useState(false);
   const [extraPlans, setExtraPlans] = useState<WorkPlan[]>([]);
   const lock = useRef(false);
-  const request = useRef(crypto.randomUUID());
-  const requestKey = useRef('');
   const editor = useRef<HTMLFormElement>(null);
   const errorBox = useRef<HTMLParagraphElement>(null);
   const editable = task.canEdit && !task.onHold && task.status !== 'cancelled';
   const blocked = disabled || busy;
   const name = (id: string | null) => context.assignees.find(p => p.id === id)?.name ?? context.members.find(p => p.id === id)?.name ?? (id ? '이전 담당자' : '담당자 미정');
-  useEffect(() => { onEditing(Boolean(field) || planDirty); return () => onEditing(false); }, [field, planDirty, onEditing]);
+  useEffect(() => { onEditing(Boolean(field)); return () => onEditing(false); }, [field, onEditing]);
   useEffect(() => { if (field) editor.current?.querySelector<HTMLElement>('[data-field="' + field + '"] input,[data-field="' + field + '"] select,[data-field="' + field + '"] textarea')?.focus(); }, [field]);
   useEffect(() => { if (error) errorBox.current?.focus(); }, [error]);
-  useEffect(() => { if (!planDirty) { setPlanDate(date); setPlanOwner(task.assigneeId ?? ''); } }, [date, task.assigneeId, planDirty]);
 
   function begin(key: Field) {
     if (!field) { setDraft(inputFor(task)); setBase(task); }
@@ -97,20 +90,6 @@ export default function WorkTaskDetails({ task, context, date, activity, disable
       const saved = await updateWorkTask(base.id, draft, base.version);
       onSaved(saved); closeEditor(); setNotice('수정한 내용을 모두 저장했습니다.');
     } catch (cause) { setError(errorText(cause)); }
-    finally { lock.current = false; setBusy(false); onBusy(false); }
-  }
-  async function plan(targetDate = planDate) {
-    if (lock.current || disabled || !editable || task.status !== 'open') return;
-    if (!planOwner) { setPlanError('계획을 수행할 담당자를 선택해 주세요.'); return; }
-    const key = `${targetDate}:${planOwner}:${planPeriod}`;
-    if (requestKey.current !== key) { requestKey.current = key; request.current = crypto.randomUUID(); }
-    lock.current = true; setBusy(true); onBusy(true); setPlanError(''); setNotice('');
-    try {
-      const saved = await createWorkPlan({ taskId: task.id, assigneeId: planOwner, date: targetDate, period: planPeriod, requestId: request.current });
-      setExtraPlans(rows => [...rows.filter(row => row.id !== saved.id), saved]);
-      request.current = crypto.randomUUID(); setPlanDirty(false); onPlansChanged();
-      setNotice(`${saved.date} · ${name(saved.assigneeId)} 계획에 배치했습니다.`);
-    } catch (cause) { setPlanError(errorText(cause)); }
     finally { lock.current = false; setBusy(false); onBusy(false); }
   }
   async function removePlan(row: WorkPlan) {
@@ -157,15 +136,9 @@ export default function WorkTaskDetails({ task, context, date, activity, disable
     {field && <div className="work-detail-savebar"><span>수정 중 · {fields.length}개 항목</span><div className="work-inline-buttons"><button type="submit" className="primary-button" disabled={blocked}>{busy ? '저장 중…' : '변경사항 저장'}</button><button type="button" className="secondary-button" disabled={blocked} onClick={closeEditor}>전체 취소</button></div></div>}
     {error && <p ref={errorBox} tabIndex={-1} role="alert" className="work-day-error">{error} 입력 내용은 유지됩니다. 최신 목록을 확인한 뒤 다시 편집해 주세요.</p>}
     </form>
-    <section className="work-detail-section" aria-label="할 날짜 지정"><h4>할 날짜</h4>
+    <section className="work-detail-section" aria-label="기존 계획"><h4>기존 계획</h4>
       {activePlans.map(row => <div className="work-inline-plan" key={row.id}><span>{row.date} · {name(row.assigneeId)}<small>{workPeriods[row.period]}</small></span>{editable && <button type="button" className="work-field-pencil" aria-label={`${row.date} ${name(row.assigneeId)} 계획 취소`} disabled={blocked || Boolean(field)} onClick={() => void removePlan(row)}><X size={13}/></button>}</div>)}
       {!activePlans.length && <p className="work-inline-description">선택일에 등록된 계획이 없습니다.</p>}
-      {editable && !task.onHold && task.status === 'open' && <form className="work-inline-schedule" onSubmit={event => { event.preventDefault(); void plan(); }}><fieldset disabled={blocked || Boolean(field)}>
-        <label>할 날짜<DateInput required value={planDate} onChange={event => { setPlanDate(event.target.value); setPlanDirty(true); request.current = crypto.randomUUID(); }}/></label>
-        <label>계획 담당자<select required value={planOwner} onChange={event => { setPlanOwner(event.target.value); setPlanDirty(true); request.current = crypto.randomUUID(); }}><option value="">담당자 선택</option>{context.assignees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-        <label>시간대<select value={planPeriod} onChange={event => { setPlanPeriod(event.target.value as WorkPeriod); setPlanDirty(true); request.current = crypto.randomUUID(); }}>{Object.entries(workPeriods).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <div className="work-inline-buttons"><button type="submit" className="primary-button">계획에 배치</button><button type="button" className="secondary-button" onClick={() => void plan(workToday())}>오늘에 배치</button>{planDirty && <button type="button" className="secondary-button" onClick={() => { setPlanDirty(false); setPlanPeriod('unknown'); setPlanError(''); request.current = crypto.randomUUID(); }}>입력 취소</button>}</div>
-      </fieldset></form>}
       {planError && <p className="work-day-error" role="alert">{planError}</p>}
     </section>
     {notice && <p className="work-day-notice" role="status">{notice}</p>}

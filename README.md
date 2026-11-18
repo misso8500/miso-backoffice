@@ -142,6 +142,8 @@ Miso Backoffice는 미소 노인재가복지센터의 장기요양 운영 업무
 
 ## Product Principles
 
+개발 착수 시 [개발원칙서](docs/development-principles.md)와 [디자인원칙서](docs/ui-style-conventions.md)를 먼저 확인한다. 변경 범위에 해당하는 원칙을 티켓의 완료 기준과 검증 방법에 반영한다.
+
 이 프로젝트는 아래 원칙에 따라 개발한다.
 
 1. 한 번에 넓게 만들지 않고, 수급자 관리 1축을 먼저 완성한다.

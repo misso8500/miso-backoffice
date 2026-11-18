@@ -1195,6 +1195,12 @@ const server = createServer(async (request, response) => {
       }
     })) return;
     const parts = parsePath(request.url ?? "/");
+    if(parts[0]==='api'&&parts[1]==='recipients'&&parts[2]&&parts[3]==='basic-info'&&!parts[4]){
+      if(request.method!=='PUT'){sendJson(response,405,{error:'지원하지 않는 기초정보 저장 요청입니다.'});return;}
+      await workStore.saveRecipientBasicInfo(parts[2],await readBody(request));
+      sendJson(response,200,readRecipient(parts[2]));return;
+    }
+
     if(parts[0]==='api'&&parts[1]==='recipients'&&parts[2]&&parts[3]==='care-number'&&!parts[4]){
       if(request.method!=='PUT'){sendJson(response,405,{error:'지원하지 않는 인정번호 요청입니다.'});return;}
       const body=await readBody(request),existing=readRecipient(parts[2]),value=prepareRecipientCareNumber(body,existing);

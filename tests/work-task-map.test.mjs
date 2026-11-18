@@ -7,6 +7,32 @@ import { normalizeTaskMap } from '../server/work-task-map.mjs';
 test('task map validates bounded procedures', () => {
   for (const body of [null, {}, { title: '절차', kind: 'daily', category: 'service', steps: [] }, { title: '절차', kind: 'daily', category: 'service', steps: [{ title: '', guide: '' }] }]) assert.throws(() => normalizeTaskMap(body), { status: 400 });
 });
+
+test('monthly payload excludes unrelated history while retaining event carryover', async () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const store = createSqliteWorkStore(db, () => true);
+    const daily = await store.saveTaskMap({ title: 'Daily', kind: 'daily', category: 'service', steps: [{ title: 'Check', guide: '' }] });
+    const event = await store.saveTaskMap({ title: 'Event', kind: 'event', category: 'service', steps: [{ title: 'Check', guide: '' }] });
+    const insert = db.prepare('INSERT INTO work_map_runs VALUES(?,?,?,?,1)');
+    const add = (id, template, date, completedAt) => {
+      const payload = { kind: template.kind, date, related: [], steps: [{ completedAt }] };
+      insert.run(id, JSON.stringify([template.id, date, [id]]), date, JSON.stringify(payload));
+    };
+    add('closed-daily', daily, '2026-01-23', null);
+    add('closed-event', event, '2026-01-24', '2026-01-25T10:00:00Z');
+    add('late-event', event, '2026-01-25', '2026-02-02T10:00:00Z');
+    add('open-event', event, '2026-01-26', null);
+    add('current-daily', daily, '2026-02-10', null);
+    add('future-event', event, '2026-03-01', null);
+    for (let i = 0; i < 505; i++) {
+      add(`history-${String(i).padStart(3, '0')}`, i === 250 ? event : daily, '2026-01-26', null);
+    }
+    const board = await store.taskMaps('2026-02');
+    assert.deepEqual(board.runs.map(run => run.id), ['current-daily', 'history-250', 'open-event', 'late-event']);
+    assert.deepEqual(board.nodes.find(node => node.template.id === event.id).runs.map(run => run.id), ['history-250', 'open-event', 'late-event']);
+  } finally { db.close(); }
+});
 test('later steps can complete first and write an execution', async () => {
   const db = new DatabaseSync(':memory:');
   try {

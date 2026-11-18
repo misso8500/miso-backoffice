@@ -1,9 +1,12 @@
+import CarePlanImport from './CarePlanImport';
+import {getRecipientStatus} from '../shared/recipient-directory.mjs';
+import StaffCounseling from './StaffCounseling';
 import InstitutionResources from './InstitutionResources';
 import PhoneInput from './PhoneInput';
 import {formatPhoneNumberInput} from './lib/phone-input';
 import {compareRecipients,loadRecipientSort,saveRecipientSort,recipientSortFields,type RecipientSortField} from './lib/recipient-sort';
 import RecipientImport from './RecipientImport';
-import RecipientContactCard from './RecipientContactCard';
+import RecipientBasicInfoEditor from './RecipientBasicInfoEditor';
 import RecipientOverviewPanel from './RecipientOverviewPanel';
 import './RecipientDirectory.css';
 import ProspectManagement from './ProspectManagement';
@@ -24,7 +27,6 @@ import StaffRecords from './StaffRecords';
 import SidebarGroup from './SidebarGroup';
 import RecipientPlanPanel from "./RecipientPlanPanel";
 import RecipientList, { type RecipientView } from "./RecipientList";
-import RecipientServicePeriod from "./RecipientServicePeriod";
 import { dateInputError } from "./lib/date-input";
 import DateInput from "./DateInput";
 import BasicEntryGrid from "./BasicEntryGrid";
@@ -37,9 +39,11 @@ import RecipientDocuments from "./RecipientDocuments";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   useRef,
+  type SetStateAction,
   type FormEvent
 } from "react";
 import {
@@ -67,6 +71,7 @@ import {
   deleteRecipient,
   loadEmploymentContracts,
   loadBackofficeState,
+  directoryChangedEvent,
   loadRecipients,
   requestJson,
   restoreRecipient,
@@ -168,7 +173,6 @@ const emptyEmploymentContractForm: EmploymentContractFormState = {
 
 const requiredFormFields: Array<{ key: keyof RecipientFormState; label: string }> = [
   { key: "name", label: "수급자 이름" },
-  { key: "operationalName", label: "업무식별명" },
   { key: "birthDate", label: "생년월일" },
   { key: "longTermCareNumber", label: "장기요양인정번호" },
   { key: "careGrade", label: "장기요양등급" },
@@ -369,19 +373,6 @@ const isRecipientEnabled = (recipient: Recipient) => recipient.enabled !== false
 
 type RecipientStatus = "정보입력중" | "급여시작" | "급여제공중" | "급여갱신필요" | "계약종료예정" | "계약종료";
 
-const getRecipientStatus = (recipient: Recipient, now = new Date()): RecipientStatus => {
-  if (recipient.isDraft) return "정보입력중";
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const start = new Date(`${recipient.serviceStartDate}T00:00:00`).getTime();
-  const expiry = new Date(`${recipient.serviceEndDate}T00:00:00`).getTime();
-  const daysUntilExpiry = Math.ceil((expiry - today) / 86_400_000);
-
-  if (!isRecipientEnabled(recipient) || daysUntilExpiry < 0) return "계약종료";
-  if (today < start) return "급여시작";
-  if (daysUntilExpiry <= 14) return "계약종료예정";
-  if (daysUntilExpiry <= 60) return "급여갱신필요";
-  return "급여제공중";
-};
 
 const limitDateYear = (value: string) => {
   const match = value.match(/^(\d{4})\d*(-.*)?$/);
@@ -400,15 +391,23 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [copayRecipientRevision,setCopayRecipientRevision]=useState(0);
   const [copayLinkBusy,setCopayLinkBusy]=useState(false),[copayLinkError,setCopayLinkError]=useState('');
   const [copayPendingLink,setCopayPendingLink]=useState<{row:CopayRecipientRequest;recipient:Recipient}|null>(null);
-  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay" | "visits" | "rfid" | "prospects" | "institution">(
+  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay" | "visits" | "rfid" | "prospects" | "institution" | "staffCounseling">(
     "recipients"
   );
+  const directoryScroll = useRef<Partial<Record<'recipients' | 'employmentContracts', number>>>({});
+  useLayoutEffect(() => {
+    if (activeView === 'recipients' || activeView === 'employmentContracts') {
+      window.scrollTo({ top: directoryScroll.current[activeView] ?? 0, behavior: 'instant' });
+    }
+  }, [activeView]);
+  const [counselingBusy,setCounselingBusy]=useState(false),[counselingDirty,setCounselingDirty]=useState(false);
   const [institutionBusy,setInstitutionBusy]=useState(false),[institutionDirty,setInstitutionDirty]=useState(false);
   const [prospectBusy,setProspectBusy]=useState(false),[prospectDirty,setProspectDirty]=useState(false);
   const [visitsBusy,setVisitsBusy]=useState(false),[visitsDirty,setVisitsDirty]=useState(false),[rfidBusy,setRfidBusy]=useState(false);
   const [recipientHandoff,setRecipientHandoff]=useState<{id:string;name:string}|null>(null);
   function setActiveView(next: typeof activeView, focus?:{id:string;name:string}) {
     if(next===activeView&&!focus)return;
+    if(next!==activeView&&activeView==='staffCounseling'){if(counselingBusy)return;if(counselingDirty&&!window.confirm('저장하지 않은 직원 상담일지를 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='institution'){if(institutionBusy)return;if(institutionDirty&&!window.confirm('저장하지 않은 기관 자료 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='prospects'){if(prospectBusy)return;if(prospectDirty&&!window.confirm('저장하지 않은 잠재고객 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='visits'){if(visitsBusy)return;if(visitsDirty&&!window.confirm('저장하지 않은 라운딩 입력을 닫고 이동할까요?'))return;}
@@ -417,6 +416,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     if(next!==activeView && activeView==='recipientServices') {
       if(serviceBusy)return;
       if(serviceDirty&&!window.confirm('적용하지 않은 체크 변경을 버리고 이동할까요?'))return;
+    }
+    if (next !== activeView && (activeView === 'recipients' || activeView === 'employmentContracts')) {
+      directoryScroll.current[activeView] = window.scrollY;
     }
     if(next==='copay')setCopayOpened(true);
     setRecipientHandoff(focus??null);
@@ -434,11 +436,6 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   },[activeView]);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(null);
-  const [operationalNameDraft, setOperationalNameDraft] = useState("");
-  const [operationalNameSaveMessage, setOperationalNameSaveMessage] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showEnabledOnly, setShowEnabledOnly] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState<RecipientStatus | "전체">("전체");
@@ -449,9 +446,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [recipientSort,setRecipientSort]=useState(loadRecipientSort);
   useEffect(()=>saveRecipientSort(recipientSort),[recipientSort]);
   const [isRecipientGridOpen, setIsRecipientGridOpen] = useState(false);
+  const [isCarePlanImportOpen,setIsCarePlanImportOpen]=useState(false);
   const [isRecipientImportOpen,setIsRecipientImportOpen]=useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasRecipients, setHasRecipients] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ id: number; message: string } | null>(null);
   const [assigningRecipientIds, setAssigningRecipientIds] = useState<string[]>([]);
@@ -492,6 +491,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     return () => window.clearInterval(timer);
   }, []);
   const [isEmploymentLoading, setIsEmploymentLoading] = useState(true);
+  const [hasEmploymentContracts, setHasEmploymentContracts] = useState(false);
   const [employmentErrorMessage, setEmploymentErrorMessage] = useState<string | null>(null);
   const [isEmploymentCreatePanelOpen, setIsEmploymentCreatePanelOpen] = useState(false);
   const [includeWorkConditions, setIncludeWorkConditions] = useState(true);
@@ -515,35 +515,86 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   }, []);
 
   const recipientLoadGeneration=useRef(0);
+  const recipientRequest = useRef(0);
+  const recipientsReadAt = useRef<number | null>(null);
+  const employmentReadAt = useRef<number | null>(null);
+  const employmentRequest = useRef(0);
+  const employmentLoadGeneration = useRef(0);
+  const directoryFreshnessMs = 30_000;
+  const invalidateDirectory = useCallback((type: 'recipient' | 'worker') => {
+    if (type === 'recipient') {
+      if (recipientsReadAt.current !== null) recipientsReadAt.current = -Infinity;
+      recipientLoadGeneration.current++;
+      recipientRequest.current = 0;
+      setIsLoading(false);
+    } else {
+      if (employmentReadAt.current !== null) employmentReadAt.current = -Infinity;
+      employmentLoadGeneration.current++;
+      employmentRequest.current = 0;
+      setIsEmploymentLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const changed = (event: Event) => invalidateDirectory((event as CustomEvent<'recipient' | 'worker'>).detail);
+    window.addEventListener(directoryChangedEvent, changed);
+    return () => window.removeEventListener(directoryChangedEvent, changed);
+  }, [invalidateDirectory]);
+
+  function updateRecipientList(update: SetStateAction<Recipient[]>) {
+    if (recipientRequest.current) invalidateDirectory('recipient');
+    setRecipients(update);
+  }
+
+  function updateEmploymentList(update: SetStateAction<EmploymentContract[]>) {
+    if (employmentRequest.current) invalidateDirectory('worker');
+    setEmploymentContracts(update);
+  }
+
   const fetchRecipients = useCallback(async () => {
     const generation=++recipientLoadGeneration.current;
+    recipientRequest.current = generation;
     setIsLoading(true);
 
     try {
-      const loadedRecipients = await loadRecipients();
+      const loadedRecipients = await loadRecipients(true);
       if(generation!==recipientLoadGeneration.current)return;
       setRecipients(loadedRecipients);
+      recipientsReadAt.current = Date.now();
+      setHasRecipients(true);
       setErrorMessage(null);
     } catch (error) {
       if(generation===recipientLoadGeneration.current)setErrorMessage(error instanceof Error ? error.message : "수급자 정보를 불러오지 못했습니다.");
     } finally {
-      if(generation===recipientLoadGeneration.current)setIsLoading(false);
+      if (recipientRequest.current === generation) {
+        recipientRequest.current = 0;
+        setIsLoading(false);
+      }
     }
   }, []);
 
   const fetchEmploymentContracts = useCallback(async () => {
+    const generation = ++employmentLoadGeneration.current;
+    employmentRequest.current = generation;
     setIsEmploymentLoading(true);
 
     try {
-      const loadedContracts = await loadEmploymentContracts();
+      const loadedContracts = await loadEmploymentContracts(true);
+      if (generation !== employmentLoadGeneration.current) return;
       setEmploymentContracts(loadedContracts);
+      employmentReadAt.current = Date.now();
+      setHasEmploymentContracts(true);
       setEmploymentErrorMessage(null);
     } catch (error) {
+      if (generation !== employmentLoadGeneration.current) return;
       setEmploymentErrorMessage(
         error instanceof Error ? error.message : "근로계약 정보를 불러오지 못했습니다."
       );
     } finally {
-      setIsEmploymentLoading(false);
+      if (employmentRequest.current === generation) {
+        employmentRequest.current = 0;
+        setIsEmploymentLoading(false);
+      }
     }
   }, []);
 
@@ -558,12 +609,17 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   }, []);
 
   useEffect(() => {
-    void fetchEmploymentContracts();
     void fetchBackofficeState();
-  }, [fetchBackofficeState, fetchEmploymentContracts, fetchRecipients]);
+  }, [fetchBackofficeState]);
 
   useEffect(() => {
-    if (activeView === 'recipients') void fetchRecipients();
+    if (activeView === 'employmentContracts' && !employmentRequest.current &&
+      Date.now() - (employmentReadAt.current ?? -Infinity) >= directoryFreshnessMs) void fetchEmploymentContracts();
+  }, [activeView, fetchEmploymentContracts]);
+
+  useEffect(() => {
+    if (activeView === 'recipients' && !recipientRequest.current &&
+      Date.now() - (recipientsReadAt.current ?? -Infinity) >= directoryFreshnessMs) void fetchRecipients();
   }, [activeView, fetchRecipients]);
 
   useEffect(() => {
@@ -644,10 +700,6 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     recipients.find((recipient) => recipient.id === selectedRecipientId) ?? null;
 
 
-  useEffect(() => {
-    setOperationalNameDraft(selectedRecipient?.operationalName ?? "");
-    setOperationalNameSaveMessage(null);
-  }, [selectedRecipient?.id, selectedRecipient?.operationalName]);
   const enabledRecipientCount = recipients.filter((recipient) => isRecipientEnabled(recipient)).length;
   const renewalCount = recipients.filter((recipient) =>
     ["급여갱신필요", "계약종료예정"].includes(getRecipientStatus(recipient))
@@ -943,7 +995,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       const savedRecipient = recipientBeingEdited
         ? await updateRecipient(recipientToSave)
         : await createRecipient(recipientToSave);
-      setRecipients((current) => recipientBeingEdited
+      updateRecipientList((current) => recipientBeingEdited
         ? current.map((recipient) => recipient.id === savedRecipient.id ? savedRecipient : recipient)
         : [...current, savedRecipient]);
       if (recipientBeingEdited?.isDraft && !savedRecipient.isDraft) setSelectedStatus("전체");
@@ -972,7 +1024,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const handleQuickCreateRecipient = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const requiredQuickFields: Array<keyof RecipientFormState> = [
-      "name", "operationalName", "birthDate", "longTermCareNumber", "careGrade", "address", "serviceStartDate", "serviceEndDate"
+      "name", "birthDate", "longTermCareNumber", "careGrade", "address", "serviceStartDate", "serviceEndDate"
     ];
 
     if (requiredQuickFields.some((field) => !formState[field].trim())) {
@@ -1007,7 +1059,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         contractExpiredDate: formState.serviceEndDate,
         enabled: true
       });
-      setRecipients((current) => [...current, createdRecipient]);
+      updateRecipientList((current) => [...current, createdRecipient]);
       setFormState(emptyRecipientForm);
       setFormErrorMessage(null);
       setIsQuickAddOpen(false);
@@ -1020,47 +1072,13 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     }
   };
 
-  const handleOperationalNameUpdate = async () => {
-    if (!selectedRecipient) return;
-
-    const operationalName = operationalNameDraft.trim();
-    if (!operationalName) {
-      setOperationalNameSaveMessage({ type: "error", text: "업무식별명을 입력하세요." });
-      return;
-    }
-
-    setIsSaving(true);
-    setOperationalNameSaveMessage(null);
-    try {
-      const updated = await updateRecipient({
-        ...selectedRecipient,
-        operationalName
-      });
-      if (updated.operationalName !== operationalName) {
-        throw new Error("업무식별명이 서버 응답에 반영되지 않았습니다. API 서버를 재시작해 주세요.");
-      }
-      setRecipients((current) => current.map((recipient) => recipient.id === updated.id ? updated : recipient));
-      setOperationalNameDraft(updated.operationalName);
-      setOperationalNameSaveMessage({ type: "success", text: "업무식별명을 저장했습니다." });
-      showNotification("수급자 정보를 저장하였습니다.");
-      setErrorMessage(null);
-    } catch (error) {
-      setOperationalNameSaveMessage({
-        type: "error",
-        text: error instanceof Error ? error.message : "업무식별명을 저장하지 못했습니다."
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleAssignedBackofficeUserUpdate = async (recipient: Recipient, userId: string) => {
     if (assigningRecipientIds.includes(recipient.id) || (recipient.assignedBackofficeUserId ?? "") === userId) return;
     setAssigningRecipientIds((current) => [...current, recipient.id]);
     setAssignmentErrors((current) => ({ ...current, [recipient.id]: "" }));
     try {
       const updated = await updateRecipient({ ...recipient, assignedBackofficeUserId: userId || undefined });
-      setRecipients((current) => current.map((item) => item.id === updated.id ? updated : item));
+      updateRecipientList((current) => current.map((item) => item.id === updated.id ? updated : item));
       const user = backofficeUsers.find((item) => item.id === userId);
       showNotification(userId
         ? `${recipient.name}님의 담당 사회복지사를 ${user?.name ?? "선택한 사용자"}(으)로 배정했습니다.`
@@ -1184,7 +1202,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       const createdContract = isEditingEmploymentContract
         ? await updateEmploymentContract(newContract)
         : await createEmploymentContract(newContract);
-      setEmploymentContracts((current) => isEditingEmploymentContract
+      updateEmploymentList((current) => isEditingEmploymentContract
         ? current.map((contract) => contract.id === createdContract.id ? createdContract : contract)
         : [...current, createdContract]);
       if (saveAsDraft) { setShowEnabledEmploymentOnly(false); setEmploymentRegistrationFilter("draft"); }
@@ -1212,9 +1230,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
     try {
       await deleteRecipient(recipientToDeactivate.id);
-      recipientLoadGeneration.current++;setIsLoading(false);
       if(copayPendingLink?.recipient.id===recipientToDeactivate.id){setCopayPendingLink(null);setCopayLinkError('');}
-      setRecipients((current) =>
+      updateRecipientList((current) =>
         current.filter((recipient) => recipient.id !== recipientToDeactivate.id)
       );
       setSelectedRecipientId(null);
@@ -1245,7 +1262,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         enabled: false
       });
 
-      setEmploymentContracts((current) =>
+      updateEmploymentList((current) =>
         current.map((contract) =>
           contract.id === updatedContract.id ? updatedContract : contract
         )
@@ -1297,7 +1314,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         contractExpiredDate: terminationExpiredDate
       });
 
-      setRecipients((current) =>
+      updateRecipientList((current) =>
         current.map((recipient) =>
           recipient.id === updatedRecipient.id ? updatedRecipient : recipient
         )
@@ -1392,7 +1409,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         memo: restoreFormState.memo.trim() || undefined
       });
 
-      setRecipients((current) =>
+      updateRecipientList((current) =>
         current.map((recipient) =>
           recipient.id === updatedRecipient.id ? updatedRecipient : recipient
         )
@@ -1539,7 +1556,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             <button type="button" className={activeView === "records" ? "is-active" : ""} aria-current={activeView === "records" ? "page" : undefined} onClick={() => { setActiveView("records"); setSelectedRecipientId(null); setSelectedEmploymentContractId(null); setIsCreatePanelOpen(false); setIsEmploymentCreatePanelOpen(false); }}><ClipboardCheck size={16}/>근무기록</button>
             {([['visits','라운딩'],['rfid','RFID 확인']] as const).map(([view,label])=><button key={view} type="button" className={activeView===view?'is-active':''} aria-current={activeView===view?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView(view);setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>{label}</button>)}
             </SidebarGroup>
-            <SidebarGroup title="기관 운영 서류 업무" active={activeView==='institution'}><button type="button" className={activeView==='institution'?'is-active':''} aria-current={activeView==='institution'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('institution');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><Briefcase size={16}/>기관 연락처·공문 서식</button></SidebarGroup>
+            <SidebarGroup title="기관 운영 서류 업무" active={activeView==='institution'||activeView==='staffCounseling'}><button type="button" className={activeView==='institution'?'is-active':''} aria-current={activeView==='institution'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('institution');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><Briefcase size={16}/>기관 연락처·공문 서식</button><button type="button" className={activeView==='staffCounseling'?'is-active':''} aria-current={activeView==='staffCounseling'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('staffCounseling');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>직원 상담일지</button></SidebarGroup>
           </nav>
           <div className="runtime-badge">
             <Database size={16} />
@@ -1550,16 +1567,16 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       {import.meta.env.DEV && <div className="development-indicator" role="note" aria-label="개발 환경">DEV · 개발 환경</div>}
 
       <main className="main-content">
-        <WorkOperationStatus/>
-        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인',prospects:'잠재고객 관리',institution:'기관 연락처·공문 서식'}[activeView]}</strong></div>}
+        <WorkOperationStatus compact={activeView === "work"}/>
+        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인',prospects:'잠재고객 관리',institution:'기관 연락처·공문 서식',staffCounseling:'직원 상담일지'}[activeView]}</strong></div>}
         {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
         {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}
         {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy} onRecipient={row=>void openCopayRecipient(row)} recipientRevision={copayRecipientRevision} active={activeView==='copay'}/></section>}
-        {activeView === "institution" ? <InstitutionResources onDirty={setInstitutionDirty} onBusy={setInstitutionBusy}/> : activeView === "prospects" ? <ProspectManagement onDirty={setProspectDirty} onBusy={setProspectBusy}/> : activeView === "visits" ? <section className="work-hub"><WorkVisits key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub onDirectoryChanged={() => { void fetchRecipients(); void fetchEmploymentContracts(); }} /> : activeView === "recipients" ? (
+        {activeView === "staffCounseling" ? <StaffCounseling onDirty={setCounselingDirty} onBusy={setCounselingBusy}/> : activeView === "institution" ? <InstitutionResources onDirty={setInstitutionDirty} onBusy={setInstitutionBusy}/> : activeView === "prospects" ? <ProspectManagement onDirty={setProspectDirty} onBusy={setProspectBusy}/> : activeView === "visits" ? <section className="work-hub"><WorkVisits key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub /> : activeView === "recipients" ? (
           <section className="recipient-directory-workspace">
         <PageHeading title="수급자 기초정보" description="연락처·방문 주소·보호자·담당자를 확인하고 필요한 업무로 이어갑니다.">
           <div className="heading-actions">
-            <button type="button" className="secondary-button" onClick={()=>setIsRecipientImportOpen(true)}>엑셀로 등록·업데이트</button>
+            <button type="button" className="secondary-button" onClick={()=>setIsRecipientImportOpen(true)}>엑셀로 등록·업데이트</button><button type="button" className="secondary-button" onClick={()=>setIsCarePlanImportOpen(true)}>롱텀케어 계획 가져오기</button>
             <button type="button" className="secondary-button" onClick={() => setIsRecipientGridOpen(true)}>
               <Plus size={18} /> 표로 여러 명 입력
             </button>
@@ -1578,14 +1595,14 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
           </div>
         </PageHeading>
-        <div className="recipient-directory-summary">{([{key:'all',label:'등록 명부',count:enabledRecipientCount},{key:'renewal',label:'기간 확인 필요',count:renewalCount},{key:'unassigned',label:'담당 미배정',count:recipients.filter(r=>isRecipientEnabled(r)&&!r.assignedBackofficeUserId).length},{key:'draft',label:'정보 보완 필요',count:recipients.filter(r=>isRecipientEnabled(r)&&r.isDraft).length}] as const).map(item=><button type="button" key={item.key} aria-pressed={recipientAttention===item.key&&(item.key!=='all'||selectedStatus==='전체'&&selectedAssignedUserId==='all'&&showEnabledOnly&&!searchQuery.trim())} onClick={()=>{setSearchQuery('');setRecipientAttention(item.key);setSelectedStatus('전체');setSelectedAssignedUserId('all');setShowEnabledOnly(true);}}><span>{item.label}</span><strong>{item.count}<small>명</small></strong><ChevronRight size={16}/></button>)}</div>
+        <div className="recipient-directory-summary">{([{key:'all',label:'등록 명부',count:enabledRecipientCount},{key:'renewal',label:'기간 확인 필요',count:renewalCount},{key:'unassigned',label:'담당 미배정',count:recipients.filter(r=>isRecipientEnabled(r)&&!r.assignedBackofficeUserId).length},{key:'draft',label:'정보 보완 필요',count:recipients.filter(r=>r.isDraft).length}] as const).map(item=><button type="button" key={item.key} aria-pressed={recipientAttention===item.key&&(item.key!=='all'||selectedStatus==='전체'&&selectedAssignedUserId==='all'&&showEnabledOnly&&!searchQuery.trim())} onClick={()=>{setSearchQuery('');setRecipientAttention(item.key);setSelectedStatus('전체');setSelectedAssignedUserId('all');setShowEnabledOnly(item.key!=='draft');}}><span>{item.label}</span><strong>{item.count}<small>명</small></strong><ChevronRight size={16}/></button>)}</div>
         <nav className="app-navigation-tabs recipient-directory-tabs" aria-label="수급자 보기">{([['basic','기본·연락처'],['validity','기간·갱신'],['plan','돌봄·계획']] as const).map(([value,label])=><button type="button" key={value} aria-current={recipientView===value?'page':undefined} onClick={()=>setRecipientView(value)}>{label}</button>)}</nav>
 
         {errorMessage && (
           <div className="error-banner" role="alert">
             <AlertTriangle size={20} />
             <div>
-              <strong>API 서버 연결을 확인하세요.</strong>
+              <strong>{hasRecipients ? "최신 정보를 불러오지 못했습니다." : "API 서버 연결을 확인하세요."}</strong>
               <p>{errorMessage}</p>
             </div>
             <button type="button" className="icon-button" onClick={() => void fetchRecipients()}>
@@ -1603,7 +1620,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             </div>
             <div className="quick-add-grid">
               <label><span>이름</span><input value={formState.name} onChange={(event) => updateFormField("name", event.target.value)} required autoFocus /></label>
-              <label className="quick-identifier-field"><span>업무식별명</span><input value={formState.operationalName} onChange={(event) => updateFormField("operationalName", event.target.value)} placeholder="정성춘/3/함평군/파킨슨" required /></label>
+              <label className="quick-identifier-field"><span>업무식별명</span><input value={formState.operationalName} onChange={(event) => updateFormField("operationalName", event.target.value)} placeholder="정성춘/3/함평군/파킨슨" /></label>
               <label><span>생년월일</span><DateInput {...dateInputLimits} value={formState.birthDate} onChange={(event) => updateFormField("birthDate", event.target.value)} required /></label>
               <label><span>장기요양인정번호</span><input placeholder="L1234567890" value={formState.longTermCareNumber} onChange={(event) => updateFormField("longTermCareNumber", event.target.value)} required /></label>
               <label><span>등급</span><select value={formState.careGrade} onChange={(event) => updateFormField("careGrade", event.target.value)}>{["1등급","2등급","3등급","4등급","5등급","인지지원등급"].map((grade) => <option key={grade}>{grade}</option>)}</select></label>
@@ -1664,8 +1681,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
             </div>
           </div>
 
-          {isLoading ? (
-null
+          {!hasRecipients && (isLoading || errorMessage) ? (
+            isLoading ? <p role="status">수급자 목록을 불러오는 중입니다.</p> : null
           ) : filteredRecipients.length === 0 ? (
             <div className="empty-state">
               <Users size={30} />
@@ -1715,7 +1732,7 @@ null
               <div className="error-banner" role="alert">
                 <AlertTriangle size={20} />
                 <div>
-                  <strong>API 서버 연결을 확인하세요.</strong>
+                  <strong>{hasEmploymentContracts ? "최신 정보를 불러오지 못했습니다." : "API 서버 연결을 확인하세요."}</strong>
                   <p>{employmentErrorMessage}</p>
                 </div>
                 <button
@@ -1760,8 +1777,8 @@ null
                 </div>
               </div>
 
-              {isEmploymentLoading ? (
-null
+              {!hasEmploymentContracts && (isEmploymentLoading || employmentErrorMessage) ? (
+                isEmploymentLoading ? <p role="status">근로계약 목록을 불러오는 중입니다.</p> : null
               ) : filteredEmploymentContracts.length === 0 ? (
                 <div className="empty-state">
                   <Briefcase size={30} />
@@ -1815,17 +1832,18 @@ null
 
       {isEmploymentGridOpen && <BasicEntryGrid mode="employment" existingContracts={employmentContracts}
         onClose={() => setIsEmploymentGridOpen(false)} onContractsSaved={(saved) => {
-          setEmploymentContracts((current) => [...current.filter((contract) => !saved.some((item) => item.id === contract.id)), ...saved]);
+          updateEmploymentList((current) => [...current.filter((contract) => !saved.some((item) => item.id === contract.id)), ...saved]);
           setIsEmploymentGridOpen(false); if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("employmentContracts"); setEmploymentSearchQuery("");
           setShowEnabledEmploymentOnly(false); setEmploymentRegistrationFilter("draft");
           showNotification(`${saved.length}건의 기본 정보를 저장했습니다. 이름을 눌러 상세 정보를 보완해 주세요.`);
         }} />}
 
+      {isCarePlanImportOpen&&<CarePlanImport onClose={()=>setIsCarePlanImportOpen(false)} onApplied={()=>{setRecipientAttention('all');setSelectedStatus('전체');setSearchQuery('');setSelectedAssignedUserId('all');setShowEnabledOnly(false);void fetchRecipients();}} onFollowup={()=>{setIsCarePlanImportOpen(false);setIsRecipientImportOpen(true);}} onView={()=>{setIsCarePlanImportOpen(false);setRecipientView('plan');}}/>}
       {isRecipientImportOpen&&<RecipientImport onClose={()=>setIsRecipientImportOpen(false)} onApplied={result=>{setIsRecipientImportOpen(false);setRecipientAttention('all');setSelectedStatus('전체');setSearchQuery('');setSelectedAssignedUserId('all');setShowEnabledOnly(false);void fetchRecipients();showNotification(`신규 ${result.created}명 등록 · ${result.updated}명 업데이트를 완료했습니다.`);}}/>}
 
       {isRecipientGridOpen && <BasicEntryGrid existing={recipients}
         onClose={() => setIsRecipientGridOpen(false)} onSaved={(saved) => {
-          setRecipients((current) => [...current.filter((recipient) => !saved.some((item) => item.id === recipient.id)), ...saved]);
+          updateRecipientList((current) => [...current.filter((recipient) => !saved.some((item) => item.id === recipient.id)), ...saved]);
           setIsRecipientGridOpen(false);
           if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("recipients"); setRecipientAttention('all');setSelectedStatus("정보입력중"); setShowEnabledOnly(true);
           setSearchQuery(""); setSelectedAssignedUserId("all");
@@ -1835,48 +1853,11 @@ null
       {selectedRecipient && <RecipientOverviewPanel key={selectedRecipient.id} recipient={selectedRecipient} users={backofficeUsers} status={getRecipientStatus(selectedRecipient)} initialSection={recipientView==='plan'||planEditingRequested?'plan':'basic'}
         onClose={()=>setSelectedRecipientId(null)} onSectionChange={()=>setPlanEditingRequested(false)}
         onNavigate={view=>{setActiveView(view,{id:selectedRecipient.id,name:selectedRecipient.name});setSelectedRecipientId(null);}}
-        busy={isSaving||assigningRecipientIds.includes(selectedRecipient.id)} managementDirty={operationalNameDraft!==(selectedRecipient.operationalName??'')} onDiscardManagement={()=>setOperationalNameDraft(selectedRecipient.operationalName??'')}
-        renderContact={(onDirty,onBusy)=><RecipientContactCard recipient={selectedRecipient} onDirty={onDirty} onBusy={onBusy} onSaved={saved=>setRecipients(current=>current.map(person=>person.id===saved.id?saved:person))}/>}
-        renderPlan={(onDirty,onBusy)=><RecipientPlanPanel key={`plan-${selectedRecipient.id}`} recipientId={selectedRecipient.id} initiallyEditing={planEditingRequested} onDirty={onDirty} onBusy={onBusy} onSaved={state=>{setRecipients(current=>current.map(r=>r.id===selectedRecipient.id?{...r,...(state.current?.notes??state.legacyNotes),planSummary:summarizePlan(state)}:r));showNotification('수급자 계획을 저장했습니다.');}}/>}
-        renderContract={(onDirty,onBusy)=><RecipientServicePeriod key={`period-${selectedRecipient.id}`} recipient={selectedRecipient} onDirty={onDirty} onBusy={onBusy} onSaved={saved=>{setRecipients(current=>current.map(r=>r.id===saved.id?saved:r));showNotification('계약 기간을 저장했습니다.');}}/>}
+        busy={isSaving||assigningRecipientIds.includes(selectedRecipient.id)}
+        renderProfile={(onDirty,onBusy,footerTarget)=><RecipientBasicInfoEditor recipient={selectedRecipient} users={backofficeUsers} footerTarget={footerTarget} onDirty={onDirty} onBusy={onBusy} onSaved={saved=>updateRecipientList(current=>current.map(person=>person.id===saved.id?saved:person))}/>}
+        renderPlan={(onDirty,onBusy)=><RecipientPlanPanel key={`plan-${selectedRecipient.id}`} recipientId={selectedRecipient.id} initiallyEditing={planEditingRequested} onDirty={onDirty} onBusy={onBusy} onSaved={state=>{updateRecipientList(current=>current.map(r=>r.id===selectedRecipient.id?{...r,...(state.current?.notes??state.legacyNotes),planSummary:summarizePlan(state)}:r));showNotification('수급자 계획을 저장했습니다.');}}/>}
         renderDocuments={(onDirty,onBusy)=><RecipientDocuments key={selectedRecipient.id} recipientId={selectedRecipient.id} recipientName={selectedRecipient.name} onDirty={onDirty} onBusy={onBusy}/>}
-        managementActions={[{label:'전체 정보 수정',onClick:()=>openRecipientEditPanel(selectedRecipient)},...(isRecipientEnabled(selectedRecipient)?[{label:'계약해지',className:'warning-button',disabled:Boolean(selectedRecipient.isDraft),onClick:()=>{setSelectedRecipientId(null);openTerminateDialog(selectedRecipient);}},{label:'수급자 삭제',className:'danger-button',onClick:()=>{setRecipientToDeactivate(selectedRecipient);setDeactivateErrorMessage(null);setSelectedRecipientId(null);}}]:[{label:'계약복구',className:'restore-button',onClick:()=>{setSelectedRecipientId(null);openRestoreDialog(selectedRecipient);}}])]}
-        management={<>
-            <form className="operational-name-editor" onSubmit={(event) => { event.preventDefault(); void handleOperationalNameUpdate(); }}>
-              <label>
-                <span>업무식별명</span>
-                <input value={operationalNameDraft} onChange={(event) => { setOperationalNameDraft(event.target.value); setOperationalNameSaveMessage(null); }} placeholder="정성춘/3/함평군/파킨슨" required />
-              </label>
-              <button type="submit" className="secondary-button" disabled={isSaving}>
-                <Save size={16} /> {isSaving ? "저장 중" : "저장"}
-              </button>
-              {operationalNameSaveMessage && (
-                <p className={`inline-save-message is-${operationalNameSaveMessage.type}`} role={operationalNameSaveMessage.type === "error" ? "alert" : "status"}>
-                  {operationalNameSaveMessage.text}
-                </p>
-              )}
-            </form>
-
-            <div className="assigned-user-editor">
-              <label>
-                <span>담당 사회복지사</span>
-                <select
-                  value={selectedRecipient.assignedBackofficeUserId ?? ""}
-                  onChange={(event) => void handleAssignedBackofficeUserUpdate(selectedRecipient, event.target.value)}
-                  disabled={isSaving || assigningRecipientIds.includes(selectedRecipient.id)}
-                >
-                  <option value="">미배정</option>
-                  {backofficeUsers.map((user) => (
-                    <option key={user.id} value={user.id}>{user.name}</option>
-                  ))}
-                </select>
-              </label>
-              {assigningRecipientIds.includes(selectedRecipient.id) && <small role="status">저장 중…</small>}
-              {assignmentErrors[selectedRecipient.id] && <small className="assignment-error" role="alert">{assignmentErrors[selectedRecipient.id]}</small>}
-            </div>
-
-
-        </>}/>}
+        managementActions={[...(isRecipientEnabled(selectedRecipient)?[{label:'계약해지',className:'warning-button',disabled:Boolean(selectedRecipient.isDraft),onClick:()=>{setSelectedRecipientId(null);openTerminateDialog(selectedRecipient);}},{label:'수급자 삭제',className:'danger-button',onClick:()=>{setRecipientToDeactivate(selectedRecipient);setDeactivateErrorMessage(null);setSelectedRecipientId(null);}}]:[{label:'계약복구',className:'restore-button',onClick:()=>{setSelectedRecipientId(null);openRestoreDialog(selectedRecipient);}}])]}/>}
 
       {selectedEmploymentContract && (
         <div className="detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(()=>setSelectedEmploymentContractId(null))();}}>
@@ -2030,7 +2011,6 @@ null
                       value={formState.operationalName}
                       onChange={(event) => updateFormField("operationalName", event.target.value)}
                       placeholder="정성춘/3/함평군/파킨슨"
-                      required
                     />
                   </label>
                   <label>

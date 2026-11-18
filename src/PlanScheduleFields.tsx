@@ -1,7 +1,7 @@
 import DateInput from './DateInput';
 import {halfYearEnd,isCalendarDate,planDeadline,deadlineLabel} from '../shared/care-plan-periods.mjs';
 import type {RecipientPlanScheduleInput,RecognitionPeriod} from './types';
-export const planCategories: Record<RecipientPlanScheduleInput['category'],string>={initial:'신규 작성',regular:'정기 작성 (반기)',recognition_renewal:'인정 갱신',grade_change:'등급 변경',needs_change:'서비스 욕구 변화'};
+export const planCategories: Record<RecipientPlanScheduleInput['category'],string>={initial:'신규 작성',regular:'정기 작성 (반기)',recognition_renewal:'인정 갱신',grade_change:'등급 변경',needs_change:'서비스 욕구 변화',external:'롱텀케어 원본'};
 export function defaultPlanEnd(start:string,institutionEnd:string,recognitionEnd?:string) {
   if(!isCalendarDate(start))return '';
   return [halfYearEnd(start),institutionEnd,recognitionEnd].filter((d):d is string=>Boolean(d&&isCalendarDate(d)&&d>=start)).sort()[0];
@@ -13,11 +13,12 @@ export default function PlanScheduleFields({start,setStart,schedule,setSchedule,
   const due=planDeadline(schedule.category,start);
   const patch=(fields:Partial<RecipientPlanScheduleInput>)=>setSchedule({...schedule,...fields});
   const recognition=schedule.recognitionPeriod??{id:'',startDate:'',endDate:'',careGrade:''};
+  if(schedule.external)return <section className="plan-external-source"><h4>롱텀케어 원본 · {schedule.external.serviceType}</h4><p>계획서 번호 {schedule.external.planNumber||'원본 미입력'} · 적용기간 {schedule.external.periodRaw||'미확인'}</p><p>작성일 {schedule.external.writtenDate||'미확인'} / 통보일 {schedule.external.notifiedDate||'미확인'}</p><p>인정기간 {schedule.external.recognitionRaw} · {schedule.recognitionPeriod?.careGrade}</p><p>당시 이용계약 {institution.startDate||'미확인'} ~ {institution.endDate||'미확인'}</p><p>원본 날짜와 겹치는 기간은 그대로 보존합니다. 아래에서 상세 내용을 보완하세요. 원본 내역 변경은 엑셀 재업로드로 반영합니다.</p><details><summary>원본 전체 항목·출처 보기</summary><p>{schedule.external.filename} · {schedule.external.sourceRow}</p><dl className="recipient-overview-facts">{schedule.external.originalCells?.map(cell=><div key={cell.column}><dt>{cell.header||`열 ${cell.column}`}</dt><dd>{cell.value}</dd></div>)}</dl></details></section>;
   return <>
     <p className="plan-period-context">연결할 기관 이용기간: <strong>{institution.startDate||'시작일 미등록'} ~ {institution.endDate||'만료일 미등록'}</strong></p>
     {(!institution.startDate||!institution.endDate)&&<p className="form-error">아래 ‘계약 기간 수정·갱신’에서 기관 이용기간을 먼저 등록해 주세요.</p>}
     <div className="plan-edit-metadata">
-      <label>계획 종류<select value={schedule.category} disabled={busy||locked} onChange={event=>patch({category:event.target.value as RecipientPlanScheduleInput['category']})}>{Object.entries(planCategories).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+      <label>계획 종류<select value={schedule.category} disabled={busy||locked} onChange={event=>patch({category:event.target.value as RecipientPlanScheduleInput['category']})}>{Object.entries(planCategories).filter(([key])=>key!=='external').map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
       <label>작성 상태<select value={schedule.status} disabled={busy} onChange={event=>patch({status:event.target.value as 'draft'|'completed'})}><option value="draft">작성 중 · 임시 저장</option><option value="completed">작성·통보 완료</option></select></label>
       <label>계획 실행 시작일<DateInput required disabled={busy||locked} value={start} onChange={event=>{setStart(event.target.value);patch({endDate:defaultPlanEnd(event.target.value,institution.endDate,recognition.endDate)});}}/></label>
       <label>계획 실행 종료일<DateInput required disabled={busy} value={schedule.endDate} min={isCalendarDate(start)?start:undefined} max={isCalendarDate(start)?halfYearEnd(start):undefined} onChange={event=>patch({endDate:event.target.value})}/></label>

@@ -1,3 +1,7 @@
+import { createQuickMemoStore } from './work-quick-memos.mjs';
+import {createCarePlanImportStore} from './care-plan-import.mjs';
+import {createRecipientBasicInfoStore} from './recipient-basic-info.mjs';
+import {createStaffCounselingStore} from './staff-counseling.mjs';
 import {createInstitutionStore} from './institution-resources.mjs';
 import {createRecipientImportStore} from './recipient-import.mjs';
 import {createProspectStore} from './prospects.mjs';
@@ -103,10 +107,31 @@ function createWorkStore(transaction, canEdit) {
       return {id:saved.id,...JSON.parse(saved.payload),version:Number(saved.version)};
     }
   };
+  async function createTask(q, input, current, completedAt = null) {
+    validateAssignee(input, current);
+    await validateWorkCategory(q, input.category);
+    const links = input.related.length ? await related(q, input.related) : [], now = new Date().toISOString();
+    const id = input.requestId || newWorkId();
+    const row = (await q(`INSERT INTO work_tasks(id,requester_id,roster_assignee_id,title,description,category,due_date,related,status,version,created_at,updated_at,updated_by,completed_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,'open',1,$9,$10,$11,$12) ON CONFLICT(id) DO NOTHING RETURNING *`,
+    [id, current.me.id, input.assigneeId, input.title, input.description, input.category, input.dueDate, JSON.stringify(links), now, now, current.me.id, completedAt])).rows[0];
+    if (!row) {
+      const existing = (await q('SELECT * FROM work_tasks WHERE id=$1', [id])).rows[0];
+      const sameLinks = JSON.stringify(JSON.parse(existing.related).map(({ id, type }) => ({ type, id }))) === JSON.stringify(input.related);
+      if (existing.requester_id !== current.me.id || existing.version !== 1 || existing.title !== input.title || existing.description !== input.description || task(existing).assigneeId !== input.assigneeId || existing.category !== input.category || existing.due_date !== input.dueDate || existing.completed_at !== completedAt || !sameLinks) throw workError(409, '이 등록 요청은 이미 처리되었습니다. 최신 목록에서 확인해 주세요.');
+      return { ...task(existing), canEdit: canEdit(task(existing), current.me.id) };
+    }
+    await event(q, row, 'created', current.me.id);
+    return { ...task(row), canEdit: canEdit(task(row), current.me.id) };
+  }
   return {
+    ...createRecipientBasicInfoStore(transaction),
     ...createRecipientImportStore(transaction),
+    ...createCarePlanImportStore(transaction),
+    ...createStaffCounselingStore(transaction),
     ...createInstitutionStore(transaction),
     ...createProspectStore(transaction),
+    ...createQuickMemoStore(transaction, createTask),
     ...createRfidStore(transaction),
     ...createCopayStore(transaction),
     ...createRecipientServiceMonthStore(transaction),
@@ -157,25 +182,7 @@ function createWorkStore(transaction, canEdit) {
         return rows.map(row => ({ ...task(row), sourceDesignId:sources.get(row.id)?visitDesignId:undefined, canEdit: row.status !== 'cancelled' && canEdit(task(row), current.me.id) }));
       });
     },
-    async create(input, current) {
-      validateAssignee(input, current);
-      return transaction(async q => {
-        await validateWorkCategory(q, input.category);
-        const links = await related(q, input.related), now = new Date().toISOString();
-        const id = input.requestId || newWorkId();
-        const row = (await q(`INSERT INTO work_tasks(id,requester_id,roster_assignee_id,title,description,category,due_date,related,status,version,created_at,updated_at,updated_by)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,'open',1,$9,$10,$11) ON CONFLICT(id) DO NOTHING RETURNING *`,
-        [id, current.me.id, input.assigneeId, input.title, input.description, input.category, input.dueDate, JSON.stringify(links), now, now, current.me.id])).rows[0];
-        if (!row) {
-          const existing = (await q('SELECT * FROM work_tasks WHERE id=$1', [id])).rows[0];
-          const sameLinks = JSON.stringify(JSON.parse(existing.related).map(({ id, type }) => ({ type, id }))) === JSON.stringify(input.related);
-          if (existing.requester_id !== current.me.id || existing.version !== 1 || existing.title !== input.title || existing.description !== input.description || task(existing).assigneeId !== input.assigneeId || existing.category !== input.category || existing.due_date !== input.dueDate || !sameLinks) throw workError(409, '이 등록 요청은 이미 처리되었습니다. 최신 목록에서 확인해 주세요.');
-          return { ...task(existing), canEdit: canEdit(task(existing), current.me.id) };
-        }
-        await event(q, row, 'created', current.me.id);
-        return { ...task(row), canEdit: canEdit(task(row), current.me.id) };
-      });
-    },
+    create(input, current) { return transaction(q => createTask(q, input, current)); },
     async update(id, input, version, current) {
       return transaction(async q => {
         const previous = await lockTask(q, id);
@@ -228,10 +235,19 @@ function createWorkStore(transaction, canEdit) {
 }
 
 export function createSqliteWorkStore(db, canEdit) {
+  db.exec(readFileSync(new URL('./care-plan-import-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./copay-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./work-task-schema.sql', import.meta.url), 'utf8'));
+  const memoColumns = db.prepare('PRAGMA table_info(work_quick_memos)').all();
+  if (!memoColumns.some(column => column.name === 'related_name')) {
+    db.exec("ALTER TABLE work_quick_memos ADD COLUMN related_name TEXT NOT NULL DEFAULT ''");
+  }
+  if (!memoColumns.some(column => column.name === 'deleted_at')) {
+    db.exec('ALTER TABLE work_quick_memos ADD COLUMN deleted_at TEXT');
+  }
   db.exec(readFileSync(new URL('./prospects-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./institution-schema.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('./staff-counseling-schema.sql', import.meta.url), 'utf8'));
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'roster_assignee_id')) db.exec('ALTER TABLE work_tasks ADD COLUMN roster_assignee_id TEXT REFERENCES work_assignees(id)');
   if (!db.prepare('PRAGMA table_info(work_tasks)').all().some(column => column.name === 'completed_at')) db.exec('ALTER TABLE work_tasks ADD COLUMN completed_at TEXT');
   db.exec(readFileSync(new URL('./work-journal-schema.sql', import.meta.url), 'utf8'));

@@ -6,6 +6,8 @@ export function planContext(recipient,recognitionPeriods=[]) {
   return {institutionPeriod:{startDate:recipient.serviceStartDate||'',endDate:recipient.serviceEndDate||''},careGrade:recipient.careGrade||'',recognitionPeriods};
 }
 export function normalizePlanSchedule(body,recipient,versions,source,today) {
+  // Imported dates are source facts. Local detail edits retain the complete source snapshot.
+  if(source?.schedule?.external)return structuredClone(source.schedule);
   const value=body.schedule;
   if(!value||typeof value!=='object')throw error('계획 종류와 실행기간, 작성·통보 정보를 입력해 주세요.');
   if(!categories.includes(value.category)||!['draft','completed'].includes(value.status))throw error('계획 종류와 작성 상태를 확인해 주세요.');
@@ -40,28 +42,34 @@ export function normalizePlanSchedule(body,recipient,versions,source,today) {
   }
   return {category:value.category,status:value.status,endDate:end,writtenDate,notifiedDate,deadline:planDeadline(value.category,start),institutionPeriod:{...institution},recognitionPeriod:recognition};
 }
+export function comparePlanOrder(a,b){
+ const date=(a.effectiveDate||'').localeCompare(b.effectiveDate||'');if(date)return date;
+ if(a.schedule?.external&&b.schedule?.external){const actual=value=>isCalendarDate(value)?value:'';const left=a.schedule.external,right=b.schedule.external;return actual(left.writtenDate).localeCompare(actual(right.writtenDate))||actual(left.notifiedDate).localeCompare(actual(right.notifiedDate))||(left.planNumber||'').localeCompare(right.planNumber||'', 'en',{numeric:true})||a.version-b.version;}
+ return a.version-b.version;
+}
 export function executionPlans(versions,today) {
   const latest=new Map();
   for(const p of versions){if(!p.schedule)continue;const key=p.planId||p.id;if(!latest.has(key)||latest.get(key).version<p.version)latest.set(key,p);}
-  const plans=[...latest.values()].sort((a,b)=>a.effectiveDate.localeCompare(b.effectiveDate)||a.version-b.version);
+  const plans=[...latest.values()].sort(comparePlanOrder);
   return plans.map(p=>{
     const next=plans.find(n=>n.schedule.status==='completed'&&periodKey(n.schedule.institutionPeriod)===periodKey(p.schedule.institutionPeriod)&&(n.effectiveDate>p.effectiveDate||(n.effectiveDate===p.effectiveDate&&n.version>p.version)));
-    const executionEndDate=p.schedule.status==='completed'&&next&&next.effectiveDate<=p.schedule.endDate?moveDate(next.effectiveDate,-1):p.schedule.endDate;
-    const replaced=executionEndDate<p.effectiveDate;
-    const active=p.schedule.status==='completed'&&!replaced&&p.effectiveDate<=today&&executionEndDate>=today;
+    const executionEndDate=!p.schedule.external&&p.schedule.status==='completed'&&next&&next.effectiveDate<=p.schedule.endDate?moveDate(next.effectiveDate,-1):p.schedule.endDate;
+    const replaced=Boolean(p.effectiveDate&&executionEndDate&&executionEndDate<p.effectiveDate);
+    const active=(p.schedule.external||p.schedule.status==='completed')&&!replaced&&Boolean(p.effectiveDate)&&p.effectiveDate<=today&&executionEndDate>=today;
     const label=p.schedule.status==='draft'?'작성 중':replaced?'동일일자 계획으로 대체':active?'실행 중':p.effectiveDate>today?'적용 예정':next&&executionEndDate<p.schedule.endDate?'후속 계획으로 변경':'실행 종료';
-    return {...p,executionEndDate,executionStatus:label,deadlineStatus:deadlineLabel(p.schedule,p.effectiveDate,today),active};
+    const externalLabel=!p.effectiveDate||!executionEndDate?'원본 적용기간 미확인':active?(p.schedule.status==='completed'?'원본 적용기간 중':'원본 적용기간 중 · 통보일 미확인'):p.effectiveDate>today?'원본 적용 예정':'원본 적용기간 종료';
+    return {...p,executionEndDate,executionStatus:p.schedule.external?externalLabel:label,deadlineStatus:p.schedule.external?((p.schedule.status==='completed'?'원본 작성·통보일 있음 · ':'원본 작성·통보일 미확인 · ')+(p.notes?.servicePlanNotes?.trim()?'상세 내용 입력됨':'상세 내용 보완 필요')):deadlineLabel(p.schedule,p.effectiveDate,today),active};
   });
 }
 export function regularRequirement(recipient,plans,today) {
   const start=recipient.serviceStartDate,end=recipient.serviceEndDate;
   if(!isCalendarDate(start)||!isCalendarDate(end))return null;
-  const relevant=plans.filter(p=>periodKey(p.schedule.institutionPeriod)===`${start}/${end}`);
+  const relevant=plans.filter(p=>(!p.schedule.external||p.schedule.external.serviceType==='방문요양')&&periodKey(p.schedule.institutionPeriod)===`${start}/${end}`);
   if(!relevant.length)return null;
   const currentHalf=halfYearStart(today);
   const candidate=relevant.some(p=>p.active)?nextHalfYearStart(today):currentHalf;
   if(candidate<start||candidate>end)return null;
-  const record=[...relevant].reverse().find(p=>p.effectiveDate===candidate&&periodKey(p.schedule.institutionPeriod)===`${start}/${end}`);
+  const record=[...relevant].reverse().find(p=>!p.schedule.external&&p.effectiveDate===candidate&&periodKey(p.schedule.institutionPeriod)===`${start}/${end}`);
   if(record?.schedule.category==='initial')return null;
   const deadline=planDeadline('regular',candidate);
   return {startDate:candidate,endDate:halfYearEnd(candidate)<end?halfYearEnd(candidate):end,deadline,status:record?.schedule.status==='completed'?'completed':record?'draft':'missing',deadlinePassed:today>deadline,planId:record?.planId??null};

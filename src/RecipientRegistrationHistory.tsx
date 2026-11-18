@@ -1,0 +1,9 @@
+import {useEffect,useState} from 'react';
+import {loadRecipientPeriodEvents,type RecipientPeriodEvent} from './storage';
+import type {Recipient} from './types';
+const labels:Record<string,string>={service_initial:'계약정보 입력',service_renewal:'계약 갱신',service_correction:'계약 날짜 정정',registration_completed:'기초정보 등록 완료'};
+export default function RecipientRegistrationHistory({recipient}:{recipient:Recipient}){
+ const [open,setOpen]=useState(false),[events,setEvents]=useState<RecipientPeriodEvent[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(false);
+ useEffect(()=>{if(!open)return;let active=true;setLoading(true);void loadRecipientPeriodEvents(recipient.id).then(rows=>{if(active){setEvents(rows.filter(row=>Object.hasOwn(labels,row.type)));setError('');}}).catch(cause=>{if(active)setError(cause instanceof Error?cause.message:'이력을 불러오지 못했습니다.');}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[open,recipient.id,recipient.updatedAt]);
+ return <section className="recipient-overview-card"><h3>등록·계약 변경 이력</h3><button type="button" className="secondary-button" onClick={()=>setOpen(!open)}>{open?'변경 이력 접기':'등록·계약 변경 이력 보기'}</button>{open&&<div>{loading&&<p role="status">변경 이력을 불러오고 있습니다.</p>}{error&&<p role="alert" className="recipient-contact-error">{error}</p>}{!loading&&!error&&!events.length&&<p>저장된 변경 이력이 없습니다.</p>}{events.map(event=>{let previous:{previousStartDate?:string;previousEndDate?:string}={};try{previous=JSON.parse(event.memo||'{}');}catch{}return <div className="recognition-preview-history" key={event.id}><strong>{labels[event.type]}</strong>{event.type!=='registration_completed'&&<p>변경 전: {previous.previousStartDate||'미등록'} ~ {previous.previousEndDate||'미등록'}<br/>변경 후: {event.serviceStartDate||'미등록'} ~ {event.serviceEndDate||'미등록'}</p>}<small>{new Date(event.createdAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})}</small></div>;})}</div>}</section>;
+}

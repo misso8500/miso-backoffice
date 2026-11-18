@@ -40,7 +40,7 @@ export default function RecipientPlanPanel({ recipientId, focusOnMount=false, in
     const selected=version??state.current;
     const resume=Boolean(version?.schedule);
     const institution=state.context.institutionPeriod;
-    const date=version?.effectiveDate??(state.plans.length?(state.regularRequirement?.startDate??nextHalfYearStart(today())):(institution.startDate||today()));
+    const date=version?.schedule?.external?(version.effectiveDate||''):version?.effectiveDate??(state.plans.length?(state.regularRequirement?.startDate??nextHalfYearStart(today())):(institution.startDate||today()));
     const period=state.context.recognitionPeriods.find(p=>p.startDate<=date&&p.endDate>=date)??null;
     setNotes(selected?.notes??state.legacyNotes);setEffectiveDate(date);
     setSchedule(resume?{...version!.schedule!}:{category:state.plans.length?'regular':'initial',status:'draft',endDate:defaultPlanEnd(date,institution.endDate,period?.endDate),writtenDate:null,notifiedDate:null,recognitionPeriod:period?{...period,careGrade:state.context.careGrade}:null});
@@ -54,18 +54,18 @@ export default function RecipientPlanPanel({ recipientId, focusOnMount=false, in
     {!loading&&error&&!editing&&<button type="button" className="secondary-button" onClick={()=>setAttempt(attempt+1)}>다시 불러오기</button>}
     {notice&&<p role="status">{notice}</p>}
     {state&&!loading&&<>
-      {state.regularRequirement&&<div className="plan-deadline-card"><strong>정기 계획 {state.regularRequirement.startDate} ~ {state.regularRequirement.endDate}</strong><span>작성·통보 목표 마감 {state.regularRequirement.deadline} · {state.regularRequirement.status==='completed'?'완료':state.regularRequirement.deadlinePassed?'목표 마감 지남':state.regularRequirement.status==='draft'?'작성 중':'작성 필요'}</span></div>}
-      {!editing&&state.plans.length>0&&<div className="plan-execution-list">{[...state.plans].reverse().map(p=><article key={p.id}><div><strong>{p.executionStatus} · {p.effectiveDate} ~ {p.executionEndDate}</strong><p>{planCategories[p.schedule.category]} · {p.deadlineStatus}</p><p>작성일 {p.schedule.writtenDate||'미입력'} / 통보일 {p.schedule.notifiedDate||'미입력'}{p.schedule.deadline&&` / 목표 마감 ${p.schedule.deadline}`}</p></div><button type="button" className="secondary-button" onClick={()=>start(p)}>{p.schedule.status==='draft'?'작성 계속·완료':'내용 수정'}</button></article>)}</div>}
+      {state.regularRequirement&&<div className="plan-deadline-card"><strong>센터 반기 업무 일정 · {state.regularRequirement.startDate} ~ {state.regularRequirement.endDate}</strong><span>작성·통보 목표 마감 {state.regularRequirement.deadline} · {state.regularRequirement.status==='completed'?'완료':state.regularRequirement.deadlinePassed?'목표 마감 지남':state.regularRequirement.status==='draft'?'작성 중':'작성 필요'}</span></div>}
+      {!editing&&state.plans.length>0&&<div className="plan-execution-list">{[...state.plans].reverse().map(p=><article key={p.id}><div><strong>{p.executionStatus} · {p.effectiveDate||'시작일 미확인'} ~ {p.executionEndDate||'종료일 미확인'}</strong><p>{planCategories[p.schedule.category]}{p.schedule.external&&` · ${p.schedule.external.serviceType} · ${p.schedule.external.planNumber||'번호 미입력'}`} · {p.deadlineStatus}</p>{p.schedule.external&&<p className="contract-attachment-note">원본 기간은 반기 초과·중복 여부와 관계없이 보존됩니다.{p.schedule.external.warnings.join(' · ')}</p>}<p>작성일 {p.schedule.writtenDate||'미입력'} / 통보일 {p.schedule.notifiedDate||'미입력'}{p.schedule.deadline&&` / 목표 마감 ${p.schedule.deadline}`}</p></div><button type="button" className="secondary-button" onClick={()=>start(p)}>{p.schedule.external?'상세 내용 보완':p.schedule.status==='draft'?'작성 계속·완료':'내용 수정'}</button></article>)}</div>}
       {state.nextEffectiveDate&&<p className="plan-scheduled-note">{state.nextEffectiveDate}부터 적용할 계획이 있습니다. 아래 변경 이력에서 확인해 주세요.</p>}
       {editing?<form ref={form} noValidate onSubmit={async event=>{
         event.preventDefault();setError('');
-        const dateError=dateInputError(effectiveDate,true);if(dateError){setError(`적용일: ${dateError}`);return;}
+        const dateError=source?.schedule?.external?null:dateInputError(effectiveDate,true);if(dateError){setError(`적용일: ${dateError}`);return;}
         if(!reason.trim()){setError('변경 사유를 입력해 주세요.');return;}
-        if(kind==='correction'&&(!source||effectiveDate!==source.effectiveDate)){setError('정정할 계획을 선택하고 기존 적용일을 유지해 주세요.');return;}
+        if(kind==='correction'&&(!source||(effectiveDate||null)!==source.effectiveDate)){setError('정정할 계획을 선택하고 기존 적용일을 유지해 주세요.');return;}
         setSaving(true);try{
           const result=await saveRecipientPlan(recipientId,{version:state.version,notes,effectiveDate,schedule,changeKind:kind,changeReason:reason,...(source?{sourceVersion:source.version}:{})});
           setState(result);setEditing(false);onSaved(result);
-          setNotice(result.version===state.version?'변경된 내용이 없어 기존 계획을 유지했습니다.':schedule.status==='draft'?'작성 중인 계획을 임시 저장했습니다. 작성 계속·완료 버튼으로 이어서 작성할 수 있습니다.':effectiveDate>today()?'작성·통보 완료한 예정 계획을 저장했습니다. 적용일부터 실행 중으로 표시합니다.':'계획을 저장하고 이전 내용을 이력으로 보관했습니다.');
+          setNotice(source?.schedule?.external?'상세 내용을 저장하고 롱텀케어 원본과 이전 내용을 보관했습니다.':result.version===state.version?'변경된 내용이 없어 기존 계획을 유지했습니다.':schedule.status==='draft'?'작성 중인 계획을 임시 저장했습니다. 작성 계속·완료 버튼으로 이어서 작성할 수 있습니다.':effectiveDate>today()?'작성·통보 완료한 예정 계획을 저장했습니다. 적용일부터 실행 중으로 표시합니다.':'계획을 저장하고 이전 내용을 이력으로 보관했습니다.');
         }catch(e){setError(e instanceof Error?e.message:'계획을 저장하지 못했습니다.');}finally{setSaving(false);}
       }}>
         <PlanScheduleFields start={effectiveDate} setStart={setEffectiveDate} schedule={schedule} setSchedule={next=>{
@@ -73,7 +73,7 @@ export default function RecipientPlanPanel({ recipientId, focusOnMount=false, in
             const date=state.regularRequirement?.startDate??halfYearStart(effectiveDate);setEffectiveDate(date);next={...next,endDate:defaultPlanEnd(date,state.context.institutionPeriod.endDate,next.recognitionPeriod?.endDate)};
           }setSchedule(next);
         }} institution={source?.schedule?.institutionPeriod??state.context.institutionPeriod} periods={state.context.recognitionPeriods} today={today()} locked={Boolean(source)} busy={saving}/>
-        <p className="contract-attachment-note">빈 메모는 ‘미등록’으로 표시됩니다. 해당 사항이 없다면 ‘해당 없음’이라고 적어 주세요. 작성 중인 계획은 실행 중으로 표시하지 않습니다. 작성·통보 완료 후 실행기간에 맞춰 표시합니다.</p>
+        <p className="contract-attachment-note">{source?.schedule?.external?'롱텀케어 작성·통보 내역은 원본으로 유지됩니다. 상세 내용 입력 여부는 별도로 관리합니다.':''}빈 메모는 ‘미등록’으로 표시됩니다. 해당 사항이 없다면 ‘해당 없음’이라고 적어 주세요. 작성 중인 계획은 실행 중으로 표시하지 않습니다. 작성·통보 완료 후 실행기간에 맞춰 표시합니다.</p>
         <div className="plan-edit-fields">{planNoteFields.map(field=><label key={field.key}>{field.label}<textarea aria-label={field.label} maxLength={5000} disabled={saving} value={notes[field.key]} placeholder={field.placeholder} onChange={event=>setNotes(current=>({...current,[field.key]:event.target.value}))}/></label>)}</div>
         <label className="plan-reason-field">변경 사유<textarea required maxLength={1000} disabled={saving} value={reason} onChange={event=>setReason(event.target.value)} placeholder="예: 인정 갱신, 등급 변경, 가족 사정 변경, 오탈자 정정"/></label>
         <p className="contract-attachment-note">작성자는 로그인한 계정으로 자동 기록합니다. 저장하지 않고 닫으면 입력 내용이 사라집니다.</p>
@@ -81,11 +81,11 @@ export default function RecipientPlanPanel({ recipientId, focusOnMount=false, in
         <div className="form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={()=>{setEditing(false);setError('');}}>취소</button><button type="submit" className="primary-button" disabled={saving}>{saving?'저장 중…':'계획 저장'}</button></div>
         {error.includes('다른 사용자가')&&<button type="button" className="secondary-button" disabled={saving} onClick={()=>{if(window.confirm('입력 중인 내용을 버리고 최신 계획을 불러올까요?')){setEditing(false);setAttempt(attempt+1);}}}>최신 계획 다시 불러오기</button>}
       </form>:<>
-        {state.current?<div className="plan-current-meta"><strong>{state.executionCurrent?`실행 중 · ${state.executionCurrent.effectiveDate} ~ ${state.executionCurrent.executionEndDate}`:'최근 입력 정보 · 현재 실행 중인 계획 없음'}</strong><span>적용일 {state.current.effectiveDate}</span><span>작성자 {state.current.authorName}</span></div>:<p className="contract-attachment-note">아직 적용된 계획 이력이 없습니다. 기존에 입력한 병력·구인조건이 있으면 아래에 표시합니다.</p>}
+        {state.current?<div className="plan-current-meta"><strong>{state.executionCurrent?`${state.executionCurrent.schedule.external?'롱텀케어 원본 적용기간':'실행 중'} · ${state.executionCurrent.effectiveDate} ~ ${state.executionCurrent.executionEndDate}`:'최근 입력 정보 · 현재 실행 중인 계획 없음'}</strong><span>적용일 {state.current.effectiveDate}</span><span>작성자 {state.current.authorName}</span></div>:<p className="contract-attachment-note">아직 적용된 계획 이력이 없습니다. 기존에 입력한 병력·구인조건이 있으면 아래에 표시합니다.</p>}
         <PlanNotes notes={state.current?.notes??state.legacyNotes}/>
       </>}
       <button type="button" className="secondary-button" onClick={()=>setShowHistory(!showHistory)}>{showHistory?'계획 이력 접기':`계획 변경 이력 보기 (${state.history.length}건)`}</button>
-      {showHistory&&<div className="plan-history">{!state.history.length&&<p>저장된 계획 변경 이력이 없습니다.</p>}{state.history.map(version=><details key={version.id}><summary><strong>{version.changeKind==='legacy'?'기존 입력 정보':version.changeKind==='correction'?'오탈자 정정':version.changeKind==='progress'?'작성 내용 수정':'계획 작성·변경'}</strong><span>{version.effectiveDate?`적용일 ${version.effectiveDate}`:'적용일 기록 없음'}</span><span>{version.id===state.executionCurrent?.id?'실행 중':version.schedule?.status==='draft'?'작성 중':version.id===state.current?.id?'최근 입력 정보':version.effectiveDate&&version.effectiveDate>today()?'적용 예정':'이전 기록'}</span></summary>
+      {showHistory&&<div className="plan-history">{!state.history.length&&<p>저장된 계획 변경 이력이 없습니다.</p>}{state.history.map(version=><details key={version.id}><summary><strong>{version.changeKind==='import'?'롱텀케어 원본 가져오기':version.changeKind==='legacy'?'기존 입력 정보':version.changeKind==='correction'?'오탈자 정정':version.changeKind==='progress'?'작성 내용 수정':'계획 작성·변경'}</strong><span>{version.effectiveDate?`적용일 ${version.effectiveDate}`:'적용일 기록 없음'}</span><span>{version.id===state.executionCurrent?.id?'실행 중':version.schedule?.status==='draft'?'작성 중':version.id===state.current?.id?'최근 입력 정보':version.effectiveDate&&version.effectiveDate>today()?'적용 예정':'이전 기록'}</span></summary>
         {version.schedule&&<p>{planCategories[version.schedule.category]} · 실행기간 {version.effectiveDate} ~ {version.schedule.endDate}<br/>목표 마감 {version.schedule.deadline||'사전 마감 제외'} · 실제 작성 {version.schedule.writtenDate||'미입력'} · 통보 {version.schedule.notifiedDate||'미입력'}</p>}
         <p>사유: {version.changeReason}</p><p>작성자: {version.authorName} · 기록일: {new Date(version.createdAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})}</p>
         {version.sourceVersion&&<p>정정 대상: {version.sourceVersion}번째 기록</p>}

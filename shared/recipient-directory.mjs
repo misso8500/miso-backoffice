@@ -17,3 +17,17 @@ export function recipientContractMonth(person,month){
  const starts=inMonth(person.serviceStartDate),ends=inMonth(person.serviceEndDate);
  return {starts,ends,tone:ends?'end':starts?'start':null};
 }
+
+export const getRecipientStatus = (recipient, now = new Date()) => {
+  if (recipient.isDraft) return "정보입력중";
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const start = new Date(`${recipient.serviceStartDate}T00:00:00`).getTime();
+  const expiry = new Date(`${recipient.serviceEndDate}T00:00:00`).getTime();
+  const daysUntilExpiry = Math.ceil((expiry - today) / 86_400_000);
+
+  if (recipient.enabled===false || daysUntilExpiry < 0) return "계약종료";
+  if (today < start) return "급여시작";
+  if (daysUntilExpiry <= 14) return "계약종료예정";
+  if (daysUntilExpiry <= 60) return "급여갱신필요";
+  return "급여제공중";
+};

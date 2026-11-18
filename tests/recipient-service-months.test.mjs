@@ -40,3 +40,26 @@ for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: monthly service r
  await assert.rejects(async()=>store.saveServiceRounding('2026-10','b',{...other.rounding,status:'visited',confirmComplete:true},current),/rollback check/);
  assert.equal(db.prepare('SELECT count(*) AS n FROM work_visit_tasks').get().n,2);assert.equal(db.prepare('SELECT count(*) AS n FROM work_executions').get().n,1);
 });
+for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: worker matching shares the monthly transaction, validates links and preserves history`,async t=>{
+ const db=new DatabaseSync(':memory:');t.after(()=>db.close());db.exec(`CREATE TABLE recipients(id TEXT PRIMARY KEY,name TEXT,operational_name TEXT,service_start_date TEXT,service_end_date TEXT,enabled INTEGER,is_draft INTEGER);INSERT INTO recipients VALUES('a','수급 A','','','',1,0),('b','수급 B','','','',1,0);CREATE TABLE employment_contracts(id TEXT PRIMARY KEY,worker_name TEXT,worker_birth_date TEXT,job_title TEXT,enabled INTEGER,is_draft INTEGER);INSERT INTO employment_contracts VALUES('worker-a','요양 A','1970-01-01','요양보호사',1,0),('worker-b','요양 B','1980-02-02','요양보호사',0,1);`);
+ const bridge={async connect(){return {async query(sql,params=[]){if(['BEGIN','COMMIT','ROLLBACK'].includes(sql)){db.exec(sql);return {rows:[]}}const values=[];const converted=sql.replace(/ FOR UPDATE$/,'').replace(/\$(\d+)/g,(_,n)=>{values.push(params[Number(n)-1]);return '?'});const rows=db.prepare(converted).all(...values);return {rows,rowCount:rows.length}},release(){}}}};
+ if(mode==='postgres-adapter')db.exec(readFileSync(new URL('../server/work-task-schema.sql',import.meta.url),'utf8')+readFileSync(new URL('../server/work-journal-schema.sql',import.meta.url),'utf8'));
+ const store=mode==='sqlite'?createSqliteWorkStore(db,()=>true):createPostgresWorkStore(bridge,()=>true),current=await store.members({id:'u',email:'a@example.com',name:'A'},['a@example.com']);
+ const choices=await store.serviceWorkers();assert.equal(choices.workers.length,2);assert.equal(choices.workers[1].enabled,false);assert(!Object.hasOwn(choices.workers[0],'residentRegistrationNumber'));
+ const workers=[{workerId:'worker-a',serviceType:'가족'},{workerId:'worker-b',serviceType:'방문'}];
+ const first=await store.saveRecipientServiceMonth('2026-11',{version:0,recipientIds:['a'],workerAssignments:[{recipientId:'a',workers}]},current);
+ assert.equal(first.version,1);assert.equal(first.rows.find(r=>r.id==='a').workers.length,2);assert.equal(first.rows.find(r=>r.id==='a').workers[0].workerName,'요양 A');assert.deepEqual((await store.recipientServiceMonth('2026-12')).rows.find(r=>r.id==='a').workers,[]);
+ const bad=assignment=>store.saveRecipientServiceMonth('2026-11',{version:1,recipientIds:['a','b'],workerAssignments:assignment},current);
+ await assert.rejects(bad([{recipientId:'a',workers:[{workerId:'missing',serviceType:'방문'}]}]),{status:400});
+ await assert.rejects(bad([{recipientId:'a',workers:[{workerId:'worker-a',serviceType:'unknown'}]}]),{status:400});
+ await assert.rejects(bad([{recipientId:'a',workers:[workers[0],workers[0]]}]),{status:400});
+ await assert.rejects(store.saveRecipientServiceMonth('2026-11',{version:1,recipientIds:['a'],workerAssignments:[{recipientId:'b',workers}]},current),{status:400});
+ await assert.rejects(store.saveRecipientServiceMonth('2026-11',{version:0,recipientIds:['b'],workerAssignments:[{recipientId:'b',workers}]},current),{status:409});
+ const unchanged=await store.recipientServiceMonth('2026-11');assert.equal(unchanged.version,1);assert.equal(unchanged.rows.find(r=>r.id==='b').checked,false);assert.equal(unchanged.rows.find(r=>r.id==='a').workers.length,2);
+ // Fail after writing one recipient: both links and roster must roll back.
+ db.exec("CREATE TRIGGER fail_worker BEFORE INSERT ON recipient_service_workers WHEN NEW.recipient_id='b' BEGIN SELECT RAISE(ABORT,'matching rollback'); END;");
+ await assert.rejects(bad([{recipientId:'a',workers:[]},{recipientId:'b',workers}]),/matching rollback/);assert.equal((await store.recipientServiceMonth('2026-11')).rows.find(r=>r.id==='a').workers.length,2);assert.equal((await store.recipientServiceMonth('2026-11')).version,1);
+ // Legacy roster-only clients and deselection keep the saved monthly links.
+ const deselected=await store.saveRecipientServiceMonth('2026-11',{version:1,recipientIds:[]},current);assert.equal(deselected.rows.find(r=>r.id==='a').workers.length,2);
+ const cleared=await store.saveRecipientServiceMonth('2026-11',{version:2,recipientIds:['a'],workerAssignments:[{recipientId:'a',workers:[]}]},current);assert.deepEqual(cleared.rows.find(r=>r.id==='a').workers,[]);
+});

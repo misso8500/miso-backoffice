@@ -5,7 +5,7 @@ const { chromium } = await import(process.env.WORK_UI_PLAYWRIGHT_MODULE ? pathTo
 const server=await createServer({server:{host:'127.0.0.1',port:0},logLevel:'error'});
 await server.listen();let browser;
 try {
-  browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
+  browser=await chromium.launch({executablePath:process.env.WORK_UI_CHROME_PATH || (process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : undefined),headless:true});
   for(const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
     const page=await browser.newPage({viewport});const errors=[];page.on('pageerror',e=>errors.push(e.message));
     await page.clock.install({time:new Date('2026-10-30T03:00:00Z')});
@@ -21,13 +21,14 @@ try {
       if(u.pathname.endsWith('/task-maps') && route.request().method()==='GET') reads++;
       if(u.pathname.endsWith('/task-maps') && route.request().method()==='POST') {savedDesign=route.request().postDataJSON();return route.fulfill({json:{...savedDesign,id:'new',version:1}});}
       if(u.pathname.endsWith('/runs/run/check')) { assert.equal(route.request().postDataJSON().version,run.version);run={...run,version:2,steps:run.steps.map(s=>({...s,completedAt:'2026-10-30T03:00:00Z'}))};return route.fulfill({json:run}); }
-      const data=u.pathname.endsWith('/context')?{me:{id:'a',name:'A'},assignees:[{id:'a',name:'A'}],members:[],references:[{id:'r',type:'recipient',name:'Sample recipient',info:''},{id:'w',type:'worker',name:'Sample worker',info:''}],categories:['staff']}:
+      const data=u.pathname.endsWith('/quick-memos')?{items:[],next:null}:u.pathname.endsWith('/context')?{me:{id:'a',name:'A'},assignees:[{id:'a',name:'A'}],members:[],references:[{id:'r',type:'recipient',name:'Sample recipient',info:''},{id:'w',type:'worker',name:'Sample worker',info:''}],categories:['staff']}:
       u.pathname.endsWith('/task-maps')?{templates:[t,salary],runs:[run],today:'2026-10-30',nodes:[{template:t,state:'idle',runs:[run],cells:[],completed:0,due:0,expected:0},{template:salary,state:'idle',runs:[],cells:[],completed:0,due:0,expected:0}]}:
       u.pathname.endsWith('/day')?{date:u.searchParams.get('date'),assignee:u.searchParams.get('assignee'),plans:[],executions:[]}:
       u.pathname.endsWith('/tasks')?[{id:'task',title:'Simple task',description:'',category:'staff',related:[],status:'open',assigneeId:'a',dueDate:null,version:1,canEdit:true}]:[];
       return route.fulfill({json:data});
     });
     await page.goto(server.resolvedUrls.local[0]+'tests/fixtures/work-detail-ui.html');
+    await page.getByRole('button', { name: '업무전체지도', exact: true }).click();
     await page.locator('.traffic-root').waitFor();
     const fold=page.locator('.traffic-fold-toggle').first();await fold.click();assert.equal(await fold.getAttribute('aria-expanded'),'false');await fold.click();
     const initialReads=reads;
@@ -44,7 +45,7 @@ try {
     assert.equal(await page.locator('.traffic-reference-list input:checked').count(),2);
     await page.locator('.traffic-action-start .primary-button').click();
     await page.locator('.traffic-action-execution').waitFor();
-    await page.locator('.work-primary-tabs button').nth(1).click();await page.locator('.bau-designer').waitFor();
+    await page.getByRole('button', { name: '업무연관설계(태스크맵)', exact: true }).click();await page.locator('.bau-designer').waitFor();
     assert.equal(await page.locator('.traffic-action-start').count(),0,'design view does not create occurrences');
     await page.locator('.bau-designer > fieldset > label input[maxlength="200"]').fill('New payroll');
     await page.locator('.bau-design-step input[maxlength="200"]').fill('New step');
@@ -53,29 +54,13 @@ try {
     await page.locator('.bau-design-actions button[type="submit"]').click();
     await page.locator('.bau-designer').waitFor({state:'hidden'});
     assert.equal(savedDesign.steps[0].assigneeId,'a');assert.equal(savedDesign.steps[0].dueOffsetDays,2);
-    await page.locator('.work-primary-tabs button').nth(2).click();await page.locator('.work-capture').waitFor();
-    const contractBundle=page.locator('.work-bau-bundle').filter({hasText:'Contract'});
-    await contractBundle.locator('summary').click();
-    assert.equal(reads,initialReads,'map, design and todo share the same month query');
-    await contractBundle.locator('input').click();
-    await page.waitForFunction(()=>document.querySelector('.work-bau-bundle[open] input')?.checked);
-    assert.equal(run.version,2);
-    const group=page.locator('.work-task-group').filter({hasText:'Simple task'});await group.locator('summary').click();
-    // A collapsed group stays accessible without removing its task.
-    if(!await group.getAttribute('open'))await group.locator('summary').click();
-    await page.getByRole('button',{name:'Simple task'}).click();await page.locator('.work-task-detail').waitFor();
-    assert.equal(await page.locator('.work-secondary-tabs button').count(),4);
-    await page.waitForFunction(()=>document.documentElement.scrollWidth<=innerWidth+2);
-    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false);
-    const beforeFocus=reads;
-    run={...run,title:'Remote contract'};
-    await page.clock.fastForward(61000);
-    await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
-    await page.locator('.work-bau-bundle summary').filter({hasText:'Remote contract'}).waitFor();
-    assert.equal(reads,beforeFocus+1,'focus refreshes one stale month request without blanking the list');
+    await page.getByRole('button', { name: '이 달의 할 일', exact: true }).click();
+    await page.getByRole('region', { name: '이 달의 할 일 코르크 보드' }).waitFor();
+    assert.equal(await page.locator('.work-capture, .work-task-detail, .work-calendar').count(), 0);
+    await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 2);
     assert.deepEqual(errors,[]);
     if(process.env.WORK_UI_SCREENSHOTS) await page.screenshot({path:`tmp/center-work-${viewport.width}.png`,fullPage:true});
     await page.close();
   }
-  console.log('PASS: desktop/mobile navigation, structure folding, design, todo detail, no page overflow');
+  console.log('PASS: desktop/mobile navigation, structure folding, design, cork board, no page overflow');
 } finally {await browser?.close();await server.close();}
