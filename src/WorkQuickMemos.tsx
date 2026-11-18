@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObjec
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { moveWorkCalendar } from '../shared/work-calendar.mjs';
 import { fixedWorkAssignees } from '../shared/work-assignees.mjs';
+import PageHeading from './PageHeading';
 import { requestJson } from './storage';
 import { workToday } from './lib/work-tasks';
 
@@ -148,8 +149,7 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
   }
 
   return <section className="work-quick-memos" hidden={!active} aria-label="이 달의 할 일 코르크 보드">
-    <header className="work-board-heading">
-      <h1>이 달의 할 일</h1>
+    <PageHeading title="이 달의 할 일" description="할 일을 공유하고, 수행자가 완료 도장을 찍어 기록합니다.">
       <div className="work-board-month">
         <button type="button" className="secondary-button" aria-label="이전 달" disabled={pending || month === '1000-01'}
           onClick={() => onMonthChange(moveWorkCalendar(month + '-01', 'month', -1).slice(0, 7))}><ChevronLeft size={17} aria-hidden="true"/></button>
@@ -158,7 +158,7 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
           onClick={() => onMonthChange(moveWorkCalendar(month + '-01', 'month', 1).slice(0, 7))}><ChevronRight size={17} aria-hidden="true"/></button>
         {month !== thisMonth && <button type="button" className="secondary-button" disabled={pending} onClick={() => onMonthChange(thisMonth)}>이번 달</button>}
       </div>
-    </header>
+    </PageHeading>
     <div className="work-board-surface">
     <span className="sr-only" role="status">{status}</span>
     {error && <p className="work-board-message" role="alert">{error} <button type="button" className="secondary-button" onClick={() => { setError(''); void load(before); }}>새로고침</button></p>}
@@ -177,7 +177,7 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
             }}/>
           <label className="work-note-name"><span>관련자</span><input placeholder="이름 (선택)" value={draft.relatedName} maxLength={80}
             readOnly={pending} onChange={event => setDraft({ ...draft, relatedName: event.target.value })}/></label>
-          <button type="submit" className="work-note-complete" disabled={pending || !draft.title.trim()}>
+          <button type="submit" className="primary-button work-note-action" disabled={pending || !draft.title.trim()}>
             <Plus size={15} aria-hidden="true"/> 붙이기
           </button>
         </form>
@@ -185,7 +185,7 @@ export default function WorkQuickMemos({ active, month, onMonthChange, draft, se
       {open?.items.map(memo => <li className="work-note" key={memo.id}>
         <div className="work-note-copy"><strong>{memo.title}</strong>{memo.relatedName && <span className="work-note-related">관련자 · {memo.relatedName}</span>}</div>
         <small>{memo.authorName} · {time.format(new Date(memo.createdAt))}</small>
-        <button type="button" className="work-note-complete"
+        <button type="button" className="secondary-button work-note-action"
           disabled={pending} aria-expanded={stampNote === memo.id} onClick={event => {
             completionButton.current = event.currentTarget;
             setStampNote(stampNote === memo.id ? null : memo.id);
