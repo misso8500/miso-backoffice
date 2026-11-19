@@ -126,6 +126,13 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       if(request.method!=='POST')throw workError(405,'지원하지 않는 요청입니다.');
       sendJson(response,200,await store.importCopay(await readWorkBody(request,3000000),current));return true;
     }
+    if(path==='/api/work/payroll') {
+      const month=new URL(request.url,'http://localhost').searchParams.get('month');
+      if(request.method==='GET')sendJson(response,200,await store.payrollMonth(month));
+      else if(request.method==='PUT')sendJson(response,200,await store.savePayrollMonth(month,await readWorkBody(request,4000000),current));
+      else throw workError(405,'지원하지 않는 요청입니다.');
+      return true;
+    }
     if(path==='/api/work/copay') {
       const month=new URL(request.url,'http://localhost').searchParams.get('month');
       if(request.method==='GET')sendJson(response,200,await store.copayMonth(month));

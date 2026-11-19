@@ -20,6 +20,7 @@ import { fixedWorkAssignees } from '../shared/work-assignees.mjs';
 import { createWorkJournalStore, executionFromRow, lockTask, cancelTaskPlans } from './work-journal.mjs';
 import { createRecurrenceStore, validateWorkCategory } from './work-recurrence.mjs';
 import { createStaffRecordStore } from './staff-records.mjs';
+import { createPayrollStore } from './payroll.mjs';
 import { createCopayStore } from './copay-store.mjs';
 
 const member = row => ({ id: row.id, name: row.name, email: row.email, linked: Boolean(row.auth_id) });
@@ -134,6 +135,7 @@ function createWorkStore(transaction, canEdit) {
     ...createQuickMemoStore(transaction, createTask),
     ...createRfidStore(transaction),
     ...createCopayStore(transaction),
+    ...createPayrollStore(transaction),
     ...createRecipientServiceMonthStore(transaction),
     ...createServiceRoundingStore(transaction,task,event),
     ...createServicePauseStore(transaction,event),
@@ -236,6 +238,7 @@ function createWorkStore(transaction, canEdit) {
 
 export function createSqliteWorkStore(db, canEdit) {
   db.exec(readFileSync(new URL('./care-plan-import-schema.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('./payroll-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./copay-schema.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('./work-task-schema.sql', import.meta.url), 'utf8'));
   const memoColumns = db.prepare('PRAGMA table_info(work_quick_memos)').all();

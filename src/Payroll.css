@@ -1,0 +1,144 @@
+.payroll {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+.payroll-content {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+.payroll-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.payroll-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: .75rem;
+}
+.payroll h2, .payroll h3, .payroll p, .payroll ul {
+  margin: 0;
+}
+.payroll label {
+  display: grid;
+  gap: .25rem;
+}
+.payroll input, .payroll select {
+  min-height: 2.25rem;
+  max-width: 100%;
+}
+.payroll td input[type=number] {
+  width: 7rem;
+}
+.payroll-table {
+  overflow: auto;
+}
+.payroll-table table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+.payroll-table caption {
+  text-align: left;
+  font-weight: 700;
+  padding-bottom: .5rem;
+}
+.payroll-table th, .payroll-table td {
+  padding: .5rem;
+  text-align: left;
+  border-bottom: 1px solid #dce4e1;
+}
+.payroll-table [aria-pressed=true] {
+  outline: 2px solid #267b69;
+}
+.payroll-editor {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #dce4e1;
+  border-radius: .5rem;
+}
+.payroll-grid {
+  display: grid;
+  gap: .75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+}
+.payroll-tabs, .payroll-time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+.payroll-tabs [aria-pressed=true] {
+  color: #11604e;
+  border-color: #267b69;
+  background: #e8f5ef;
+}
+.payroll-source {
+  border: 1px solid #dce4e1;
+  padding: .75rem;
+  border-radius: .5rem;
+}
+.payroll summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.payroll-source dl, .payroll-breakdown {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: .5rem 1rem;
+  margin: .75rem 0;
+}
+.payroll dt {
+  font-weight: 600;
+}
+.payroll dd {
+  margin: 0;
+}
+.payroll td details {
+  white-space: normal;
+  margin-top: .35rem;
+  min-width: 10rem;
+  max-width: 18rem;
+}
+.payroll td details p, .payroll td details label {
+  margin-top: .4rem;
+}
+.payroll-work {
+  display: grid;
+  gap: .75rem;
+  min-width: 0;
+}
+.payroll-work td small {
+  display: block;
+}
+.payroll-work .payroll-inline {
+  display: flex;
+  align-items: center;
+}
+.payroll-work .payroll-source .payroll-actions {
+  margin-top: .5rem;
+}
+.payroll-review td > input,
+.payroll-review td > select,
+.payroll-review td > button,
+.payroll-review td > small,
+.payroll-review th > small {
+  display: block;
+  margin-top: .3rem;
+}
+.payroll-review td > label input,
+.payroll-review td > input[type=number] {
+  width: 8rem;
+}
+.payroll-review th,
+.payroll-review td {
+  vertical-align: top;
+}

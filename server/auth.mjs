@@ -6,7 +6,10 @@ export class AuthError extends Error {
 }
 
 export const getPublicAuthConfig = (env = process.env) => {
-  const url = env.SUPABASE_URL?.replace(/\/$/, "");
+  const configuredUrl = env.SUPABASE_URL?.trim() ?? "";
+  const url = URL.canParse(configuredUrl) ? new URL(configuredUrl) : null;
+  const safeUrl = url && ["https:", "http:"].includes(url.protocol) &&
+    !url.username && !url.password && url.pathname === "/" && !url.search && !url.hash;
   const publishableKey = env.SUPABASE_PUBLISHABLE_KEY;
   let safeKey = publishableKey?.startsWith("sb_publishable_");
   if (publishableKey?.startsWith("eyJ")) {
@@ -14,8 +17,8 @@ export const getPublicAuthConfig = (env = process.env) => {
       safeKey = JSON.parse(Buffer.from(publishableKey.split(".")[1], "base64url").toString()).role === "anon";
     } catch { safeKey = false; }
   }
-  if (!url || !safeKey) throw new AuthError(503, "로그인 설정을 확인해 주세요. 관리자에게 문의해 주세요.");
-  return { url, publishableKey };
+  if (!safeUrl || !safeKey) throw new AuthError(503, "로그인 설정을 확인해 주세요. 관리자에게 문의해 주세요.");
+  return { url: url.origin, publishableKey };
 };
 
 export const requireGoogleUser = async (request, env = process.env, fetchUser = fetch) => {

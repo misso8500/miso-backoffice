@@ -555,3 +555,11 @@ ALTER TABLE work_quick_memos ADD COLUMN IF NOT EXISTS related_name TEXT NOT NULL
 ALTER TABLE work_quick_memos ADD COLUMN IF NOT EXISTS deleted_at TEXT;
 ALTER TABLE work_quick_memos ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE work_quick_memos FROM anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS payroll_months (
+  month TEXT PRIMARY KEY,
+  version INTEGER NOT NULL,
+  payload TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
