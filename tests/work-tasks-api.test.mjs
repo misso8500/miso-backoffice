@@ -224,6 +224,28 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     assert.equal((await call(`recipients/${rollback}`,'DELETE')).status,400);
     assert.equal((await call(`recipients/${rollback}`)).status,200);
   });
+  await t.test('staff directory profiles can be matched without a contract and deleted after unlinking', async () => {
+    const id=randomUUID();
+    const input={id,version:0,anchorContractId:'',name:'서비스 매칭 테스트 직원',birth:'1988-04-03',phone:'',job:'요양보호사',start:'',end:'',status:'재직',personnel:'',reporting:'',reportingDate:'',documents:[],memo:''};
+    const created=await call('work/staff-directory','PUT',input);
+    assert.equal(created.status,200,JSON.stringify(created.data));
+    const workerId=`staff:${id}`;
+    const workers=(await call('work/service-workers')).data.workers;
+    assert.equal(workers.find(worker=>worker.id===workerId)?.name,input.name);
+    assert.ok(workers.some(worker=>worker.id===wId));
+    const path='work/service-month?month=2026-12';
+    const roster=(await call(path)).data;
+    const saved=await call(path,'PUT',{version:roster.version,recipientIds:[rId],workerAssignments:[{recipientId:rId,workers:[{workerId,serviceType:'방문',workerName:'ignored'}]}]});
+    assert.equal(saved.status,200,JSON.stringify(saved.data));
+    assert.equal(saved.data.rows.find(row=>row.id===rId).workers[0].workerName,input.name);
+    assert.equal((await call('work/staff-directory','DELETE',{id,version:created.data.version})).status,409);
+    assert.equal((await call(path,'PUT',{version:saved.data.version,recipientIds:[rId],workerAssignments:[{recipientId:rId,workers:[]}]})).status,200);
+    assert.equal((await call('work/staff-directory','DELETE',{id,version:created.data.version+1})).status,409);
+    assert.equal((await call('work/staff-directory','DELETE',{id,version:created.data.version})).status,200);
+    assert.ok(!(await call('work/staff-directory')).data.profiles.some(profile=>profile.id===id));
+    assert.ok(!(await call('work/service-workers')).data.workers.some(worker=>worker.id===workerId));
+  });
+
   await t.test('staff record HTTP endpoints share a selected employee across accounts and isolate other employees', async () => {
     const first=a.assignees[0].id,second=a.assignees[1].id;
     const record=(path,method='GET',body,token='a',staffId=first)=>call(path+'?staffId='+encodeURIComponent(staffId),method,body,token);
