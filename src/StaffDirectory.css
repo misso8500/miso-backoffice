@@ -1,0 +1,46 @@
+.staff-overview-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.staff-detail-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.staff-form-grid, .staff-document-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 0 12px;
+}
+.staff-overview-footer, .staff-contract-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.staff-overview-footer { justify-content: flex-end; padding: 13px 18px; }
+.staff-overview-footer p { margin: 0; }
+.staff-document-row, .staff-contract-row {
+  border-top: 1px solid #eee7f5;
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.staff-contract-row { justify-content: space-between; }
+.staff-document-card h3 { display: flex; align-items: center; gap: 6px; }
+.staff-document-card h3 small { font-weight: normal; }
+.staff-compact-month .service-worker-cell { min-width: 0; }
+.staff-compact-month .service-worker-link { flex-wrap: wrap; }
+.staff-compact-month .service-apply { position: static; }
+.staff-compact-month .search-box input[type="search"] {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.staff-compact-month .directory-table td:first-child input {
+  accent-color: #76549b;
+}
