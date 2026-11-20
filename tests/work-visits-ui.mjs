@@ -33,7 +33,7 @@ try{
   const page=await browser.newPage({viewport}),errors=[];page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.accept());
   await page.route('**/src/auth.ts',route=>route.fulfill({contentType:'application/javascript',body:"export const getAuthHeaders=async()=>({Authorization:'Bearer a'});export const authFailureEvent='test';"}));
   await page.goto(`${server.resolvedUrls.local[0]}tests/fixtures/center-practice-ui.html`);
-  await page.getByRole('button',{name:'센터 실무',exact:true}).click();
+  await page.getByRole('button',{name:'방문요양',exact:true}).click();
   await page.getByRole('button',{name:'라운딩',exact:true}).click();await page.getByLabel('라운딩 조회 월',{exact:true}).fill('2026-09');
   const name=index?'라운딩검증 모바일':'라운딩검증 데스크톱';
   const roster=page.getByRole('region',{name:'월간 라운딩 명단'});
@@ -94,6 +94,7 @@ try{
   await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,350)));
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),true);
   // Planning must be visible in the actual map and design-generated daily checklist.
+  await page.getByRole('button',{name:'센터 실무',exact:true}).click();
   await page.getByRole('button',{name:'센터업무(할일)',exact:true}).click();
   await page.getByRole('button',{name:'업무전체지도',exact:true}).click();
   await page.getByRole('region',{name:'업무전체지도',exact:true}).getByLabel('조회 월',{exact:true}).fill('2026-09');

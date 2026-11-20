@@ -10,7 +10,8 @@ import './StaffDirectory.css';
 
 const money = (amount: number) => amount.toLocaleString('ko-KR') + '원';
 
-export default function StaffServiceConnections({ contracts, recipients, loading, error, onDirty, onBusy, onManageStaff, onEdit, onReload }: {
+export default function StaffServiceConnections({ contracts, recipients, loading, error, onDirty, onBusy, onManageStaff, onEdit, onReload, initialRecipient }: {
+  initialRecipient?: { id: string; name: string };
   contracts: EmploymentContract[]; recipients: Recipient[]; loading: boolean; error: string | null;
   onDirty: (value: boolean) => void; onBusy: (value: boolean) => void; onManageStaff: () => void;
   onEdit: (contract: EmploymentContract) => void; onReload: () => void;
@@ -39,13 +40,13 @@ export default function StaffServiceConnections({ contracts, recipients, loading
     return names.some(name => name.toLowerCase().includes(query.trim().toLowerCase()));
   });
   return <section className="recipient-directory-workspace">
-    <PageHeading title="서비스 계약 연결" description="수급자별 근무 조건을 기록하고, 계약을 기준으로 월별 서비스 대상과 담당 요양보호사를 채웁니다." />
-    <nav className="app-navigation-tabs recipient-directory-tabs" aria-label="서비스 계약 연결 보기">
+    <PageHeading title="서비스 매칭" description="이 달에 서비스를 제공할 수급자를 선택하고 요양보호사를 연결합니다." />
+    <nav className="app-navigation-tabs recipient-directory-tabs" aria-label="서비스 매칭 보기">
       <button type="button" aria-current={tab === 'monthly' ? 'page' : undefined} disabled={busy} onClick={() => switchTab('monthly')}>월별 배정</button>
       <button type="button" aria-current={tab === 'conditions' ? 'page' : undefined} disabled={busy} onClick={() => switchTab('conditions')}>수급자별 근무 조건</button>
     </nav>
     {error && <div className="error-banner" role="alert">{error}<button type="button" className="secondary-button" onClick={onReload}>다시 불러오기</button></div>}
-    {tab === 'monthly' ? <RecipientServiceMonth connectionContracts={contracts} onManageStaff={onManageStaff}
+    {tab === 'monthly' ? <RecipientServiceMonth initialRecipient={initialRecipient} connectionContracts={contracts} onManageStaff={onManageStaff}
       onDirty={trackDirty} onBusy={trackBusy} /> :
       <section className="staff-service-conditions" aria-label="수급자별 근무 조건">
         <div className="list-toolbar">

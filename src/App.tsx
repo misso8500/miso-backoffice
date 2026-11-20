@@ -65,9 +65,12 @@ import {
   Save,
   Search,
   FileX2,
+  Link2,
+  Car,
   Trash2,
   UserRound,
   Users,
+  Wallet,
   X
 } from "lucide-react";
 import {
@@ -1515,7 +1518,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           </div>
           <span className="sidebar-section-label">센터 운영</span>
           <nav className="view-tabs sidebar-group-navigation" aria-label="관리 메뉴">
-            <SidebarGroup title="수급자" active={activeView === "recipients" || activeView === "recipientServices" || activeView === "copay" || activeView === "prospects"}>
+            <SidebarGroup title="수급자" active={activeView === "recipients" || activeView === "prospects"}>
             <button type="button" className={activeView==='prospects'?'is-active':''} aria-current={activeView==='prospects'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('prospects');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><Users size={16}/>잠재고객 관리</button>
             <button
               type="button"
@@ -1530,17 +1533,32 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <Users size={16} />
               수급자 기초정보
             </button>
-            <button type="button" className={activeView==='recipientServices'?'is-active':''} aria-current={activeView==='recipientServices'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('recipientServices');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>방문요양 서비스 관리</button>
-            <button type="button" className={activeView==='copay'?'is-active':''} aria-current={activeView==='copay'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('copay');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>본인부담금 관리</button>
             </SidebarGroup>
-            <SidebarGroup title="요양보호사, 사회복지사" active={['employmentContracts','staffDirectory','staffServiceConnections'].includes(activeView)}>
+            <SidebarGroup title="방문요양" active={activeView === 'staffServiceConnections' || activeView === 'recipientServices' || activeView === 'copay' || activeView === 'visits'}>
+              <button type="button" className={activeView==='staffServiceConnections'?'is-active':''} aria-current={activeView==='staffServiceConnections'?'page':undefined}
+                onClick={()=>{if(activeView!=='records'||!recordsDirty||window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))setActiveView('staffServiceConnections');}}>
+                <Link2 size={16} aria-hidden="true" />서비스 매칭
+              </button>
+              {([
+                ['recipientServices', '서비스 관리', ClipboardCheck],
+                ['copay', '본인부담금', Wallet],
+                ['visits', '라운딩', Car],
+              ] as const).map(([view, label, Icon]) =>
+                <button key={view} type="button" className={activeView === view ? 'is-active' : ''}
+                  aria-current={activeView === view ? 'page' : undefined} onClick={() => {
+                    if (activeView === 'records' && recordsDirty && !window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?')) return;
+                    setActiveView(view);
+                    setSelectedRecipientId(null);
+                    setSelectedEmploymentContractId(null);
+                    setIsCreatePanelOpen(false);
+                    setIsEmploymentCreatePanelOpen(false);
+                  }}><Icon size={16} aria-hidden="true" />{label}</button>
+              )}
+            </SidebarGroup>
+            <SidebarGroup title="요양보호사, 사회복지사" active={['employmentContracts','staffDirectory'].includes(activeView)}>
             <button type="button" className={activeView==='staffDirectory'?'is-active':''} aria-current={activeView==='staffDirectory'?'page':undefined}
               onClick={()=>{if(activeView!=='records'||!recordsDirty||window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))setActiveView('staffDirectory');}}>
               <Users size={16}/>직원 기초정보
-            </button>
-            <button type="button" className={activeView==='staffServiceConnections'?'is-active':''} aria-current={activeView==='staffServiceConnections'?'page':undefined}
-              onClick={()=>{if(activeView!=='records'||!recordsDirty||window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))setActiveView('staffServiceConnections');}}>
-              <ClipboardCheck size={16}/>서비스 계약 연결
             </button>
             <button
               type="button"
@@ -1556,7 +1574,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               근로계약서
             </button>
             </SidebarGroup>
-            <SidebarGroup title="센터 실무" active={activeView === "work" || activeView === "records" || activeView === "visits" || activeView === "rfid"}>
+            <SidebarGroup title="센터 실무" active={activeView === "work" || activeView === "records" || activeView === "rfid"}>
             <button type="button" className={activeView === "work" ? "is-active" : ""}
               aria-current={activeView === "work" ? "page" : undefined}
               onClick={() => {
@@ -1570,7 +1588,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <ClipboardCheck size={16} />센터업무(할일)
             </button>
             <button type="button" className={activeView === "records" ? "is-active" : ""} aria-current={activeView === "records" ? "page" : undefined} onClick={() => { setActiveView("records"); setSelectedRecipientId(null); setSelectedEmploymentContractId(null); setIsCreatePanelOpen(false); setIsEmploymentCreatePanelOpen(false); }}><ClipboardCheck size={16}/>근무기록</button>
-            {([['visits','라운딩'],['rfid','RFID 확인']] as const).map(([view,label])=><button key={view} type="button" className={activeView===view?'is-active':''} aria-current={activeView===view?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView(view);setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>{label}</button>)}
+            <button type="button" className={activeView==='rfid'?'is-active':''} aria-current={activeView==='rfid'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('rfid');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>RFID 확인</button>
             </SidebarGroup>
             <SidebarGroup title="급여/회계" active={activeView === 'payroll'}>
               <button type="button" className={activeView === 'payroll' ? 'is-active' : ''} aria-current={activeView === 'payroll' ? 'page' : undefined} onClick={() => {
@@ -1594,14 +1612,14 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
       <main className="main-content">
         <WorkOperationStatus compact={activeView === "work"}/>
-        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인',prospects:'잠재고객 관리',institution:'기관 연락처·공문 서식',staffCounseling:'직원 상담일지',payroll:'급여대장',staffDirectory:'직원 기초정보',staffServiceConnections:'서비스 계약 연결'}[activeView]}</strong></div>}
+        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인',prospects:'잠재고객 관리',institution:'기관 연락처·공문 서식',staffCounseling:'직원 상담일지',payroll:'급여대장',staffDirectory:'직원 기초정보',staffServiceConnections:'서비스 매칭'}[activeView]}</strong></div>}
         {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
         {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}
         {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy} onRecipient={row=>void openCopayRecipient(row)} recipientRevision={copayRecipientRevision} active={activeView==='copay'}/></section>}
         {activeView === "staffDirectory" ? <StaffDirectory key={staffDirectoryRefresh} contracts={employmentContracts}
           loading={isEmploymentLoading} error={employmentErrorMessage} onReload={() => void fetchEmploymentContracts()}
           onOpenContract={contract => setSelectedEmploymentContractId(contract.id)} onCreateContract={openStaffContract} /> :
-        activeView === "staffServiceConnections" ? <StaffServiceConnections contracts={employmentContracts} recipients={recipients}
+        activeView === "staffServiceConnections" ? <StaffServiceConnections key={recipientHandoff?.id ?? 'all'} initialRecipient={recipientHandoff ?? undefined} contracts={employmentContracts} recipients={recipients}
           loading={isEmploymentLoading||isLoading} error={employmentErrorMessage||errorMessage}
           onDirty={setServiceDirty} onBusy={setServiceBusy} onManageStaff={() => setActiveView('staffDirectory')}
           onReload={() => {void fetchEmploymentContracts();void fetchRecipients();}} onEdit={contract => {
@@ -2178,7 +2196,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         <div className="detail-backdrop directory-side-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(closeEmploymentCreatePanel)();}}>
           <article className="recipient-overview-dialog directory-side-panel" aria-label={isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}>
             <header className="recipient-overview-header">
-              <div><small>{serviceConditionMode ? "서비스 계약 연결" : "근로계약서"}</small>
+              <div><small>{serviceConditionMode ? "서비스 매칭" : "근로계약서"}</small>
                 <h2>{isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}</h2></div>
               <button type="button" className="icon-button" onClick={closeEmploymentCreatePanel} aria-label="닫기"><X size={20} /></button>
             </header>
