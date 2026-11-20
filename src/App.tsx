@@ -1,3 +1,6 @@
+import StaffDirectory from './StaffDirectory';
+import StaffServiceConnections from './StaffServiceConnections';
+import { saveStaffProfile, type StaffProfile } from './lib/staff-directory';
 import CarePlanImport from './CarePlanImport';
 import {getRecipientStatus} from '../shared/recipient-directory.mjs';
 import StaffCounseling from './StaffCounseling';
@@ -22,6 +25,7 @@ import './dev-sidebar.css';
 import './dev-workspace.css';
 import WorkHub from './WorkHub';
 import RecipientServiceMonth from './RecipientServiceMonth';
+import Payroll from './Payroll';
 import CopayManagement from './CopayManagement';
 import StaffRecords from './StaffRecords';
 import SidebarGroup from './SidebarGroup';
@@ -52,6 +56,7 @@ import {
   Briefcase,
   ChevronRight,
   Database,
+  Calculator,
   ClipboardCheck,
   Pencil,
   Plus,
@@ -60,9 +65,12 @@ import {
   Save,
   Search,
   FileX2,
+  Link2,
+  Car,
   Trash2,
   UserRound,
   Users,
+  Wallet,
   X
 } from "lucide-react";
 import {
@@ -384,6 +392,8 @@ const dateInputLimits = { min: "1000-01-01", max: "9999-12-31" } as const;
 function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Promise<void> }) {
   const [recordsDirty, setRecordsDirty] = useState(false);
   const [serviceDirty,setServiceDirty]=useState(false),[serviceBusy,setServiceBusy]=useState(false);
+  const [payrollDirty, setPayrollDirty] = useState(false);
+  const [payrollBusy, setPayrollBusy] = useState(false);
   const [copayOpened, setCopayOpened] = useState(false);
   const [copayDirty,setCopayDirty]=useState(false),[copayBusy,setCopayBusy]=useState(false);
   const [copayRecipientOrigin,setCopayRecipientOrigin]=useState<CopayRecipientRequest|null>(null);
@@ -391,7 +401,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [copayRecipientRevision,setCopayRecipientRevision]=useState(0);
   const [copayLinkBusy,setCopayLinkBusy]=useState(false),[copayLinkError,setCopayLinkError]=useState('');
   const [copayPendingLink,setCopayPendingLink]=useState<{row:CopayRecipientRequest;recipient:Recipient}|null>(null);
-  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay" | "visits" | "rfid" | "prospects" | "institution" | "staffCounseling">(
+  const [activeView, setActiveViewState] = useState<"recipients" | "employmentContracts" | "work" | "records" | "recipientServices" | "copay" | "visits" | "rfid" | "prospects" | "institution" | "staffCounseling" | "payroll" | "staffDirectory" | "staffServiceConnections">(
     "recipients"
   );
   const directoryScroll = useRef<Partial<Record<'recipients' | 'employmentContracts', number>>>({});
@@ -407,13 +417,14 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [recipientHandoff,setRecipientHandoff]=useState<{id:string;name:string}|null>(null);
   function setActiveView(next: typeof activeView, focus?:{id:string;name:string}) {
     if(next===activeView&&!focus)return;
+    if(next!==activeView && activeView==='payroll' && (payrollBusy || (payrollDirty && !window.confirm('저장하지 않은 급여 입력을 닫고 이동할까요?')))) return;
     if(next!==activeView&&activeView==='staffCounseling'){if(counselingBusy)return;if(counselingDirty&&!window.confirm('저장하지 않은 직원 상담일지를 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='institution'){if(institutionBusy)return;if(institutionDirty&&!window.confirm('저장하지 않은 기관 자료 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='prospects'){if(prospectBusy)return;if(prospectDirty&&!window.confirm('저장하지 않은 잠재고객 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='visits'){if(visitsBusy)return;if(visitsDirty&&!window.confirm('저장하지 않은 라운딩 입력을 닫고 이동할까요?'))return;}
     if(next!==activeView&&activeView==='rfid'&&rfidBusy&&!window.confirm('저장하지 않은 RFID 변경을 버리고 이동할까요?'))return;
     if(next!==activeView&&activeView==='copay'&&copayBusy)return;
-    if(next!==activeView && activeView==='recipientServices') {
+    if(next!==activeView && (activeView==='recipientServices'||activeView==='staffServiceConnections')) {
       if(serviceBusy)return;
       if(serviceDirty&&!window.confirm('적용하지 않은 체크 변경을 버리고 이동할까요?'))return;
     }
@@ -425,10 +436,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     setActiveViewState(next);
   }
   useEffect(()=>{
-    const warn=(event:BeforeUnloadEvent)=>{if(copayDirty||copayBusy){event.preventDefault();event.returnValue='';}};
+    const warn=(event:BeforeUnloadEvent)=>{if(copayDirty||copayBusy||payrollDirty||payrollBusy){event.preventDefault();event.returnValue='';}};
     window.addEventListener('beforeunload',warn);
     return()=>window.removeEventListener('beforeunload',warn);
-  },[copayDirty,copayBusy]);
+  },[copayDirty,copayBusy,payrollDirty,payrollBusy]);
   useEffect(()=>{
     if(activeView==='copay'&&window.matchMedia('(max-width:720px)').matches){
       document.querySelector('.copay-management-panel')?.scrollIntoView({block:'start'});
@@ -613,12 +624,12 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   }, [fetchBackofficeState]);
 
   useEffect(() => {
-    if (activeView === 'employmentContracts' && !employmentRequest.current &&
+    if (['employmentContracts','staffDirectory','staffServiceConnections'].includes(activeView) && !employmentRequest.current &&
       Date.now() - (employmentReadAt.current ?? -Infinity) >= directoryFreshnessMs) void fetchEmploymentContracts();
   }, [activeView, fetchEmploymentContracts]);
 
   useEffect(() => {
-    if (activeView === 'recipients' && !recipientRequest.current &&
+    if ((activeView === 'recipients' || activeView === 'staffServiceConnections') && !recipientRequest.current &&
       Date.now() - (recipientsReadAt.current ?? -Infinity) >= directoryFreshnessMs) void fetchRecipients();
   }, [activeView, fetchRecipients]);
 
@@ -895,8 +906,28 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
     finally{setCopayLinkBusy(false);}
   }
 
+  const [staffContractSource, setStaffContractSource] = useState<StaffProfile | null>(null);
+  const [serviceConditionMode, setServiceConditionMode] = useState(false);
+  const [showContractIdentity, setShowContractIdentity] = useState(false);
+  const [staffDirectoryRefresh, setStaffDirectoryRefresh] = useState(0);
+
+  function openStaffContract(profile: StaffProfile, contract?: EmploymentContract) {
+    if (contract) {
+      openEmploymentRenewalPanel(contract);
+    } else {
+      setIsEditingEmploymentContract(false);
+      setIncludeWorkConditions(true);
+      setEmploymentRenewalSource(null);
+      setEmploymentFormState({ ...emptyEmploymentContractForm, workerName: profile.name, workerPhone: profile.phone });
+      setEmploymentFormErrorMessage(null);
+      setIsEmploymentCreatePanelOpen(true);
+    }
+    setStaffContractSource(profile);
+  }
+
   const openEmploymentRenewalPanel = (contract: EmploymentContract, editing = false) => {
     setIsEditingEmploymentContract(editing);
+    setShowContractIdentity(!contract.workerPhone || !contract.primaryBank || !contract.bankAccountNumber || !deriveBirthDateFromResidentNumber(contract.residentRegistrationNumber));
     setIncludeWorkConditions(!editing || Boolean(contract.isDraft) || Boolean(contract.workConditions));
     const terms = contract.contractTerms.length ? contract.contractTerms : [{
       wageType: contract.wageType === "시급" ? "시급" as const : "월급" as const,
@@ -935,6 +966,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   };
 
   const closeEmploymentCreatePanel = () => {
+    setStaffContractSource(null);
+    setServiceConditionMode(false);
+    setShowContractIdentity(false);
     setIncludeWorkConditions(true);
     setIsEditingEmploymentContract(false);
     setEmploymentRenewalSource(null);
@@ -1152,7 +1186,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       ...(isEditingEmploymentContract && employmentRenewalSource ? { updatedAt: employmentRenewalSource.updatedAt } : {}),
       id: isEditingEmploymentContract && employmentRenewalSource ? employmentRenewalSource.id : createEmploymentContractId(),
       workerName: employmentFormState.workerName.trim(),
-      workerBirthDate: derivedWorkerBirthDate ?? "",
+      workerBirthDate: derivedWorkerBirthDate ?? staffContractSource?.birth ?? "",
       residentRegistrationNumber: formatResidentNumberInput(
         employmentFormState.residentRegistrationNumber.trim()
       ),
@@ -1162,7 +1196,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       primaryBank: employmentFormState.primaryBank.trim(),
       bankAccountNumber: formatBankAccountNumberInput(employmentFormState.bankAccountNumber.trim()),
       workerAddress: employmentRenewalSource?.workerAddress ?? "미입력",
-      jobTitle: employmentRenewalSource?.jobTitle ?? "근로자",
+      jobTitle: employmentRenewalSource?.jobTitle || staffContractSource?.job || "근로자",
       employmentType: employmentRenewalSource?.employmentType ?? "근로계약 묶음",
       workplaceType: employmentRenewalSource?.workplaceType ?? "office",
       workplace: employmentRenewalSource?.workplace ?? "미입력",
@@ -1205,6 +1239,14 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       updateEmploymentList((current) => isEditingEmploymentContract
         ? current.map((contract) => contract.id === createdContract.id ? createdContract : contract)
         : [...current, createdContract]);
+      if (!isEditingEmploymentContract && staffContractSource && !staffContractSource.anchorContractId) {
+        try {
+          await saveStaffProfile({ ...staffContractSource, anchorContractId: createdContract.id });
+          setStaffDirectoryRefresh(value => value + 1);
+        } catch {
+          showNotification('근로계약은 저장했습니다. 직원 기초정보의 근로계약 탭에서 연결해 주세요.');
+        }
+      }
       if (saveAsDraft) { setShowEnabledEmploymentOnly(false); setEmploymentRegistrationFilter("draft"); }
       else if (employmentRenewalSource?.isDraft || !isEditingEmploymentContract) { setEmploymentRegistrationFilter("all"); setShowEnabledEmploymentOnly(false); }
       setSelectedEmploymentContractId(createdContract.id);
@@ -1430,58 +1472,27 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const renderEmploymentContractRow = (contract: EmploymentContract, isLatest: boolean) => {
     const status = getEmploymentContractStatus(contract, employmentCurrentYear);
     const matching = getMatchingSummary(contract);
-    return (
-      <div
-        className={`recipient-row employment-contract-row ${isLatest ? "" : "is-history"}`}
-        onClick={() => setSelectedEmploymentContractId(contract.id)}
-      >
-        <button type="button" className="recipient-name employment-worker-button"
-          aria-label={`${contract.workerName} 근로계약 상세 보기`}>
-          <strong>{contract.workerName}</strong>
-          <small className="contract-order-label">{isLatest ? "최신 계약" : "이전 계약"}</small>
-
-        </button>
-        <span className="resident-number-cell">
-          <span>{(visibleResidentNumberIds.has(contract.id)
-            ? contract.residentRegistrationNumber
-            : maskResidentNumber(contract.residentRegistrationNumber)) || "미등록"}</span>
-          <button
-            type="button"
-            className="resident-number-toggle"
-            disabled={!contract.residentRegistrationNumber}
-            aria-label={`${contract.workerName} 주민번호 ${visibleResidentNumberIds.has(contract.id) ? "숨기기" : "표기"}`}
-            aria-pressed={visibleResidentNumberIds.has(contract.id)}
-            onClick={(event) => {
-              event.stopPropagation();
-              setVisibleResidentNumberIds((previous) => {
-                const next = new Set(previous);
-                if (next.has(contract.id)) next.delete(contract.id);
-                else next.add(contract.id);
-                return next;
-              });
-            }}
-          >
-            {visibleResidentNumberIds.has(contract.id) ? "숨기기" : "표기"}
-          </button>
-        </span>
-        <span>{contract.workerPhone ?? "미등록"}</span>
-        <span className="employment-period-cell">
-          <strong className="employment-period">{formatEmploymentPeriod(contract)}</strong>
-          <span className={`employment-validity ${status.valid ? "is-valid" : "is-invalid"}`}>
-            <em>{status.valid ? "유효함" : status.label.startsWith("계약종료/") ? "계약종료" : status.label}</em>
-            <small>{status.valid ? `${employmentCurrentYear}년 계약` : status.label.startsWith("계약종료/")
-              ? `${status.label.split("/")[1]} · 올해 계약 기간 아님`
-              : status.label === "정보 입력 중" ? "상세 정보를 입력해 주세요" : status.label === "비활성화" ? "삭제 처리된 계약" : status.label === "계약기간 확인 필요" ? "시작일·종료일 확인 필요" : "근무 연결 상태 확인 필요"}</small>
-          </span>
-          {!contract.isDraft && <small className="matching-summary">{matching.label}</small>}
-        </span>
-        <span className="expiry">
-          <strong>{contract.isDraft && !(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount) ? "약정 미입력" : formatCurrency(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount)}</strong>
-          <small>{contract.isDraft ? "상세 입력 필요" : `${contract.contractTerms[0]?.wageType ?? contract.wageType} · 계약 조건 ${contract.contractTerms.length || 1}개`}</small>
-        </span>
-        <ChevronRight size={18} />
-      </div>
-    );
+    const numberVisible = visibleResidentNumberIds.has(contract.id);
+    return <div className="recipient-directory-row">
+      <button type="button" className="recipient-directory-open" aria-label={`${contract.workerName} 근로계약 상세 보기`}
+        onClick={() => setSelectedEmploymentContractId(contract.id)} />
+      <span className="recipient-directory-identity"><strong>{contract.workerName}<em>{isLatest ? "최신 계약" : "이전 계약"}</em></strong>
+        <small>{contract.workerPhone ?? "전화번호 미등록"}</small></span>
+      <span><strong>{formatEmploymentPeriod(contract)}</strong>
+        {!contract.isDraft && <small>{matching.label}</small>}
+        <em className={`recipient-directory-status${contract.isDraft ? " is-draft" : ""}`}>{status.label}</em></span>
+      <span><strong>{(numberVisible ? contract.residentRegistrationNumber : maskResidentNumber(contract.residentRegistrationNumber)) || "미등록"}</strong>
+        <span className="recipient-address-copy"><button type="button" disabled={!contract.residentRegistrationNumber}
+          aria-label={`${contract.workerName} 주민번호 ${numberVisible ? "숨기기" : "표기"}`} aria-pressed={numberVisible}
+          onClick={() => setVisibleResidentNumberIds(previous => {
+            const next = new Set(previous);
+            if (next.has(contract.id)) next.delete(contract.id); else next.add(contract.id);
+            return next;
+          })}>{numberVisible ? "숨기기" : "표기"}</button></span></span>
+      <span><strong>{contract.isDraft && !(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount) ? "약정 미입력" : formatCurrency(contract.contractTerms[0]?.wageAmount ?? contract.wageAmount)}</strong>
+        <small>{contract.isDraft ? "상세 입력 필요" : `${contract.contractTerms[0]?.wageType ?? contract.wageType} · 조건 ${contract.contractTerms.length || 1}개`}</small></span>
+      <ChevronRight size={16} />
+    </div>;
   };
 
   return (
@@ -1507,7 +1518,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
           </div>
           <span className="sidebar-section-label">센터 운영</span>
           <nav className="view-tabs sidebar-group-navigation" aria-label="관리 메뉴">
-            <SidebarGroup title="수급자" active={activeView === "recipients" || activeView === "recipientServices" || activeView === "copay" || activeView === "prospects"}>
+            <SidebarGroup title="수급자" active={activeView === "recipients" || activeView === "prospects"}>
             <button type="button" className={activeView==='prospects'?'is-active':''} aria-current={activeView==='prospects'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('prospects');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><Users size={16}/>잠재고객 관리</button>
             <button
               type="button"
@@ -1522,10 +1533,12 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <Users size={16} />
               수급자 기초정보
             </button>
-            <button type="button" className={activeView==='recipientServices'?'is-active':''} aria-current={activeView==='recipientServices'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('recipientServices');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>방문요양 서비스 관리</button>
-            <button type="button" className={activeView==='copay'?'is-active':''} aria-current={activeView==='copay'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('copay');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>본인부담금 관리</button>
             </SidebarGroup>
-            <SidebarGroup title="요양보호사, 사회복지사" active={activeView === "employmentContracts"}>
+            <SidebarGroup title="요양보호사, 사회복지사" active={['employmentContracts','staffDirectory'].includes(activeView)}>
+            <button type="button" className={activeView==='staffDirectory'?'is-active':''} aria-current={activeView==='staffDirectory'?'page':undefined}
+              onClick={()=>{if(activeView!=='records'||!recordsDirty||window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))setActiveView('staffDirectory');}}>
+              <Users size={16}/>직원 기초정보
+            </button>
             <button
               type="button"
               className={activeView === "employmentContracts" ? "is-active" : ""}
@@ -1540,7 +1553,28 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               근로계약서
             </button>
             </SidebarGroup>
-            <SidebarGroup title="센터 실무" active={activeView === "work" || activeView === "records" || activeView === "visits" || activeView === "rfid"}>
+            <SidebarGroup title="방문요양" active={activeView === 'staffServiceConnections' || activeView === 'recipientServices' || activeView === 'copay' || activeView === 'visits'}>
+              <button type="button" className={activeView==='staffServiceConnections'?'is-active':''} aria-current={activeView==='staffServiceConnections'?'page':undefined}
+                onClick={()=>{if(activeView!=='records'||!recordsDirty||window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))setActiveView('staffServiceConnections');}}>
+                <Link2 size={16} aria-hidden="true" />서비스 매칭
+              </button>
+              {([
+                ['recipientServices', '서비스 관리', ClipboardCheck],
+                ['copay', '본인부담금', Wallet],
+                ['visits', '라운딩', Car],
+              ] as const).map(([view, label, Icon]) =>
+                <button key={view} type="button" className={activeView === view ? 'is-active' : ''}
+                  aria-current={activeView === view ? 'page' : undefined} onClick={() => {
+                    if (activeView === 'records' && recordsDirty && !window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?')) return;
+                    setActiveView(view);
+                    setSelectedRecipientId(null);
+                    setSelectedEmploymentContractId(null);
+                    setIsCreatePanelOpen(false);
+                    setIsEmploymentCreatePanelOpen(false);
+                  }}><Icon size={16} aria-hidden="true" />{label}</button>
+              )}
+            </SidebarGroup>
+            <SidebarGroup title="센터 실무" active={activeView === "work" || activeView === "records" || activeView === "rfid"}>
             <button type="button" className={activeView === "work" ? "is-active" : ""}
               aria-current={activeView === "work" ? "page" : undefined}
               onClick={() => {
@@ -1554,7 +1588,17 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <ClipboardCheck size={16} />센터업무(할일)
             </button>
             <button type="button" className={activeView === "records" ? "is-active" : ""} aria-current={activeView === "records" ? "page" : undefined} onClick={() => { setActiveView("records"); setSelectedRecipientId(null); setSelectedEmploymentContractId(null); setIsCreatePanelOpen(false); setIsEmploymentCreatePanelOpen(false); }}><ClipboardCheck size={16}/>근무기록</button>
-            {([['visits','라운딩'],['rfid','RFID 확인']] as const).map(([view,label])=><button key={view} type="button" className={activeView===view?'is-active':''} aria-current={activeView===view?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView(view);setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>{label}</button>)}
+            <button type="button" className={activeView==='rfid'?'is-active':''} aria-current={activeView==='rfid'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('rfid');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>RFID 확인</button>
+            </SidebarGroup>
+            <SidebarGroup title="급여/회계" active={activeView === 'payroll'}>
+              <button type="button" className={activeView === 'payroll' ? 'is-active' : ''} aria-current={activeView === 'payroll' ? 'page' : undefined} onClick={() => {
+                if (activeView === 'records' && recordsDirty && !window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?')) return;
+                setActiveView('payroll');
+                setSelectedRecipientId(null);
+                setSelectedEmploymentContractId(null);
+                setIsCreatePanelOpen(false);
+                setIsEmploymentCreatePanelOpen(false);
+              }}><Calculator size={16} />급여대장</button>
             </SidebarGroup>
             <SidebarGroup title="기관 운영 서류 업무" active={activeView==='institution'||activeView==='staffCounseling'}><button type="button" className={activeView==='institution'?'is-active':''} aria-current={activeView==='institution'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('institution');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><Briefcase size={16}/>기관 연락처·공문 서식</button><button type="button" className={activeView==='staffCounseling'?'is-active':''} aria-current={activeView==='staffCounseling'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('staffCounseling');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>직원 상담일지</button></SidebarGroup>
           </nav>
@@ -1568,11 +1612,19 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
 
       <main className="main-content">
         <WorkOperationStatus compact={activeView === "work"}/>
-        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인',prospects:'잠재고객 관리',institution:'기관 연락처·공문 서식',staffCounseling:'직원 상담일지'}[activeView]}</strong></div>}
+        {activeView !== 'work' && activeView !== 'records' && <div className="app-navigation-bar" role="region" aria-label="현재 화면"><strong>{{recipients:'수급자 기초정보',employmentContracts:'근로계약서',recipientServices:'방문요양 서비스 관리',copay:'본인부담금 관리',visits:'라운딩',rfid:'RFID 확인',prospects:'잠재고객 관리',institution:'기관 연락처·공문 서식',staffCounseling:'직원 상담일지',payroll:'급여대장',staffDirectory:'직원 기초정보',staffServiceConnections:'서비스 매칭'}[activeView]}</strong></div>}
         {copayLinkBusy && <p className="copay-link-status" role="status">수급자 기초정보를 확인하고 있습니다.</p>}
         {(copayLinkError || copayPendingLink) && !copayRecipientPicker && <div className="error-banner" role="alert">{copayLinkError || '수급자 정보는 저장되었습니다. 종합현황 연결을 확인하고 있습니다.'}{copayPendingLink ? <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>void retryCopayRecipientLink()}>종합현황 연결 다시 시도</button> : <button type="button" className="secondary-button" disabled={copayLinkBusy} onClick={()=>setCopayLinkError('')}>알림 닫기</button>}</div>}
         {copayOpened && <section className="copay-management-panel" hidden={activeView!=="copay"}><CopayManagement onDirty={setCopayDirty} onBusy={setCopayBusy} onRecipient={row=>void openCopayRecipient(row)} recipientRevision={copayRecipientRevision} active={activeView==='copay'}/></section>}
-        {activeView === "staffCounseling" ? <StaffCounseling onDirty={setCounselingDirty} onBusy={setCounselingBusy}/> : activeView === "institution" ? <InstitutionResources onDirty={setInstitutionDirty} onBusy={setInstitutionBusy}/> : activeView === "prospects" ? <ProspectManagement onDirty={setProspectDirty} onBusy={setProspectBusy}/> : activeView === "visits" ? <section className="work-hub"><WorkVisits key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub /> : activeView === "recipients" ? (
+        {activeView === "staffDirectory" ? <StaffDirectory key={staffDirectoryRefresh} contracts={employmentContracts}
+          loading={isEmploymentLoading} error={employmentErrorMessage} onReload={() => void fetchEmploymentContracts()}
+          onOpenContract={contract => setSelectedEmploymentContractId(contract.id)} onCreateContract={openStaffContract} /> :
+        activeView === "staffServiceConnections" ? <StaffServiceConnections key={recipientHandoff?.id ?? 'all'} initialRecipient={recipientHandoff ?? undefined} contracts={employmentContracts} recipients={recipients}
+          loading={isEmploymentLoading||isLoading} error={employmentErrorMessage||errorMessage}
+          onDirty={setServiceDirty} onBusy={setServiceBusy} onManageStaff={() => setActiveView('staffDirectory')}
+          onReload={() => {void fetchEmploymentContracts();void fetchRecipients();}} onEdit={contract => {
+            setServiceConditionMode(!contract.isDraft); openEmploymentRenewalPanel(contract,true);
+          }} /> : activeView === "payroll" ? <Payroll onDirty={setPayrollDirty} onBusy={setPayrollBusy}/> : activeView === "staffCounseling" ? <StaffCounseling onDirty={setCounselingDirty} onBusy={setCounselingBusy}/> : activeView === "institution" ? <InstitutionResources onDirty={setInstitutionDirty} onBusy={setInstitutionBusy}/> : activeView === "prospects" ? <ProspectManagement onDirty={setProspectDirty} onBusy={setProspectBusy}/> : activeView === "visits" ? <section className="work-hub"><WorkVisits key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onBusy={setVisitsBusy} onDirty={setVisitsDirty}/></section> : activeView === "rfid" ? <section className="work-hub"><WorkRfid onBusy={setRfidBusy}/></section> : activeView === "copay" ? null : activeView === "recipientServices" ? <RecipientServiceMonth key={recipientHandoff?.id||'all'} initialRecipient={recipientHandoff??undefined} onDirty={setServiceDirty} onBusy={setServiceBusy}/> : activeView === "records" ? <StaffRecords onDirty={setRecordsDirty}/> : activeView === "work" ? <WorkHub /> : activeView === "recipients" ? (
           <section className="recipient-directory-workspace">
         <PageHeading title="수급자 기초정보" description="연락처·방문 주소·보호자·담당자를 확인하고 필요한 업무로 이어갑니다.">
           <div className="heading-actions">
@@ -1697,10 +1749,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         </section>
           </section>
         ) : (
-          <>
+          <section className="recipient-directory-workspace">
             <PageHeading title="근로계약 관리" description="근로자의 계약 기간, 근무시간, 임금과 보험 정보를 기록하고 확인합니다.">
               <div className="heading-actions">
-                <button type="button" className="primary-button" onClick={() => setIsEmploymentGridOpen(true)}>
+                <button type="button" className="secondary-button" onClick={() => setIsEmploymentGridOpen(true)}>
                   <Plus size={18} /> 표로 여러 명 입력
                 </button>
 
@@ -1721,10 +1773,6 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   <Plus size={18} />
                   근로계약 등록
                 </button>
-                <div className="summary-card">
-                  <span>{employmentCurrentYear}년 유효 계약</span>
-                  <strong>{enabledEmploymentContractCount}건</strong>
-                </div>
               </div>
             </PageHeading>
 
@@ -1750,7 +1798,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               <div className="list-toolbar">
                 <div>
                   <h2 id="employment-contract-list-title">근로계약 목록</h2>
-                  <span>계약 시작일 최신순</span>
+                  <span>{employmentCurrentYear}년 유효 계약 {enabledEmploymentContractCount}건 · 계약 시작일 최신순</span>
                 </div>
                 <div className="toolbar-controls">
                   <select className="filter-select" aria-label="근로계약 등록 상태" value={employmentRegistrationFilter}
@@ -1785,16 +1833,11 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                   <p>{employmentSearchQuery ? "검색 결과가 없습니다." : "표시할 근로계약이 없습니다."}</p>
                 </div>
               ) : (
-                <div className="recipient-table employment-table">
-                  <div className="table-head">
-                    <span>근로자</span>
-                    <span>주민번호</span>
-                    <span>전화번호</span>
-                    <span>계약 기간 · 유효 상태</span>
-                    <span>대표 금액</span>
-                    <span aria-hidden="true" />
+                <div className="recipient-directory-list">
+                  <div className="recipient-directory-columns" aria-hidden="true">
+                    <span>근로자 · 연락처</span><span>계약 기간 · 상태</span><span>주민번호</span><span>대표 금액</span><span />
                   </div>
-                  <ul>
+                  <ul className="directory-contract-groups">
                     {employmentWorkerGroups.map((contracts) => {
                       const contract = contracts[0];
                       const workerKey = getWorkerKey(contract);
@@ -1826,7 +1869,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 </div>
               )}
             </section>
-          </>
+          </section>
         )}
       </main>
 
@@ -1860,22 +1903,28 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         managementActions={[...(isRecipientEnabled(selectedRecipient)?[{label:'계약해지',className:'warning-button',disabled:Boolean(selectedRecipient.isDraft),onClick:()=>{setSelectedRecipientId(null);openTerminateDialog(selectedRecipient);}},{label:'수급자 삭제',className:'danger-button',onClick:()=>{setRecipientToDeactivate(selectedRecipient);setDeactivateErrorMessage(null);setSelectedRecipientId(null);}}]:[{label:'계약복구',className:'restore-button',onClick:()=>{setSelectedRecipientId(null);openRestoreDialog(selectedRecipient);}}])]}/>}
 
       {selectedEmploymentContract && (
-        <div className="detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(()=>setSelectedEmploymentContractId(null))();}}>
-          <article
-            className={`detail-panel ${
-              getEmploymentContractStatus(selectedEmploymentContract, employmentCurrentYear).valid ? "" : "is-disabled-detail"
-            }`}
-            aria-label={`${selectedEmploymentContract.workerName} 근로계약 상세 정보`}
-          >
-            <div className="detail-header">
-              <button
-                type="button"
-                className="back-button"
-                onClick={() => setSelectedEmploymentContractId(null)}
-              >
-                <ArrowLeft size={17} />
-                목록으로
-              </button>
+        <div className="detail-backdrop directory-side-backdrop" role="presentation" onClick={event => {
+          if (event.target === event.currentTarget) setSelectedEmploymentContractId(null);
+        }}>
+          <article className="recipient-overview-dialog directory-side-panel"
+            aria-label={`${selectedEmploymentContract.workerName} 근로계약 상세 정보`}>
+            <header className="recipient-overview-header">
+              <div><small>근로계약서</small><h2>{selectedEmploymentContract.workerName}</h2></div>
+              <button type="button" className="icon-button" aria-label="닫기" onClick={() => setSelectedEmploymentContractId(null)}><X size={20} /></button>
+            </header>
+            <div className="recipient-overview-meta">
+              <span>{getEmploymentBirthDate(selectedEmploymentContract) || "생년월일 미등록"} · {formatEmploymentAge(selectedEmploymentContract) ?? "나이 미계산"}</span>
+              <span>{selectedEmploymentContract.workerPhone ?? "전화번호 미등록"}</span>
+              <em className="recipient-directory-status">{getEmploymentContractStatus(selectedEmploymentContract, employmentCurrentYear).label}</em>
+            </div>
+            <div className="recipient-overview-body">
+              <section className="recipient-overview-card">
+                <div className="recipient-overview-card-heading"><h3>계약 요약</h3></div>
+                <dl className="recipient-overview-facts">
+                  <div><dt>계약 기간</dt><dd>{formatEmploymentPeriod(selectedEmploymentContract)}</dd></div>
+                  <div><dt>대표 금액</dt><dd>{selectedEmploymentContract.isDraft && !(selectedEmploymentContract.contractTerms[0]?.wageAmount ?? selectedEmploymentContract.wageAmount)
+                    ? "약정 미입력" : formatCurrency(selectedEmploymentContract.contractTerms[0]?.wageAmount ?? selectedEmploymentContract.wageAmount)}</dd></div>
+                </dl>
               <div className="detail-actions">
                 <button type="button" className="secondary-button"
                   onClick={() => openEmploymentRenewalPanel(selectedEmploymentContract, true)}>
@@ -1902,36 +1951,10 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                     계약 삭제
                   </button>
                 )}
-                <button
-                  type="button"
-                  className="icon-button"
-                  onClick={() => setSelectedEmploymentContractId(null)}
-                >
-                  <X size={20} />
-                  <span className="sr-only">닫기</span>
-                </button>
               </div>
-            </div>
+              </section>
 
-            <div className="recipient-hero employment-hero">
-              <span>{selectedEmploymentContract.isDraft ? "정보 입력 중 · 상세 정보를 보완해 주세요" : `계약 조건 ${selectedEmploymentContract.contractTerms.length || 1}개`}</span>
-              <h2>{selectedEmploymentContract.workerName}</h2>
-              <p>
-                {getEmploymentBirthDate(selectedEmploymentContract) || "생년월일 미등록"} ·{" "}
-                {formatEmploymentAge(selectedEmploymentContract) ?? "나이 미계산"} ·{" "}
-                {selectedEmploymentContract.workerPhone ?? "전화번호 미등록"}
-                <strong className="inactive-inline">{getEmploymentContractStatus(selectedEmploymentContract, employmentCurrentYear).label}</strong>
-              </p>
-              <div>
-                <small>대표 금액</small>
-                <strong>
-                  {selectedEmploymentContract.isDraft && !(selectedEmploymentContract.contractTerms[0]?.wageAmount ?? selectedEmploymentContract.wageAmount)
-                    ? "약정 미입력" : formatCurrency(selectedEmploymentContract.contractTerms[0]?.wageAmount ?? selectedEmploymentContract.wageAmount)}
-                </strong>
-              </div>
-            </div>
-
-            <section className="employment-history" aria-label="근로자 계약 이력">
+            <section className="employment-history recipient-overview-card" aria-label="근로자 계약 이력">
               <h3>계약 이력 ({selectedWorkerHistory.length}건)</h3>
               {selectedWorkerHistory.map((history, index) => (
                 <button type="button" className="employment-history-item" key={history.id}
@@ -1944,23 +1967,25 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               ))}
             </section>
 
-            <EmploymentConditionsDetails contract={selectedEmploymentContract} recipients={recipients} />
-
-            <EmploymentContractAttachments key={selectedEmploymentContract.id} />
-
-            <div className="detail-sections">
-              {employmentContractDetailSections.map((section) => (
-                <section key={section.title}>
-                  <h3>{section.title}</h3>
-                  <dl>
+            <section className="recipient-overview-card">
+              <EmploymentConditionsDetails contract={selectedEmploymentContract} recipients={recipients} />
+            </section>
+            <details className="recipient-overview-reference">
+              <summary>근로계약 관련 서류</summary>
+              <EmploymentContractAttachments key={selectedEmploymentContract.id} />
+            </details>
+            {employmentContractDetailSections.map((section) => (
+                <details className="recipient-overview-reference" key={section.title}>
+                  <summary>{section.title}</summary>
+                  <dl className="recipient-overview-facts">
                     {section.fields.map((field) => (
                       <div key={field.label}>
                         <dt>{field.label}</dt>
                         <dd>{field.value(selectedEmploymentContract) || "미등록"}</dd>
                       </div>
-                    ))}
+                  ))}
                   </dl>
-                </section>
+                </details>
               ))}
             </div>
           </article>
@@ -2168,25 +2193,15 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       )}
 
       {isEmploymentCreatePanelOpen && (
-        <div className="detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(closeEmploymentCreatePanel)();}}>
-          <article className="detail-panel" aria-label={isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}>
-            <div className="detail-header">
-              <button type="button" className="back-button" onClick={closeEmploymentCreatePanel}>
-                <ArrowLeft size={17} />
-                목록으로
-              </button>
-              <button type="button" className="icon-button" onClick={closeEmploymentCreatePanel}>
-                <X size={20} />
-                <span className="sr-only">닫기</span>
-              </button>
-            </div>
-
-            <form className="recipient-form" onSubmit={handleCreateEmploymentContract}>
-              <div className="form-heading">
-                <span className="eyebrow">{isEditingEmploymentContract ? "Edit employment contract" : employmentRenewalSource ? "Renew employment contract" : "New employment contract"}</span>
-                <h2>{isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}</h2>
-              </div>
-
+        <div className="detail-backdrop directory-side-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)(closeEmploymentCreatePanel)();}}>
+          <article className="recipient-overview-dialog directory-side-panel" aria-label={isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}>
+            <header className="recipient-overview-header">
+              <div><small>{serviceConditionMode ? "서비스 매칭" : "근로계약서"}</small>
+                <h2>{isEditingEmploymentContract ? "근로계약 수정" : employmentRenewalSource ? "추가/갱신계약 작성" : "근로계약 등록"}</h2></div>
+              <button type="button" className="icon-button" onClick={closeEmploymentCreatePanel} aria-label="닫기"><X size={20} /></button>
+            </header>
+            <form className="staff-overview-form directory-contract-form" onSubmit={handleCreateEmploymentContract}>
+              <div className="recipient-overview-body">
               {employmentRenewalSource?.isDraft && <p className="condition-review">정보 입력 중인 계약입니다. 임시 저장으로 나누어 보완하고, 필수 정보와 근무 조건을 채운 뒤 상세 정보 등록 완료를 눌러 주세요.</p>}
 
               {employmentRenewalSource && (
@@ -2201,7 +2216,9 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 </div>
               )}
 
-              <section className="form-section" aria-labelledby="worker-form-title">
+              {serviceConditionMode && <button type="button" className="secondary-button" aria-expanded={showContractIdentity}
+                onClick={() => setShowContractIdentity(value => !value)}>{showContractIdentity ? '근로자 정보 접기' : '근로자 정보 보기'}</button>}
+              <section className="form-section recipient-overview-card" hidden={serviceConditionMode && !showContractIdentity} aria-labelledby="worker-form-title">
                 <h3 id="worker-form-title">근로자 정보</h3>
                 <div className="form-grid">
                   <label>
@@ -2288,7 +2305,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 </div>
               </section>
 
-              <section className="form-section" aria-labelledby="employment-period-title">
+              <section className="form-section recipient-overview-card" aria-labelledby="employment-period-title">
                 <h3 id="employment-period-title">계약 기간</h3>
                 <div className="form-grid">
                   <label><span>계약 시작일</span>
@@ -2313,7 +2330,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 onAdd={addEmploymentTerm} onRemove={removeEmploymentTerm}
                 onTermChange={updateEmploymentTermField} onConditionChange={updateEmploymentCondition} />
 
-              <div className="form-actions">
+              </div>
+              <div className="form-actions recipient-overview-save-host staff-overview-footer">
                 <button
                   type="button"
                   className="secondary-button"

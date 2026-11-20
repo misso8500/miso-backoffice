@@ -1,19 +1,24 @@
-import {ServiceWorkerCell,NewServiceWorker,matchKey,type WorkerMatch,type ServiceWorker} from './ServiceWorkerMatching';
+import { Search } from 'lucide-react';
+import {CompactServiceWorkerCell,matchKey,type WorkerMatch,type ServiceWorker} from './ServiceWorkerMatching';
 import './NavigationTabs.css';
 import PageHeading from './PageHeading';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {requestJson} from './storage';
+import {conditionOverlapsMonth} from './lib/staff-directory';
+import {getWorkerKey} from './lib/employment-contracts';
+import type {EmploymentContract} from './types';
 import {workToday} from './lib/work-tasks';
 import {useWorkCacheUpdates} from './lib/use-work-cache';
 import './RecipientServiceMonth.css';
 import RecipientRoundingCells,{emptyRounding,type Rounding} from './RecipientRoundingCells';
-type Row={id:string;name:string;operationalName:string;serviceStartDate:string;serviceEndDate:string;enabled:boolean;isDraft:boolean;checked:boolean;workers?:WorkerMatch[];rounding?:Rounding};
+type Row={id:string;name:string;operationalName:string;careGrade?:string;serviceStartDate:string;serviceEndDate:string;enabled:boolean;isDraft:boolean;checked:boolean;workers?:WorkerMatch[];rounding?:Rounding};
 type Data={month:string;version:number;updatedAt:string|null;rows:Row[];assignees?:{id:string;name:string}[]};
-export default function RecipientServiceMonth({onDirty,onBusy,initialRecipient}:{initialRecipient?:{id:string;name:string};onDirty:(value:boolean)=>void;onBusy:(value:boolean)=>void}) {
+export default function RecipientServiceMonth({onDirty,onBusy,initialRecipient,connectionContracts,onManageStaff}:{connectionContracts?:EmploymentContract[];onManageStaff?:()=>void;initialRecipient?:{id:string;name:string};onDirty:(value:boolean)=>void;onBusy:(value:boolean)=>void}) {
+ const compact=connectionContracts!==undefined;
  const [month,setMonth]=useState(workToday().slice(0,7)),[data,setData]=useState<Data|null>(null),[draft,setDraft]=useState<Set<string>>(new Set());
  const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[query,setQuery]=useState(initialRecipient?.name||''),[filter,setFilter]=useState('all');
  const [yearBase,setYearBase]=useState(Number(workToday().slice(0,4))-2);
- const [workerOptions,setWorkerOptions]=useState<ServiceWorker[]>([]),[workerLoading,setWorkerLoading]=useState(true),[workerError,setWorkerError]=useState(''),[workerDraft,setWorkerDraft]=useState<Record<string,WorkerMatch[]>>({}),[newWorkerFor,setNewWorkerFor]=useState<Row|null>(null);
+ const [workerOptions,setWorkerOptions]=useState<ServiceWorker[]>([]),[workerLoading,setWorkerLoading]=useState(true),[workerError,setWorkerError]=useState(''),[workerDraft,setWorkerDraft]=useState<Record<string,WorkerMatch[]>>({});
  const generation=useRef(0),lock=useRef(false);
  const [editingCount,setEditingCount]=useState(0);
  const onEditing=useCallback((active:boolean)=>setEditingCount(n=>Math.max(0,n+(active?1:-1))),[]);
@@ -25,24 +30,138 @@ export default function RecipientServiceMonth({onDirty,onBusy,initialRecipient}:
  function accept(value:Data){setData(value);setWorkerDraft(Object.fromEntries(value.rows.map(r=>[r.id,r.workers||[]])));setDraft(new Set(value.rows.filter(r=>r.checked).map(r=>r.id)));}
  useWorkCacheUpdates<Data>(path,value=>{if(!dirty&&!busy)accept(value);});
  async function loadWorkers(){setWorkerLoading(true);setWorkerError('');try{const result=await requestJson<{workers:ServiceWorker[]}>('/api/work/service-workers');setWorkerOptions(result.workers);}catch(cause){setWorkerError(cause instanceof Error?cause.message:'근로자 명부를 불러오지 못했습니다.');}finally{setWorkerLoading(false);}}
- useEffect(()=>{void loadWorkers();},[]);
+ useEffect(()=>{if(compact)void loadWorkers();},[compact]);
  useEffect(()=>{onDirty(dirty);return ()=>onDirty(false);},[dirty,onDirty]);
  useEffect(()=>{onBusy(busy);return ()=>onBusy(false);},[busy,onBusy]);
  useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[dirty]);
  async function load(force=false){const current=++generation.current;setLoading(true);setError('');setNotice('');try{const value=await requestJson<Data>(path,force?{cache:'reload'}:undefined);if(current===generation.current)accept(value);}catch(e){if(current===generation.current)setError(e instanceof Error?e.message:'목록을 불러오지 못했습니다.');}finally{if(current===generation.current)setLoading(false);}}
  useEffect(()=>{void load();return()=>{generation.current++;};},[month]);
  function move(next:string){if(next===month||busy)return;if(dirty&&!window.confirm('적용하지 않은 수급자 선택·매칭 변경을 버리고 이동할까요?'))return;setMonth(next);setNotice('');setQuery(initialRecipient?.name||'');}
- const visible=rows.filter(r=>(!initialRecipient||query!==initialRecipient.name||r.id===initialRecipient.id)&&(filter==='all'||(filter==='checked')===draft.has(r.id))&&`${r.name} ${r.operationalName}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+ const matched = (row: Row) => row.checked && row.workers?.some(worker => worker.workerId);
+ const visible = rows.filter(row =>
+   (compact ? (filter === 'all' || (filter === 'checked') === draft.has(row.id)) : matched(row)) &&
+   (!initialRecipient || query !== initialRecipient.name || row.id === initialRecipient.id) &&
+   `${row.name} ${row.operationalName}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+
+ const proposals = new Map<string, WorkerMatch[]>();
+ const eligible = new Map(rows.filter(r => !r.isDraft && (r.enabled || month < workToday().slice(0,7))).map(r => [r.id, r]));
+ for (const contract of connectionContracts ?? []) {
+   for (const condition of contract.workConditions?.conditions ?? []) {
+     const supported = condition.familyCare || ['가족','가족요양','방문','방문요양'].includes(condition.serviceType.trim());
+     const recipient = eligible.get(condition.recipientId);
+     if (!supported || !recipient || !conditionOverlapsMonth(contract, condition, month, recipient)) continue;
+     const workers = proposals.get(condition.recipientId) ?? [];
+     const serviceType = condition.familyCare || condition.serviceType.startsWith('가족') ? '가족' : '방문';
+     if (!workers.some(item => item.workerId === contract.id && item.serviceType === serviceType)) {
+       workers.push({workerId:contract.id,workerName:contract.workerName,birthDate:contract.workerBirthDate,serviceType});
+       proposals.set(condition.recipientId,workers);
+     }
+   }
+ }
+ const contractsById = new Map(connectionContracts?.map(contract => [contract.id, contract]));
+ const workerKey = (match: WorkerMatch) => {
+   const contract = contractsById.get(match.workerId);
+   return contract ? getWorkerKey(contract) : match.workerId;
+ };
+ const suggestions = new Map<string, WorkerMatch[]>();
+ let ambiguousCount = 0;
+ for (const [recipientId, workers] of proposals) {
+   const current = workerDraft[recipientId] ?? [];
+   if (current.some(worker => !worker.workerId)) continue;
+   const assigned = new Set(current.map(workerKey));
+   const byWorker = new Map<string, WorkerMatch[]>();
+   for (const worker of workers) {
+     const key = workerKey(worker);
+     if (assigned.has(key)) continue;
+     const candidates = byWorker.get(key) ?? [];
+     candidates.push(worker);
+     byWorker.set(key, candidates);
+   }
+   const additions: WorkerMatch[] = [];
+   for (const candidates of byWorker.values()) {
+     if (candidates.length === 1) additions.push(candidates[0]);
+     else ambiguousCount++;
+   }
+   if (current.length + additions.length > 30) continue;
+   if (additions.length || (current.length && !draft.has(recipientId))) {
+     suggestions.set(recipientId, [...current, ...additions]);
+   }
+ }
+ function loadContractSuggestions() {
+   setDraft(previous => new Set([...previous, ...suggestions.keys()]));
+   setWorkerDraft(previous => ({ ...previous, ...Object.fromEntries(suggestions) }));
+   setFilter('checked');
+   setQuery('');
+   setNotice(`수급자 ${suggestions.size}명의 요양보호사 연결을 채웠습니다. 확인 후 적용하세요.`);
+ }
  function toggle(id:string,checked:boolean){setDraft(old=>{const next=new Set(old);if(checked)next.add(id);else next.delete(id);return next;});if(!checked)setWorkerDraft(previous=>({...previous,[id]:rows.find(r=>r.id===id)?.workers||[]}));setNotice('');}
  async function apply(){if(lock.current||!data||!changes||invalidMatches)return;lock.current=true;setBusy(true);setError('');setNotice('');try{const value=await requestJson<Data>(path,{method:'PUT',body:JSON.stringify({version:data.version,recipientIds:[...draft],workerAssignments:workerChanges.map(r=>({recipientId:r.id,workers:workerDraft[r.id]}))})});accept(value);setNotice(`${month} 수급자 ${value.rows.filter(r=>r.checked).length}명의 선택과 요양보호사 매칭을 적용했습니다.`);}catch(e){setError(e instanceof Error?e.message:'적용하지 못했습니다. 변경 내용은 유지됩니다.');}finally{lock.current=false;setBusy(false);}}
  async function saveRounding(row:Row,rounding:Rounding,confirmComplete=false){if(lock.current)return false;lock.current=true;setBusy(true);setError('');setNotice('');try{const saved=await requestJson<{rounding:Rounding}>(`/api/work/service-rounding?month=${month}`,{method:'PUT',body:JSON.stringify({...rounding,recipientId:row.id,confirmComplete})});setData(previous=>previous?{...previous,rows:previous.rows.map(r=>r.id===row.id?{...r,rounding:saved.rounding}:r)}:previous);setNotice(confirmComplete?`${row.name} 방문완료를 센터업무 할일과 수행 기록에 반영했습니다.`:`${row.name} 라운딩 정보를 저장했습니다.`);return true;}catch(e){setError(e instanceof Error?e.message:'라운딩 정보를 저장하지 못했습니다.');return false;}finally{lock.current=false;setBusy(false);}}
- return <section className="recipient-service-month" aria-label="방문요양 서비스 관리"><PageHeading title="방문요양 서비스 관리" description="연도·월별 수급자와 담당 요양보호사를 연결하고 방문요양·가족요양 구분을 함께 적용하세요."><button type="button" className="secondary-button" disabled={busy||loading} onClick={()=>{if(!dirty||window.confirm('수급자 선택·매칭 변경을 버리고 최신 목록을 불러올까요?')){void load(true);void loadWorkers();}}}>새로고침</button></PageHeading>
- <nav className="service-years app-navigation-tabs" aria-label="서비스 연도"><button disabled={busy||yearBase<=1000} onClick={()=>setYearBase(y=>Math.max(1000,y-5))} aria-label="이전 연도 목록">←</button>{Array.from({length:5},(_,i)=>yearBase+i).filter(y=>y<=9999).map(year=><button key={year} disabled={busy} aria-current={month.startsWith(String(year))?'page':undefined} onClick={()=>move(`${year}-${month.slice(5)}`)}>{year}년</button>)}<button disabled={busy||yearBase>=9995} onClick={()=>setYearBase(y=>Math.min(9995,y+5))} aria-label="다음 연도 목록">→</button></nav>
- <nav className="service-months app-navigation-tabs" aria-label="서비스 월">{Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0')).map(m=><button key={m} disabled={busy} aria-current={month.slice(5)===m?'page':undefined} onClick={()=>move(`${month.slice(0,4)}-${m}`)}>{Number(m)}월</button>)}</nav>
+ return <section className={`recipient-service-month${compact?' staff-compact-month':''}`} aria-label={compact?"월별 서비스 배정":"방문요양 서비스 관리"}>{!compact&&<PageHeading title="방문요양 서비스 관리" description="요양보호사가 연결된 월별 수급자의 서비스 현황과 라운딩을 관리합니다."><button type="button" className="secondary-button" disabled={busy||loading} onClick={()=>{if(!dirty||window.confirm('수정 중인 내용을 닫고 최신 목록을 불러올까요?'))void load(true);}}>새로고침</button></PageHeading>}
+ {compact?<div className="list-toolbar">
+  <div><h2>월별 배정</h2><span>선택 {draft.size} / 전체 {rows.length}명 · 미매칭 {rows.filter(r => draft.has(r.id) && !workerDraft[r.id]?.some(item => item.workerId)).length}명</span></div>
+  <div className="toolbar-controls">
+    <label className="directory-period-filter">서비스 월<input className="filter-select" type="month" value={month} disabled={busy} onChange={event=>{if(event.target.value)move(event.target.value);}} /></label>
+    <button type="button" className="secondary-button" disabled={busy||loading||!suggestions.size} onClick={loadContractSuggestions}>계약 조건에서 불러오기{suggestions.size ? ` · ${suggestions.size}명` : ''}</button>
+    <button type="button" className="secondary-button" disabled={busy||loading} onClick={()=>{if(!dirty||window.confirm('적용하지 않은 변경을 버리고 최신 목록을 불러올까요?')){void load(true);void loadWorkers();}}}>새로고침</button>
+    <button type="button" className="secondary-button" onClick={onManageStaff}>직원 기초정보</button>
+    <select className="filter-select" aria-label="수급자 체크 필터" value={filter} onChange={event => setFilter(event.target.value)}>
+      <option value="all">전체 수급자</option><option value="checked">이 달 서비스 대상</option><option value="unchecked">미체크 수급자</option>
+    </select>
+    <button type="button" className="secondary-button" disabled={busy||loading||!visible.some(row=>!draft.has(row.id))}
+      onClick={()=>{setDraft(previous=>new Set([...previous,...visible.map(row=>row.id)]));setNotice('');}}>현재 목록 미체크 선택</button>
+    <label className="search-box"><Search size={18} /><input type="search" aria-label="수급자 검색" placeholder="이름·운영상 표기 검색"
+      value={query} onChange={event=>setQuery(event.target.value)} /></label>
+  </div>
+ </div>:<><nav className="service-years app-navigation-tabs" aria-label="서비스 연도"><button disabled={busy||yearBase<=1000} onClick={()=>setYearBase(y=>Math.max(1000,y-5))} aria-label="이전 연도 목록">←</button>{Array.from({length:5},(_,i)=>yearBase+i).filter(y=>y<=9999).map(year=><button key={year} disabled={busy} aria-current={month.startsWith(String(year))?'page':undefined} onClick={()=>move(`${year}-${month.slice(5)}`)}>{year}년</button>)}<button disabled={busy||yearBase>=9995} onClick={()=>setYearBase(y=>Math.min(9995,y+5))} aria-label="다음 연도 목록">→</button></nav>
+ <nav className="service-months app-navigation-tabs" aria-label="서비스 월">{Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0')).map(m=><button key={m} disabled={busy} aria-current={month.slice(5)===m?'page':undefined} onClick={()=>move(`${month.slice(0,4)}-${m}`)}>{Number(m)}월</button>)}</nav></>}
  {initialRecipient&&query===initialRecipient.name&&<p className="recipient-handoff-note">{initialRecipient.name}님의 서비스 명단을 보고 있습니다. <button type="button" disabled={busy} onClick={()=>setQuery('')}>전체 대상 보기</button></p>}
- <div className="service-month-toolbar"><h2>{month.replace('-','년 ')}월 <small>선택 {rows.filter(r=>draft.has(r.id)).length} / 전체 {rows.length}명 · 미매칭 {rows.filter(r=>draft.has(r.id)&&!(workerDraft[r.id]||[]).some(item=>item.workerId)).length}명</small></h2><div><input aria-label="수급자 검색" placeholder="이름·운영상 표기 검색" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="수급자 체크 필터" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">전체 수급자</option><option value="checked">체크한 수급자</option><option value="unchecked">미체크 수급자</option></select><button className="secondary-button" disabled={busy||loading||!visible.some(r=>!draft.has(r.id))} onClick={()=>{setDraft(old=>new Set([...old,...visible.map(r=>r.id)]));setNotice('');}}>현재 목록 미체크 선택</button></div></div>
+ {!compact&&<div className="service-month-toolbar">
+  <h2>{month.replace('-','년 ')}월 <small>매칭 완료 {rows.filter(matched).length}명</small></h2>
+  <input type="search" aria-label="수급자 검색" placeholder="이름·업무식별자 검색" value={query} onChange={event=>setQuery(event.target.value)}/>
+ </div>}
+
+ {compact&&ambiguousCount>0&&<p>같은 요양보호사의 적용 계약이나 서비스 구분이 여러 개인 연결 {ambiguousCount}건은 직접 선택하세요.</p>}
+ {compact&&!loading&&!error&&!draft.size&&!suggestions.size&&<p>적용된 서비스 대상이 없습니다. 수급자별 근무 조건을 등록하거나 ‘전체 수급자’에서 직접 선택하세요.</p>}
  {workerError&&<div className="error-banner" role="alert">{workerError} <button type="button" disabled={busy||workerLoading} onClick={()=>void loadWorkers()}>근로자 명부 다시 불러오기</button></div>}{invalidMatches&&<p className="service-notice">추가한 매칭의 근로자를 선택하거나 빈 매칭을 해제해 주세요.</p>}
  {error&&<div className="error-banner" role="alert">{error}</div>}{notice&&<p className="service-notice" role="status">{notice}</p>}
- {loading?<p role="status">목록을 불러오는 중입니다.</p>:<div className="service-month-table"><table><thead><tr><th>이 달의 수급자</th><th>수급자명</th><th>운영상 표기</th><th>요양보호사 · 서비스 구분</th><th>서비스 계약 기간</th><th>라운딩 계획</th><th>라운딩 일자</th><th>담당자</th><th>기초정보 상태</th></tr></thead><tbody>{visible.map(r=><tr key={r.id} className={draft.has(r.id)?'is-checked':''}><td><input type="checkbox" aria-label={`${r.name} 이 달의 수급자`} checked={draft.has(r.id)} disabled={busy} onChange={e=>toggle(r.id,e.target.checked)}/></td><th scope="row">{r.name}</th><td>{r.operationalName||'—'}</td><ServiceWorkerCell name={r.name} selected={draft.has(r.id)} value={workerDraft[r.id]||[]} workers={workerOptions} busy={busy} available={!workerLoading&&!workerError} onChange={value=>{setWorkerDraft(previous=>({...previous,[r.id]:value}));setNotice('');}} onCreate={()=>setNewWorkerFor(r)}/><td>{r.serviceStartDate||'미입력'} ~ {r.serviceEndDate||'미입력'}</td><RecipientRoundingCells key={`${month}:${r.id}`} name={r.name} value={r.rounding ?? emptyRounding} assignees={data?.assignees ?? []} busy={busy} serverError={error} onEditing={onEditing} onSave={(value,confirmed)=>saveRounding(r,value,confirmed)}/><td>{r.isDraft?'정보 입력 중':r.enabled?'활성':'비활성'}</td></tr>)}</tbody></table>{!visible.length&&<p className="service-empty">{rows.length?'조건에 맞는 수급자가 없습니다.':'등록된 수급자가 없습니다. 수급자 기초정보에서 먼저 등록하세요.'}</p>}</div>}
- <footer className="service-apply"><div><strong>{changes?`${changes}명 변경됨`:'적용할 변경이 없습니다.'}</strong><small>검색으로 숨겨진 수급자의 선택도 유지됩니다. 매칭은 이 달에만 저장되며, 근로계약의 근무조건을 변경하지 않습니다.</small></div><button className="secondary-button" disabled={busy||!changes} onClick={()=>{if(data)accept(data);}}>변경 취소</button><button className="primary-button" disabled={busy||loading||!changes||editingCount>0||invalidMatches} onClick={()=>void apply()}>{busy?'적용 중…':'선택·매칭 적용'}</button></footer>{newWorkerFor&&<NewServiceWorker recipientName={newWorkerFor.name} workers={workerOptions} onBusy={setBusy} onEditing={onEditing} onClose={()=>setNewWorkerFor(null)} onCreated={worker=>{setWorkerOptions(previous=>[...previous,worker].sort((a,b)=>a.name.localeCompare(b.name,'ko')));setWorkerDraft(previous=>({...previous,[newWorkerFor.id]:[...(previous[newWorkerFor.id]||[]),{workerId:worker.id,workerName:worker.name,birthDate:worker.birthDate,serviceType:'방문'}]}));setNewWorkerFor(null);setNotice(`${worker.name}님을 근로자 명부에 등록했습니다. 서비스 구분을 확인한 뒤 선택·매칭 적용을 눌러 주세요.`);}}/>}</section>;
+ {loading ? <p role="status">목록을 불러오는 중입니다.</p> :
+  <div className={compact ? 'recipient-directory-list directory-table' : 'service-month-table'}>
+   <table>
+    {compact&&<colgroup><col className="service-assignment-check-column"/><col className="service-assignment-name-column"/>
+      <col className="service-assignment-identifier-column"/><col className="service-assignment-grade-column"/>
+      <col/><col className="service-assignment-owner-column"/></colgroup>}
+    <thead><tr>
+     {compact&&<th scope="col">대상</th>}<th scope="col">수급자</th><th scope="col">업무식별자</th>
+     {compact ? <><th scope="col">등급</th><th scope="col">요양보호사 · 서비스 구분</th><th scope="col">담당자</th></> :
+      <><th scope="col">서비스 계약 기간</th><th scope="col">라운딩 계획</th><th scope="col">라운딩 일자</th><th scope="col">담당자</th><th scope="col">기초정보 상태</th></>}
+    </tr></thead>
+    <tbody>{visible.map(row => <tr key={row.id} className={draft.has(row.id) ? 'is-checked' : undefined}>
+     {compact&&<td><input type="checkbox" aria-label={`${row.name} 이 달의 수급자`} checked={draft.has(row.id)} disabled={busy}
+      onChange={event=>toggle(row.id,event.target.checked)}/></td>}
+     <th scope="row">{row.name}</th>
+     <td className={compact ? 'service-assignment-identifier' : undefined}>{row.operationalName || '—'}</td>
+     {compact ? <>
+      <td>{row.careGrade || '—'}</td>
+      <CompactServiceWorkerCell name={row.name} selected={draft.has(row.id)} value={workerDraft[row.id] || []} workers={workerOptions}
+       busy={busy} available={!workerLoading&&!workerError}
+       onChange={value=>{setWorkerDraft(previous=>({...previous,[row.id]:value}));setNotice('');}}/>
+     </> : <td>{row.serviceStartDate || '미입력'} ~ {row.serviceEndDate || '미입력'}</td>}
+     <RecipientRoundingCells key={`${month}:${row.id}`} name={row.name} value={row.rounding ?? emptyRounding} assignees={data?.assignees ?? []}
+      ownerOnly={compact} busy={busy} serverError={error} onEditing={onEditing} onSave={(value,confirmed)=>saveRounding(row,value,confirmed)}/>
+     {!compact&&<td>{row.isDraft?'정보 입력 중':row.enabled?'활성':'비활성'}</td>}
+    </tr>)}</tbody>
+   </table>
+   {!visible.length&&<p className="service-empty">{compact
+    ? (rows.length ? '조건에 맞는 수급자가 없습니다.' : '등록된 수급자가 없습니다.')
+    : (query ? '검색 조건에 맞는 매칭 완료 수급자가 없습니다.' : '이 달에 요양보호사가 연결된 수급자가 없습니다. 서비스 매칭에서 배정을 적용하세요.')}</p>}
+  </div>}
+ {compact&&<footer className="service-apply">
+  <div><strong>{changes ? `${changes}명 변경됨` : '적용할 변경이 없습니다.'}</strong><small>검색으로 숨겨진 수급자의 선택도 유지됩니다. 매칭은 이 달에만 저장됩니다.</small></div>
+  <button type="button" className="secondary-button" disabled={busy||!changes} onClick={()=>{if(data)accept(data);}}>변경 취소</button>
+  <button type="button" className="primary-button" disabled={busy||loading||!changes||editingCount>0||invalidMatches} onClick={()=>void apply()}>
+   {busy?'적용 중…':'선택·매칭 적용'}
+  </button>
+ </footer>}
+ </section>;
 }

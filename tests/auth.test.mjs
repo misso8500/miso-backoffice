@@ -55,6 +55,15 @@ test("public auth config never exposes allowlist, DB password or secret keys", (
     assert.throws(() => getPublicAuthConfig({ ...env, SUPABASE_PUBLISHABLE_KEY: key }), failsWith(503));
   }
   assert.equal(getPublicAuthConfig({ ...env, SUPABASE_PUBLISHABLE_KEY: jwt("anon") }).publishableKey, jwt("anon"));
+  for (const url of [
+    "postgresql://postgres:private@db.example.test/postgres",
+    "https://user:private@project.example.test",
+    "https://project.example.test/?token=private",
+    "project.example.test"
+  ]) {
+    assert.throws(() => getPublicAuthConfig({ ...env, SUPABASE_URL: url }), failsWith(503));
+  }
+  assert.equal(getPublicAuthConfig({ ...env, SUPABASE_URL: ` ${env.SUPABASE_URL}/ ` }).url, env.SUPABASE_URL);
 });
 
 test("data, health and old user-selection routes require authentication", async () => {

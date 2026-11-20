@@ -94,3 +94,38 @@ nav.recipient-detail-tabs { gap:4px;padding:12px 18px;border-bottom:1px solid #e
 .recipient-directory-contract-period em { padding:1px 5px;border-radius:4px;background:#fff9;color:#76549b;font-size:9px;font-style:normal;white-space:nowrap; }
 
 .plan-external-source { padding:14px;background:#f3edf9;border:1px solid #dfd1eb;border-radius:10px;margin-bottom:16px; }.plan-external-source h4 { margin:0 0 8px; }.plan-external-source p { font-size:12px;line-height:1.7;overflow-wrap:anywhere; }
+
+.directory-table { overflow: auto; }
+.directory-table table { border-collapse: collapse; width: 100%; text-align: left; }
+.directory-table :is(th, td) { padding: 16px 20px; border-bottom: 1px solid #eee7f5; font-size: 12px; }
+.directory-table thead { background: #f3eff8; color: #887495; }
+.directory-table thead th { font-size: 11px; }
+.directory-table tbody th { color: #5f3d79; }
+.directory-table tr:last-child > * { border-bottom: 0; }
+.directory-table tbody tr:hover { background: #faf7fd; }
+.directory-table small { display: block; margin-top: 5px; color: #79658b; font-weight: normal; overflow-wrap: anywhere; }
+.directory-period-filter { display: inline-flex; align-items: center; gap: 8px; color: #79658b; font-size: 12px; }
+@media(max-width:620px) {
+  .directory-table :is(th, td) { padding: 10px; }
+}
+
+.directory-contract-groups { list-style: none; margin: 0; padding: 0; }
+.directory-contract-groups .employment-list-history { border-top: 1px solid #eee7f5; }
+.directory-contract-groups .employment-worker-group.is-expanded { box-shadow: none; }
+.directory-contract-groups .employment-list-history .recipient-directory-row { background: #faf7fd; }
+.sidebar-preview .detail-backdrop.directory-side-backdrop { background: #35274438; }
+.directory-side-panel {
+  display: flex;
+  flex-direction: column;
+  animation: recipient-panel-enter 220ms ease;
+}
+.directory-side-panel .detail-actions { display: flex; flex-wrap: wrap; margin-top: 12px; }
+.directory-side-panel .detail-actions button { font-size: 12px; }
+.directory-side-panel .employment-history { margin: 0 0 16px; }
+.directory-side-panel .employment-work-details { margin: 0; padding: 0; }
+.directory-contract-form .form-section { margin: 0 0 16px; }
+.directory-contract-form .employment-conditions-editor { padding: 16px; background: #fff; border: 1px solid #e1d6eb; border-radius: 12px; }
+.directory-contract-form .form-actions { margin: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .directory-side-panel { animation: none; }
+}

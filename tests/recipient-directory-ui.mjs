@@ -145,8 +145,8 @@ try{
   await page.waitForFunction(()=>!document.querySelector('.recipient-directory-workspace .heading-actions button:disabled'));
   await page.screenshot({path:`/private/tmp/miso-recipient-directory-${viewport.width}.png`,fullPage:true,animations:'disabled'});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),'directory horizontal overflow');
-  await open();await panel.getByRole('button',{name:'이 달의 서비스 명단',exact:false}).click();
-  await page.locator('.service-month-table tbody tr').first().waitFor();assert.equal(await page.locator('.service-month-table tbody tr').count(),1,'duplicate names must still focus the selected recipient ID');
+  await open();await panel.getByRole('button',{name:'이 달의 서비스 매칭',exact:false}).click();
+  await page.locator('.staff-compact-month .directory-table tbody tr').first().waitFor();assert.equal(await page.locator('.staff-compact-month .directory-table tbody tr').count(),1,'duplicate names must still focus the selected recipient ID');
   assert.equal((await call('work/service-month?month='+month)).rows.filter(row=>row.checked).length,2,'handoff must not modify service selection');
   await page.getByRole('button',{name:'수급자 기초정보',exact:true}).click();await open();
   await panel.getByRole('button',{name:'라운딩 계획·방문 확인',exact:false}).click();

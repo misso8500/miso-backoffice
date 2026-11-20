@@ -4,7 +4,7 @@ import {roundingValue} from './recipient-service-rounding.mjs';
 import {visitAssigneeIds} from '../shared/work-visits.mjs';
 const validMonth=value=>typeof value==='string' && /^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(value);
 export function createRecipientServiceMonthStore(transaction) {
-  const people=async q=>(await q(`SELECT id,name,operational_name,service_start_date,service_end_date,enabled,is_draft FROM recipients WHERE ${recipientNotDeleted()} ORDER BY name,id`,[])).rows;
+  const people=async q=>(await q(`SELECT id,name,operational_name,care_grade,service_start_date,service_end_date,enabled,is_draft FROM recipients WHERE ${recipientNotDeleted()} ORDER BY name,id`,[])).rows;
   async function result(q,month,row,rows) {
     const ids=new Set(row?JSON.parse(row.recipient_ids):[]);
     const workerRows=(await q('SELECT recipient_id,payload FROM recipient_service_workers WHERE month=$1',[month])).rows;
@@ -12,10 +12,10 @@ export function createRecipientServiceMonthStore(transaction) {
     const rounding=(await q('SELECT * FROM recipient_service_rounding WHERE month=$1',[month])).rows;
     const tasks=(await q('SELECT v.recipient_id,t.* FROM work_visit_tasks v JOIN work_tasks t ON t.id=v.task_id WHERE v.month=$1',[month])).rows;
     const assignees=(await q('SELECT id,name FROM work_assignees ORDER BY sort_order',[])).rows.filter(a=>visitAssigneeIds.includes(a.id));
-    return {month,assignees,version:Number(row?.version ?? 0),updatedAt:row?.updated_at ?? null,rows:rows.map(r=>({id:r.id,name:r.name,operationalName:r.operational_name||'',serviceStartDate:r.service_start_date||'',serviceEndDate:r.service_end_date||'',enabled:Boolean(r.enabled),isDraft:Boolean(r.is_draft),checked:ids.has(r.id),workers:workerMap.get(r.id)||[],rounding:roundingValue(rounding.find(item=>item.recipient_id===r.id),tasks.find(item=>item.recipient_id===r.id))}))};
+    return {month,assignees,version:Number(row?.version ?? 0),updatedAt:row?.updated_at ?? null,rows:rows.map(r=>({id:r.id,name:r.name,operationalName:r.operational_name||'',careGrade:r.care_grade||'',serviceStartDate:r.service_start_date||'',serviceEndDate:r.service_end_date||'',enabled:Boolean(r.enabled),isDraft:Boolean(r.is_draft),checked:ids.has(r.id),workers:workerMap.get(r.id)||[],rounding:roundingValue(rounding.find(item=>item.recipient_id===r.id),tasks.find(item=>item.recipient_id===r.id))}))};
   }
   return {
-    serviceWorkers() {return transaction(async q=>({workers:(await q('SELECT id,worker_name,worker_birth_date,job_title,enabled,is_draft FROM employment_contracts ORDER BY worker_name,worker_birth_date,id',[])).rows.map(row=>({id:row.id,name:row.worker_name,birthDate:row.worker_birth_date||'',jobTitle:row.job_title||'',enabled:Boolean(row.enabled),isDraft:Boolean(row.is_draft)}))}));},
+    serviceWorkers() {return transaction(async q=>({workers:(await q('SELECT id,worker_name,worker_birth_date,job_title,enabled,is_draft,contract_start_date,contract_end_date FROM employment_contracts ORDER BY worker_name,worker_birth_date,id',[])).rows.map(row=>({id:row.id,name:row.worker_name,birthDate:row.worker_birth_date||'',jobTitle:row.job_title||'',contractStartDate:row.contract_start_date||'',contractEndDate:row.contract_end_date||'',enabled:Boolean(row.enabled),isDraft:Boolean(row.is_draft)}))}));},
     recipientServiceMonth(month) {
       if(!validMonth(month))throw workError(400,'연도와 월을 확인해 주세요.');
       return transaction(async q=>result(q,month,(await q('SELECT * FROM recipient_service_months WHERE month=$1',[month])).rows[0],await people(q)));

@@ -1,0 +1,203 @@
+.staff-overview-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.staff-detail-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.staff-form-grid, .staff-document-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 0 12px;
+}
+.staff-overview-footer, .staff-contract-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.staff-overview-footer { justify-content: flex-end; padding: 13px 18px; }
+.staff-overview-footer p { margin: 0; }
+.staff-document-row, .staff-contract-row {
+  border-top: 1px solid #eee7f5;
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.staff-contract-row { justify-content: space-between; }
+.staff-document-card h3 { display: flex; align-items: center; gap: 6px; }
+.staff-document-card h3 small { font-weight: normal; }
+.staff-compact-month .service-worker-cell { min-width: 0; }
+.staff-compact-month .service-worker-link { flex-wrap: wrap; }
+.staff-compact-month .service-apply { position: static; }
+.staff-compact-month .search-box input[type="search"] {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.staff-compact-month .directory-table td:first-child input {
+  accent-color: #76549b;
+}
+
+.staff-compact-month .directory-table table { table-layout: fixed; }
+.service-assignment-check-column { width: 56px; }
+.service-assignment-name-column { width: clamp(112px, 19%, 220px); }
+.staff-compact-month .directory-table :is(th, td) {
+  padding: 7px 12px;
+  vertical-align: middle;
+}
+.staff-compact-month .directory-table tr > :first-child { text-align: center; }
+.staff-compact-month .directory-table input[type="checkbox"] {
+  display: block;
+  margin: 0 auto;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+.staff-compact-month .directory-table tbody th { overflow-wrap: anywhere; }
+.service-assignment-summary, .service-assignment-preview, .service-assignment-person {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.service-assignment-summary { justify-content: space-between; gap: 8px; }
+.service-assignment-preview { gap: 6px; }
+.service-assignment-person {
+  gap: 6px;
+  max-width: 12rem;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid #ede6f3;
+  border-radius: 6px;
+  background: #faf7fd;
+}
+.service-assignment-person strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.service-assignment-person .service-worker-type { flex-shrink: 0; white-space: nowrap; font-size: 10px; padding: 2px 4px; }
+.service-assignment-empty, .service-assignment-more {
+  white-space: nowrap;
+  color: #79658b;
+  font-size: 11px;
+}
+.service-assignment-more-narrow { display: none; }
+.sidebar-preview .secondary-button.service-assignment-edit {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  min-height: 30px;
+  padding: 0;
+  color: #171717;
+}
+.service-assignment-edit svg { pointer-events: none; }
+.service-assignment-dialog { width: min(560px, calc(100vw - 24px)); }
+.staff-match-dialog-header, .staff-match-selected li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.staff-match-dialog-header h2, .staff-match-dialog-header p { margin: 0; }
+.staff-match-dialog-header p { margin-top: 4px; }
+.staff-match-dialog-header .icon-button { flex-shrink: 0; }
+.service-assignment-dialog .staff-match-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #ded5e8;
+  border-radius: 8px;
+  padding-inline: 10px;
+  color: #76549b;
+}
+.service-assignment-dialog .staff-match-search input[type="search"] {
+  width: 100%;
+  padding-inline: 0;
+  border: 0;
+  background: transparent;
+}
+.staff-match-results, .staff-match-selected ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.staff-match-results {
+  max-height: min(34dvh, 265px);
+  overflow: auto;
+  border: 1px solid #e4dced;
+  border-radius: 9px;
+  background: #fff;
+}
+.staff-match-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid #eee7f5;
+  background: transparent;
+  color: #45394e;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.staff-match-results li:last-child .staff-match-result { border-bottom: 0; }
+.staff-match-result:hover:not([aria-disabled="true"]) { background: #f7f1fc; }
+.staff-match-result[aria-disabled="true"] { cursor: default; }
+.staff-match-result > svg, .staff-match-added { flex-shrink: 0; }
+.staff-match-meta { display: block; margin-top: 3px; color: #79658b; font-size: 11px; }
+.staff-match-added {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #39734d;
+  font-size: 11px;
+}
+.staff-match-no-results { padding: 12px; color: #79658b; }
+.staff-match-selected { margin-top: 14px; }
+.staff-match-selected h3 { margin: 0 0 5px; font-size: 13px; }
+.staff-match-selected h3 span { color: #79658b; font-size: 11px; }
+.staff-match-selected ul { max-height: 150px; overflow: auto; }
+.staff-match-selected li { padding: 6px 0; border-bottom: 1px solid #eee7f5; }
+.staff-match-selected li strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.staff-match-selected li button { flex-shrink: 0; }
+.service-assignment-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+@media (max-width: 1050px) {
+  .service-assignment-person:nth-child(2), .service-assignment-more-wide { display: none; }
+  .service-assignment-more-narrow { display: inline; }
+}
+@media (max-width: 620px) {
+  .service-assignment-check-column { width: 42px; }
+  .service-assignment-name-column { width: 65px; }
+  .staff-compact-month .directory-table :is(th, td) { padding: 7px 5px; }
+  .service-assignment-preview, .service-assignment-person, .service-assignment-summary { gap: 4px; }
+  .service-assignment-dialog { padding: 16px; }
+}
+
+.service-assignment-identifier-column { width: 16%; }
+.service-assignment-grade-column { width: 64px; }
+.service-assignment-owner-column { width: 104px; }
+.service-assignment-identifier { overflow-wrap: anywhere; }
+.staff-compact-month .rounding-inline { flex-wrap: wrap; }
+@media (max-width: 620px) {
+  .staff-compact-month .directory-table table { min-width: 520px; }
+  .service-assignment-grade-column { width: 44px; }
+  .service-assignment-owner-column { width: 72px; }
+}
+
+.staff-import-counts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.staff-import-counts > span { padding: 5px 8px; border-radius: 6px; background: #f1ebf7; font-size: 12px; }
+.staff-import-preview { max-height: 52vh; }
+.staff-import-preview thead { position: sticky; top: 0; }
+.staff-import-dialog .recipient-overview-card > span { display: flex; align-items: center; gap: 7px; }
+.staff-import-dialog .staff-import-confirm { display: flex; align-items: center; margin: 6px 0 0; }

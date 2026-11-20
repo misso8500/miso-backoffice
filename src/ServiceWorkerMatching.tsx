@@ -1,18 +1,113 @@
-import {useEffect,useRef,useState,type FormEvent} from 'react';
-import PhoneInput from './PhoneInput';
-import DateInput from './DateInput';
-import {requestJson} from './storage';
-import type {EmploymentContract} from './types';
-export type ServiceWorker={id:string;name:string;birthDate:string;jobTitle:string;enabled:boolean;isDraft:boolean};
+import {useEffect,useRef,useState} from 'react';
+import { Check, Plus, Search, UserRound, X } from 'lucide-react';
+export type ServiceWorker={id:string;name:string;birthDate:string;jobTitle:string;enabled:boolean;isDraft:boolean;contractStartDate?:string;contractEndDate?:string};
 export type WorkerMatch={workerId:string;workerName?:string;birthDate?:string;serviceType:'방문'|'가족'};
 export const matchKey=(items:WorkerMatch[])=>JSON.stringify(items.map(({workerId,serviceType})=>({workerId,serviceType})));
-export function ServiceWorkerCell({name,selected,value,workers,busy,available,onChange,onCreate}:{name:string;selected:boolean;value:WorkerMatch[];workers:ServiceWorker[];busy:boolean;available:boolean;onChange:(value:WorkerMatch[])=>void;onCreate:()=>void}){
- return <td className="service-worker-cell"><div className="service-worker-links">{value.map((item,index)=>{const worker=workers.find(person=>person.id===item.workerId);return <div className="service-worker-link" key={index}>{selected?<><label><span className="sr-only">{name} 요양보호사 {index+1}</span><select aria-label={`${name} 요양보호사 ${index+1}`} value={item.workerId} disabled={busy||!available} onChange={event=>onChange(value.map((entry,i)=>i===index?{...entry,workerId:event.target.value}:entry))}><option value="">근로자 선택</option>{item.workerId&&!worker&&<option value={item.workerId}>{item.workerName||'연결된 근로자'} · 명부 확인 필요</option>}{workers.map(person=><option key={person.id} value={person.id} disabled={value.some((entry,i)=>i!==index&&entry.workerId===person.id)}>{person.name} · {person.birthDate||'생년월일 미입력'}{person.jobTitle?` · ${person.jobTitle}`:''}{person.isDraft?' · 정보 입력 중':''}{!person.enabled?' · 비활성':''}</option>)}</select></label><select aria-label={`${name} 서비스 구분 ${index+1}`} value={item.serviceType} disabled={busy} onChange={event=>onChange(value.map((entry,i)=>i===index?{...entry,serviceType:event.target.value as WorkerMatch['serviceType']}:entry))}><option value="방문">방문요양</option><option value="가족">가족요양</option></select><button type="button" aria-label={`${name} 요양보호사 ${index+1} 연결 해제`} disabled={busy} onClick={()=>onChange(value.filter((_,i)=>i!==index))}>해제</button></>:<><strong>{worker?.name||item.workerName||'명부 확인 필요'}</strong><span className={`service-worker-type is-${item.serviceType==='가족'?'family':'visit'}`}>{item.serviceType}요양</span></>}</div>;})}</div>{!value.length&&<small>{selected?'요양보호사 미매칭':'이 달의 수급자를 선택하면 연결할 수 있습니다.'}</small>}{selected&&<div className="service-worker-actions"><button type="button" disabled={busy||!available||value.length>=30} onClick={()=>onChange([...value,{workerId:'',serviceType:'방문'}])}>기존 근로자 연결</button><button type="button" disabled={busy||value.length>=30} onClick={onCreate}>신규 근로자 등록</button></div>}</td>;
+type MatchFields = {
+ name: string; selected: boolean; value: WorkerMatch[]; workers: ServiceWorker[]; busy: boolean; available: boolean;
+ onChange: (value: WorkerMatch[]) => void;
+};
+
+const linkedName = (match: WorkerMatch, worker?: ServiceWorker) => worker?.name || match.workerName || '명부 확인 필요';
+
+export function CompactServiceWorkerCell(props: MatchFields) {
+ const { name, selected, value, workers, busy, available, onChange } = props;
+ const [editing, setEditing] = useState<WorkerMatch[] | null>(null);
+ const linked = selected ? value.filter(item => item.workerId) : [];
+ const remaining = linked.length - 2;
+ return <td>
+  <div className="service-assignment-summary">
+   <div className="service-assignment-preview">
+    {!linked.length && <span className="service-assignment-empty">{selected ? '미연결' : '배정 제외'}</span>}
+    {linked.slice(0, 2).map(item => {
+     const display = linkedName(item, workers.find(worker => worker.id === item.workerId));
+     return <span className="service-assignment-person" key={item.workerId}>
+      <strong title={display}>{display}</strong>
+      <span className={`service-worker-type ${item.serviceType === '가족' ? 'is-family' : 'is-visit'}`}>{item.serviceType}요양</span>
+     </span>;
+    })}
+    {remaining > 0 && <span className="service-assignment-more service-assignment-more-wide">외 {remaining}명</span>}
+    {linked.length > 1 && <span className="service-assignment-more service-assignment-more-narrow">외 {linked.length - 1}명</span>}
+   </div>
+   {selected && <button type="button" className="secondary-button service-assignment-edit" aria-haspopup="dialog"
+    aria-label={`${name} ${linked.length ? '연결 관리' : '요양보호사 연결'}`}
+    title={linked.length ? '요양보호사 연결 관리' : '요양보호사 검색'}
+    disabled={busy || (!available && !linked.length)}
+    onClick={() => setEditing(linked)}><UserRound size={17} fill="currentColor" aria-hidden="true" /></button>}
+  </div>
+  {editing && <StaffMatchDialog name={name} workers={workers} available={available} busy={busy}
+   selected={editing} onChange={setEditing} onClose={() => setEditing(null)} onApply={() => {
+    onChange(editing);
+    setEditing(null);
+   }} />}
+ </td>;
 }
-export function NewServiceWorker({recipientName,workers,onClose,onCreated,onBusy,onEditing}:{recipientName:string;workers:ServiceWorker[];onClose:()=>void;onCreated:(worker:ServiceWorker)=>void;onBusy:(busy:boolean)=>void;onEditing:(active:boolean)=>void}){
- const [name,setName]=useState(''),[birthDate,setBirthDate]=useState(''),[phone,setPhone]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');const dialog=useRef<HTMLDialogElement>(null),id=useRef(crypto.randomUUID()),lock=useRef(false);
- useEffect(()=>{dialog.current?.showModal();onEditing(true);return()=>onEditing(false);},[onEditing]);
- async function save(event:FormEvent){event.preventDefault();if(lock.current||!name.trim())return;lock.current=true;setBusy(true);onBusy(true);setError('');try{const saved=await requestJson<EmploymentContract>('/api/employment-contracts',{method:'POST',body:JSON.stringify({id:id.current,workerName:name.trim(),workerBirthDate:birthDate,workerPhone:phone,isDraft:true,workplaceType:'recipient_home',jobTitle:'요양보호사'})});onCreated({id:saved.id,name:saved.workerName,birthDate:saved.workerBirthDate||'',jobTitle:saved.jobTitle,enabled:saved.enabled,isDraft:Boolean(saved.isDraft)});}catch(cause){setError(cause instanceof Error?cause.message:'근로자를 등록하지 못했습니다.');}finally{lock.current=false;setBusy(false);onBusy(false);}}
- const similar=workers.filter(worker=>name.trim()&&worker.name.includes(name.trim()));
- return <dialog ref={dialog} className="service-new-worker-dialog" aria-label="신규 요양보호사 등록" onCancel={event=>{event.preventDefault();if(!busy)onClose();}}><form onSubmit={event=>void save(event)}><h2>신규 요양보호사 등록</h2><p>{recipientName}님에게 연결할 근로자를 기본정보로 등록합니다. 근로계약 세부정보는 근로계약 관리에서 보완할 수 있습니다.</p><label>근로자 이름<input autoFocus required maxLength={100} disabled={busy} value={name} onChange={event=>setName(event.target.value)}/></label>{similar.length>0&&<p className="service-worker-duplicate">명부에 같은 이름의 근로자가 있습니다: {similar.map(worker=>`${worker.name} (${worker.birthDate||'생년월일 미입력'})`).join(', ')}. 기존 근로자라면 취소 후 명부에서 연결해 주세요.</p>}<label>생년월일<DateInput disabled={busy} value={birthDate} onChange={event=>setBirthDate(event.target.value)}/></label><label>연락처<PhoneInput disabled={busy} value={phone} onChange={event=>setPhone(event.target.value)}/></label><p>등록 후 이 달의 매칭에 추가됩니다. 매칭 저장은 ‘선택·매칭 적용’을 눌러 완료하세요.</p>{error&&<p className="error-banner" role="alert">{error}</p>}<div className="service-worker-actions"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>취소</button><button className="primary-button" disabled={busy||!name.trim()}>{busy?'등록 중…':'근로자 등록하고 매칭에 추가'}</button></div></form></dialog>;
+
+function StaffMatchDialog({ name, workers, available, busy, selected, onChange, onClose, onApply }: {
+ name: string; workers: ServiceWorker[]; available: boolean; busy: boolean; selected: WorkerMatch[];
+ onChange: (matches: WorkerMatch[]) => void; onClose: () => void; onApply: () => void;
+}) {
+ const [query, setQuery] = useState('');
+ const dialog = useRef<HTMLDialogElement>(null);
+ const search = useRef<HTMLInputElement>(null);
+ const selectedIds = new Set(selected.map(item => item.workerId));
+ const normalize = (value: string) => value.normalize('NFC').toLowerCase().replace(/[\s-]/g, '');
+ const searchTerm = normalize(query);
+ const results = workers.filter(worker => !searchTerm ||
+  [worker.name, worker.birthDate, worker.jobTitle].some(value => normalize(value || '').includes(searchTerm)));
+ useEffect(() => {
+  const node = dialog.current;
+  if (node && !node.open) node.showModal();
+  search.current?.focus();
+  return () => { if (node?.open) node.close(); };
+ }, []);
+
+ return <dialog ref={dialog} className="service-new-worker-dialog service-assignment-dialog" aria-label={`${name} 직원 검색`}
+  onCancel={event => { event.preventDefault(); onClose(); }}>
+  <header className="staff-match-dialog-header">
+   <div><h2>직원 검색</h2><p>{name} 수급자에게 연결할 직원을 선택하세요.</p></div>
+   <button type="button" className="icon-button" aria-label="직원 검색 닫기" onClick={onClose}><X size={18} aria-hidden="true" /></button>
+  </header>
+  <label className="staff-match-search"><Search size={17} aria-hidden="true" />
+   <input ref={search} type="search" aria-label="직원 검색" placeholder="이름·생년월일·직종 검색"
+    value={query} onChange={event => setQuery(event.target.value)} />
+  </label>
+  <ul className="staff-match-results" aria-label="직원 검색 결과">
+   {available && results.map(worker => {
+    const added = selectedIds.has(worker.id);
+    const disabled = busy || added || selected.length >= 30;
+    return <li key={worker.id}><button type="button" className="staff-match-result" aria-disabled={disabled} onClick={() => {
+     if (!disabled) onChange([...selected, { workerId: worker.id, workerName: worker.name, birthDate: worker.birthDate, serviceType: '방문' }]);
+    }}>
+     <span><strong>{worker.name}</strong>
+      <span className="staff-match-meta">{worker.birthDate || '생년월일 미입력'} · {worker.jobTitle || '직종 미입력'}
+       {worker.contractStartDate && ` · 계약 ${worker.contractStartDate} ~ ${worker.contractEndDate || '종료일 미입력'}`}
+       {worker.isDraft && ' · 정보 입력 중'}{!worker.enabled && ' · 비활성'}</span>
+     </span>
+     {added ? <span className="staff-match-added"><Check size={15} aria-hidden="true" /> 선택됨</span> : <Plus size={16} aria-hidden="true" />}
+    </button></li>;
+   })}
+   {(!available || !results.length) && <li className="staff-match-no-results">{available ? '검색 결과가 없습니다.' : '직원 명부를 사용할 수 없습니다.'}</li>}
+  </ul>
+  {selected.length > 0 && <section className="staff-match-selected" aria-label="선택한 직원">
+   <h3>선택한 직원 <span>{selected.length}명</span></h3>
+   <ul>{selected.map(item => {
+    const display = linkedName(item, workers.find(worker => worker.id === item.workerId));
+    return <li key={item.workerId}>
+     <strong>{display}</strong>
+     <select aria-label={`${display} 서비스 구분`} value={item.serviceType} disabled={busy}
+      onChange={event => onChange(selected.map(match => match.workerId === item.workerId
+       ? { ...match, serviceType: event.target.value as WorkerMatch['serviceType'] } : match))}>
+      <option value="방문">방문요양</option><option value="가족">가족요양</option>
+     </select>
+     <button type="button" className="secondary-button" aria-label={`${display} 연결 해제`} disabled={busy}
+      onClick={() => onChange(selected.filter(match => match.workerId !== item.workerId))}>해제</button>
+    </li>;
+   })}</ul>
+  </section>}
+  <footer className="service-assignment-dialog-actions">
+   <button type="button" className="secondary-button" onClick={onClose}>취소</button>
+   <button type="button" className="primary-button" disabled={busy} onClick={onApply}>반영</button>
+  </footer>
+ </dialog>;
 }
