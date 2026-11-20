@@ -194,6 +194,7 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       const workspaceRoute = /^\/api\/work\/records\/workspace\/(\d{4}-\d{2})$/.exec(path);
       const monthRoute = /^\/api\/work\/records\/(attendance|journal)\/(\d{4}-\d{2})$/.exec(path);
       const accountRoute = /^\/api\/work\/records\/leave\/(\d{4})(\/account)?$/.exec(path);
+      const signedFileRoute = /^\/api\/work\/records\/leave-plans\/([^/]+)\/signed-file$/.exec(path);
       const leaveRoute = /^\/api\/work\/records\/leave-plans(?:\/([^/]+))?$/.exec(path);
       if (path === '/api/work/records/profile' && request.method === 'GET') sendJson(response, 200, await store.recordProfile(recordCurrent));
       else if (path === '/api/work/records/profile' && request.method === 'PUT') sendJson(response, 200, await store.saveRecordProfile(await readWorkBody(request), recordCurrent));
@@ -202,6 +203,8 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       else if (monthRoute && request.method === 'PUT') sendJson(response, 200, await store.saveRecordMonth(monthRoute[1], monthRoute[2], await readWorkBody(request, 4000000), recordCurrent));
       else if (accountRoute && !accountRoute[2] && request.method === 'GET') sendJson(response, 200, await store.leaveLedger(accountRoute[1], recordCurrent));
       else if (accountRoute?.[2] && request.method === 'PUT') sendJson(response, 200, await store.saveLeaveAccount(accountRoute[1], await readWorkBody(request), recordCurrent));
+      else if (signedFileRoute && request.method === 'GET') sendJson(response, 200, await store.leaveSignedFile(decodeURIComponent(signedFileRoute[1]),recordCurrent));
+      else if (signedFileRoute && request.method === 'PUT') sendJson(response, 200, await store.saveLeaveSignedFile(decodeURIComponent(signedFileRoute[1]),await readWorkBody(request,3000000),recordCurrent));
       else if (leaveRoute && (request.method === 'POST' && !leaveRoute[1] || request.method === 'PUT' && leaveRoute[1])) sendJson(response, 200, await store.saveLeavePlan(leaveRoute[1] ?? null, await readWorkBody(request), recordCurrent));
       else throw workError(404, '근무기록 API를 찾을 수 없습니다.');
       return true;

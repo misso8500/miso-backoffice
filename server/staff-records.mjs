@@ -1,3 +1,4 @@
+import { fiscalLeaveGrant } from './staff-leave-accrual.mjs';
 import { createHash } from 'node:crypto';
 import { workError, newWorkId } from './work-tasks.mjs';
 import { workDate } from './work-journal.mjs';
@@ -8,9 +9,29 @@ const text = (value, max = 5000) => { if (typeof value !== 'string' || value.len
 const halfDays = (value, max = 366) => { if (typeof value !== 'number' || value < 0 || value > max || !Number.isInteger(value * 2)) throw workError(400, '일수는 0.5일 단위로 입력해 주세요.'); return value; };
 const profileFrom = row => row ? { ...JSON.parse(row.payload), version: row.version } : null;
 const docFrom = row => row ? { kind: row.kind, period: row.period, payload: JSON.parse(row.payload), version: row.version, status: row.status, sourceHash: row.source_hash, confirmedAt: row.confirmed_at } : null;
-const planFrom = row => ({ ...JSON.parse(row.payload), id: row.id, status: row.status, version: row.version });
+const planFrom = row => {
+  const { signedFile, ...payload } = JSON.parse(row.payload);
+  return { ...payload, ...(signedFile && {signedFile:{name:signedFile.name,mime:signedFile.mime,previous:Boolean(signedFile.previous)}}), id: row.id, status: row.status, version: row.version };
+};
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const checkVersion = (row, version) => { if ((row?.version ?? 0) !== version) throw workError(409, '다른 화면에서 기록이 변경되었습니다. 입력을 보존한 채 최신 기록과 비교해 주세요.'); };
+
+function attendanceSnapshot(attendance) {
+  return attendance.payload.rows.map(({ date, kind, hours, leaveDays }) => ({ date, kind, hours, leaveDays }));
+}
+
+function employmentSettings(value) {
+  if (!value || typeof value!=='object') throw workError(400,'상근 근로자 등록 정보를 확인해 주세요.');
+  const hiredOn = workDate(value.hiredOn);
+  if (!['salary','hourly'].includes(value.payType) || !['automatic','manual','none'].includes(value.leaveMode) ||
+      !Array.isArray(value.roles) || !value.roles.length || value.roles.length > 100) throw workError(400, '상근 근로자 등록 정보를 확인해 주세요.');
+  if (value.payType === 'hourly' && value.leaveMode === 'automatic') throw workError(400, '시간제는 소정근로시간에 따라 산정한 연차를 직접 등록해 주세요.');
+  const roles = value.roles.map(role => ({ from: workDate(role?.from), title: role?.title }));
+  if (roles[0].from !== hiredOn || roles.some((role, index) => !['사무원','사회복지사'].includes(role.title) || index && role.from <= roles[index - 1].from)) {
+    throw workError(400, '첫 직함은 입사일부터 적용하고 이후 발령일은 날짜순으로 입력해 주세요.');
+  }
+  return { hiredOn, payType: value.payType, leaveMode: value.leaveMode, roles };
+}
 
 export function createStaffRecordStore(transaction) {
   async function profile(q, owner) {
@@ -32,12 +53,20 @@ export function createStaffRecordStore(transaction) {
     return { person, executions, leaveDates, leaveHash: hash(leaveDates), attendance: docFrom(attendance), sourceHash: hash([person.version, executions, leaveDates]) };
   }
   async function totals(q, owner, year, override) {
+    const person = await profile(q, owner);
     const account = (await q('SELECT * FROM staff_leave_accounts WHERE owner_id=$1 AND year=$2', [owner, year])).rows[0];
     const plans = (await q("SELECT * FROM staff_leave_plans WHERE owner_id=$1 AND year=$2 AND status IN ('confirmed','used')", [owner, year])).rows.map(planFrom);
     const docs = (await q("SELECT * FROM staff_record_documents WHERE owner_id=$1 AND kind='attendance' AND period LIKE $2 AND status='confirmed'", [owner, year+'-%'])).rows;
     let rows = docs.filter(row => !override || row.period !== override.month).flatMap(row => JSON.parse(row.payload).rows);
     if (override) rows = [...rows, ...override.rows];
-    return { ...leaveTotals(account?.granted ?? 0, account?.opening_used ?? 0, plans, rows), attendanceUses: rows.filter(row => row.kind === 'leave').map(row => ({ date: row.date, days: row.leaveDays })) };
+    const automatic = person.employment?.leaveMode === 'automatic'
+      ? fiscalLeaveGrant(person.employment.hiredOn, year, recurrenceToday(), [
+        ...rows,
+        ...(await q("SELECT payload FROM staff_record_documents WHERE owner_id=$1 AND kind='attendance' AND status='confirmed' AND period LIKE $2", [owner, String(Number(year)-1)+'-%'])).rows.flatMap(row=>JSON.parse(row.payload).rows)
+      ])
+      : undefined;
+    const granted = account?.granted ?? automatic?.granted ?? 0;
+    return { ...leaveTotals(granted, account?.opening_used ?? 0, plans, rows), automatic, override: Boolean(account && automatic), attendanceUses: rows.filter(row => row.kind === 'leave').map(row => ({ date: row.date, days: row.leaveDays })) };
   }
   function validateDocument(kind, month, payload, confirming) {
     const dates = monthDays(month);
@@ -77,6 +106,8 @@ export function createStaffRecordStore(transaction) {
         if ((await q('SELECT owner_id FROM staff_record_profiles WHERE staff_id=$1', [body.staffId])).rows.some(row => row.owner_id !== current.me.id)) throw workError(409, '직원의 기록 연결이 변경되었습니다. 다시 불러와 주세요.');
         const value = { staffId: body.staffId, name: text(body.name, 60), organization: text(body.organization, 100), jobTitle: text(body.jobTitle, 60), startTime: text(body.startTime, 5), endTime: text(body.endTime, 5), hours: body.hours };
         if (!value.name || !value.organization || !value.jobTitle || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.startTime) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.endTime) || value.startTime >= value.endTime || !Number.isFinite(value.hours) || value.hours <= 0 || value.hours > 24) throw workError(400, '기본정보와 근무시간을 확인해 주세요.');
+        const employment = body.employment === undefined ? profileFrom(old)?.employment : employmentSettings(body.employment);
+        if (employment) value.employment = employment;
         const row = old ? (await q('UPDATE staff_record_profiles SET payload=$1,version=version+1 WHERE owner_id=$2 RETURNING *', [JSON.stringify(value), current.me.id])).rows[0] : (await q('INSERT INTO staff_record_profiles(owner_id,staff_id,payload,version) VALUES($1,$2,$3,1) ON CONFLICT DO NOTHING RETURNING *', [current.me.id, body.staffId, JSON.stringify(value)])).rows[0];
         if (!row) throw workError(409, '담당자 연결이 변경되었습니다. 다시 불러와 주세요.');
         await audit(q, current.me.id, 'profile', current.me.id, 'saved', value, current.actorId ?? current.me.id); return profileFrom(row);
@@ -88,11 +119,23 @@ export function createStaffRecordStore(transaction) {
         const inputs = await source(q, current.me.id, month);
         if (kind === 'journal') inputs.sourceHash = hash([inputs.sourceHash, inputs.attendance?.version ?? 0, inputs.attendance?.status]);
         const row = (await q('SELECT * FROM staff_record_documents WHERE owner_id=$1 AND kind=$2 AND period=$3', [current.me.id, kind, month])).rows[0];
-        const document = docFrom(row) ?? { kind, period: month, payload: documentDraft(kind, month, inputs.person, inputs.executions), version: 0, status: 'draft', sourceHash: '', confirmedAt: null };
-        if (row && kind === 'journal' && document.status === 'draft') {
-          document.payload = appendExecutionCandidates(document.payload, inputs.executions.filter(entry => entry.stamped));
+        const confirmedAttendance = kind === 'journal' && inputs.attendance?.status === 'confirmed' ? inputs.attendance : null;
+        const snapshot = confirmedAttendance ? attendanceSnapshot(confirmedAttendance) : null;
+        const workDates = new Set(snapshot?.filter(day => day.kind === 'work' || day.hours > 0).map(day => day.date));
+        const candidates = snapshot ? inputs.executions.filter(entry => workDates.has(entry.date)) : inputs.executions;
+        const document = docFrom(row) ?? {
+          kind, period: month,
+          payload: documentDraft(kind, month, confirmedAttendance?.payload.profile ?? inputs.person, candidates),
+          version: 0, status: 'draft', sourceHash: '', confirmedAt: null
+        };
+        if (kind === 'journal' && document.status === 'draft') {
+          if (row) {
+            const additions = snapshot && !document.payload.attendance ? candidates : candidates.filter(entry => entry.stamped);
+            document.payload = appendExecutionCandidates(document.payload, additions);
+          }
+          if (snapshot) document.payload.attendance = snapshot;
         }
-        return { document, executions: inputs.executions, leaveDates: inputs.leaveDates, attendance: inputs.attendance, sourceHash: inputs.sourceHash, sourceChanged: Boolean(row && row.source_hash !== inputs.sourceHash) };
+        return { document, executions: inputs.executions, journalCandidates: kind === 'journal' ? candidates : undefined, leaveDates: inputs.leaveDates, attendance: inputs.attendance, sourceHash: inputs.sourceHash, sourceChanged: Boolean(row && row.source_hash !== inputs.sourceHash) };
       });
     },
     saveRecordMonth(kind, month, body, current) {
@@ -114,7 +157,7 @@ export function createStaffRecordStore(transaction) {
           if (balance.remaining < 0) throw workError(400, `${month.slice(0,4)}년 연차 부여 ${balance.granted}일보다 사용 ${balance.used}일이 많습니다. 연차대장 → 연차 일수 직접 등록에서 해당 직원의 부여 일수와 기존 사용분을 확인하고 저장해 주세요.`);
         }
         if (confirming && kind === 'attendance') payload.leaveHash = inputs.leaveHash;
-        if (confirming && kind === 'journal') payload.attendance = inputs.attendance.payload.rows.map(row => ({ date: row.date, kind: row.kind, hours: row.hours, leaveDays: row.leaveDays }));
+        if (kind === 'journal' && body.action !== 'reopen' && inputs.attendance?.status === 'confirmed') payload.attendance = attendanceSnapshot(inputs.attendance);
         const row = (await q(`INSERT INTO staff_record_documents(owner_id,kind,period,payload,status,source_hash,version,confirmed_at) VALUES($1,$2,$3,$4,$5,$6,1,$7) ON CONFLICT(owner_id,kind,period) DO UPDATE SET payload=excluded.payload,status=excluded.status,source_hash=excluded.source_hash,version=staff_record_documents.version+1,confirmed_at=excluded.confirmed_at RETURNING *`, [current.me.id, kind, month, JSON.stringify(payload), confirming ? 'confirmed' : 'draft', inputs.sourceHash, confirming ? new Date().toISOString() : null])).rows[0];
         if (kind === 'attendance' && body.action !== 'reopen') {
           const plans = (await q('SELECT * FROM staff_leave_plans WHERE owner_id=$1 AND year=$2', [current.me.id, month.slice(0,4)])).rows;
@@ -153,7 +196,7 @@ export function createStaffRecordStore(transaction) {
     },
     leaveLedger(year, current) {
       if (!/^\d{4}$/.test(year) || year < '1000') throw workError(400, '연도를 확인해 주세요.');
-      return transaction(async q => { await profile(q, current.me.id); const balance = await totals(q, current.me.id, year); return { account: (await q('SELECT * FROM staff_leave_accounts WHERE owner_id=$1 AND year=$2', [current.me.id, year])).rows[0] ?? { granted: 0, opening_used: 0, version: 0 }, plans: (await q('SELECT * FROM staff_leave_plans WHERE owner_id=$1 AND year=$2 ORDER BY id', [current.me.id, year])).rows.map(planFrom), totals: balance, attendanceUses: balance.attendanceUses }; });
+      return transaction(async q => { await profile(q, current.me.id); const balance = await totals(q, current.me.id, year); return { account: (await q('SELECT * FROM staff_leave_accounts WHERE owner_id=$1 AND year=$2', [current.me.id, year])).rows[0] ?? { granted: 0, opening_used: 0, version: 0 }, plans: (await q('SELECT * FROM staff_leave_plans WHERE owner_id=$1 AND year=$2 ORDER BY id', [current.me.id, year])).rows.map(planFrom), totals: balance, automatic: balance.automatic, override: balance.override, attendanceUses: balance.attendanceUses }; });
     },
     saveLeaveAccount(year, body, current) {
       if (!/^\d{4}$/.test(year) || year < '1000') throw workError(400, '연도를 확인해 주세요.');
@@ -164,6 +207,35 @@ export function createStaffRecordStore(transaction) {
         await q(`INSERT INTO staff_leave_accounts(owner_id,year,granted,opening_used,version) VALUES($1,$2,$3,$4,1) ON CONFLICT(owner_id,year) DO UPDATE SET granted=excluded.granted,opening_used=excluded.opening_used,version=staff_leave_accounts.version+1 RETURNING *`, [current.me.id, year, granted, used]);
         const balance = await totals(q, current.me.id, year); if (balance.available < 0) throw workError(400, '이미 사용·계획한 연차보다 부여 일수가 적습니다.');
         await audit(q, current.me.id, 'leave-account', year, 'saved', { granted, openingUsed: used }, current.actorId ?? current.me.id); return balance;
+      });
+    },
+    leaveSignedFile(id, current) {
+      return transaction(async q => {
+        const row = (await q('SELECT payload FROM staff_leave_plans WHERE owner_id=$1 AND id=$2', [current.me.id,id])).rows[0];
+        const file = row && JSON.parse(row.payload).signedFile;
+        if (!file) throw workError(404,'서명본을 찾을 수 없습니다.');
+        return file;
+      });
+    },
+    saveLeaveSignedFile(id, body, current) {
+      return transaction(async q => {
+        await profile(q,current.me.id);
+        const row = (await q(`SELECT * FROM staff_leave_plans WHERE owner_id=$1 AND id=$2${q.forUpdate ?? ''}`,[current.me.id,id])).rows[0];
+        if (!row) throw workError(404,'연차 계획을 찾을 수 없습니다.');
+        checkVersion(row,body.version);
+        if (!['confirmed','used'].includes(row.status)) throw workError(400,'확정하거나 사용 완료한 회차에 서명본을 첨부할 수 있습니다.');
+        const name = text(body.name,200);
+        const {mime,data} = body;
+        if (!name || typeof data!=='string' || data.length>2800000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw workError(400,'2MB 이하의 PDF, PNG 또는 JPEG 파일을 선택해 주세요.');
+        const bytes = Buffer.from(data,'base64');
+        const valid = mime==='application/pdf' ? bytes.subarray(0,5).equals(Buffer.from('%PDF-'))
+          : mime==='image/png' ? bytes.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex'))
+          : mime==='image/jpeg' && bytes.subarray(0,3).equals(Buffer.from('ffd8ff','hex'));
+        if (!valid || bytes.length>2097152) throw workError(400,'2MB 이하의 PDF, PNG 또는 JPEG 파일을 선택해 주세요.');
+        const payload = {...JSON.parse(row.payload),signedFile:{name,mime,data}};
+        const saved = (await q('UPDATE staff_leave_plans SET payload=$1,version=version+1 WHERE owner_id=$2 AND id=$3 RETURNING *',[JSON.stringify(payload),current.me.id,id])).rows[0];
+        await audit(q,current.me.id,'leave-plan',id,'signed-file',{name,mime},current.actorId ?? current.me.id);
+        return planFrom(saved);
       });
     },
     saveLeavePlan(id, body, current) {
@@ -181,12 +253,15 @@ export function createStaffRecordStore(transaction) {
         if (body.status === 'used' && dates.some(row => row.date > recurrenceToday())) throw workError(400, '미래 연차는 사용 완료로 처리할 수 없습니다.');
         const others = (await q("SELECT * FROM staff_leave_plans WHERE owner_id=$1 AND year=$2 AND status IN ('confirmed','used')", [current.me.id, year])).rows.filter(row => row.id !== id).map(planFrom);
         if (['confirmed','used'].includes(body.status) && others.some(plan => plan.dates.some(row => dates.some(date => date.date === row.date)))) throw workError(409, '같은 날짜의 연차 계획이 있습니다.');
-        const value = { dates, leaveReason: text(body.leaveReason, 1000), contact: text(body.contact, 100), substitute: text(body.substitute, 100), applicationDate: workDate(body.applicationDate), profile: { name: person.name, organization: person.organization, jobTitle: person.jobTitle } };
+        const value = { dates, leaveReason: text(body.leaveReason, 1000), contact: text(body.contact, 100), substitute: text(body.substitute, 100), applicationDate: workDate(body.applicationDate), profile: { name: person.name, organization: person.organization, jobTitle: person.employment?.roles.filter(role=>role.from<=dates[0].date).at(-1)?.title ?? person.jobTitle } };
         if (old && old.status !== 'draft' && body.status !== 'draft') {
           const frozen = JSON.parse(old.payload);
           if (['dates','leaveReason','contact','substitute','applicationDate'].some(key => JSON.stringify(frozen[key]) !== JSON.stringify(value[key]))) throw workError(409, '확정한 계획의 내용은 다시 열어 수정해 주세요.');
           value.profile = frozen.profile;
+
         }
+        const signedFile = old && JSON.parse(old.payload).signedFile;
+        if (signedFile) value.signedFile = body.status==='draft' ? {...signedFile,previous:true} : signedFile;
         if (body.status !== 'draft' && body.status !== 'cancelled' && (!value.leaveReason || !value.substitute)) throw workError(400, '휴가 사유와 업무대행자를 입력해 주세요.');
         const planId = id ?? newWorkId();
         const row = (await q(`INSERT INTO staff_leave_plans(id,owner_id,year,payload,status,version) VALUES($1,$2,$3,$4,$5,1) ON CONFLICT(id) DO UPDATE SET year=excluded.year,payload=excluded.payload,status=excluded.status,version=staff_leave_plans.version+1 RETURNING *`, [planId, current.me.id, year, JSON.stringify(value), body.status])).rows[0];

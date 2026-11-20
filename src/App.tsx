@@ -1587,7 +1587,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               }}>
               <ClipboardCheck size={16} />센터업무(할일)
             </button>
-            <button type="button" className={activeView === "records" ? "is-active" : ""} aria-current={activeView === "records" ? "page" : undefined} onClick={() => { setActiveView("records"); setSelectedRecipientId(null); setSelectedEmploymentContractId(null); setIsCreatePanelOpen(false); setIsEmploymentCreatePanelOpen(false); }}><ClipboardCheck size={16}/>근무기록</button>
+            <button type="button" className={activeView === "records" ? "is-active" : ""} aria-current={activeView === "records" ? "page" : undefined} onClick={() => { setActiveView("records"); setSelectedRecipientId(null); setSelectedEmploymentContractId(null); setIsCreatePanelOpen(false); setIsEmploymentCreatePanelOpen(false); }}><ClipboardCheck size={16}/>상근 근로자 관리</button>
             <button type="button" className={activeView==='rfid'?'is-active':''} aria-current={activeView==='rfid'?'page':undefined} onClick={()=>{if(activeView==='records'&&recordsDirty&&!window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))return;setActiveView('rfid');setSelectedRecipientId(null);setSelectedEmploymentContractId(null);setIsCreatePanelOpen(false);setIsEmploymentCreatePanelOpen(false);}}><ClipboardCheck size={16}/>RFID 확인</button>
             </SidebarGroup>
             <SidebarGroup title="급여/회계" active={activeView === 'payroll'}>

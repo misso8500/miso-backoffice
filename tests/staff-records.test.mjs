@@ -5,7 +5,19 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createSqliteWorkStore, createPostgresWorkStore } from '../server/work-task-stores.mjs';
 import { appendExecutionCandidates, documentDraft } from '../shared/staff-records.mjs';
+import { fiscalLeaveGrant } from '../server/staff-leave-accrual.mjs';
 import { recurrenceToday } from '../shared/work-recurrence.mjs';
+
+test('fiscal grants use confirmed attendance, monthly first-year accrual and attendance gaps', () => {
+ const year = Array.from({length:365},(_,offset)=>({
+   date:new Date(Date.UTC(2025,0,1+offset)).toISOString().slice(0,10),kind:'work'
+ }));
+ assert.deepEqual(fiscalLeaveGrant('2020-01-01','2026','2026-01-01',year),{granted:17,incomplete:false});
+ assert.deepEqual(fiscalLeaveGrant('2020-01-01','2026','2026-01-01',year.slice(1)),{granted:0,incomplete:true});
+ assert.deepEqual(fiscalLeaveGrant('2025-02-01','2025','2025-04-01',year),{granted:2,incomplete:false});
+ const missedMarch=year.map(row=>row.date==='2025-03-10'?{...row,kind:'absent'}:row);
+ assert.deepEqual(fiscalLeaveGrant('2025-02-01','2025','2025-04-01',missedMarch),{granted:1,incomplete:false});
+});
 
 for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: staff documents, leave reservations, versioning and frozen print data`,async t=>{
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());db.exec(`PRAGMA foreign_keys=ON;CREATE TABLE recipients(id TEXT PRIMARY KEY,name TEXT,operational_name TEXT,is_draft INTEGER,enabled INTEGER);CREATE TABLE employment_contracts(id TEXT PRIMARY KEY,worker_name TEXT,contract_start_date TEXT,contract_end_date TEXT,is_draft INTEGER,enabled INTEGER);`);
@@ -20,6 +32,11 @@ for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: staff documents, 
  await store.saveLeaveAccount('2026',{version:0,granted:15,openingUsed:2},a);
  const planInput={dates:[{date:'2026-09-10',days:1}],leaveReason:'개인사유',contact:'',substitute:'직원 B',applicationDate:'2026-09-01',version:0,status:'confirmed'};
  let leave=await store.saveLeavePlan(null,planInput,a);
+ const signedFile={name:'signed.pdf',mime:'application/pdf',data:Buffer.from('%PDF-1.7').toString('base64')};
+ leave=await store.saveLeaveSignedFile(leave.id,{...signedFile,version:leave.version},a);
+ assert.deepEqual(await store.leaveSignedFile(leave.id,a),signedFile);
+ assert.equal(leave.signedFile.data,undefined);
+ await assert.rejects(store.leaveSignedFile(leave.id,b),{status:404});
  assert.equal((await store.leaveLedger('2026',a)).totals.planned,1);
  await assert.rejects(store.saveLeavePlan(leave.id,{...leave,status:'draft',reason:'수정'},b),{status:404});
  const execution=await store.recordManual({requestId:randomUUID(),date:'2026-09-01',assigneeId:profile.staffId,period:'morning',content:'실제 업무',category:'operations',related:[]},a);
@@ -32,15 +49,23 @@ for(const mode of ['sqlite','postgres-adapter'])test(`${mode}: staff documents, 
  const confirmed=await store.saveRecordMonth('attendance','2026-09',{action:'confirm',version:0,payload,sourceHash:attendance.sourceHash},a);
  assert.equal(confirmed.status,'confirmed');assert.equal((await store.recordMonth('attendance','2026-09',a)).sourceChanged,false);
  assert.equal((await store.leaveLedger('2026',a)).totals.used,3);assert.equal((await store.leaveLedger('2026',a)).totals.planned,0);
- leave=await store.saveLeavePlan(leave.id,{...leave,status:'used'},a);assert.equal((await store.leaveLedger('2026',a)).totals.used,3);
+ leave=await store.saveLeavePlan(leave.id,{...leave,status:'used'},a);assert.deepEqual(await store.leaveSignedFile(leave.id,a),signedFile);assert.equal((await store.leaveLedger('2026',a)).totals.used,3);
  await assert.rejects(store.saveLeavePlan(leave.id,{...leave,status:'draft',reason:''},a),{status:400});
  await assert.rejects(store.saveLeaveAccount('2026',{version:1,granted:2,openingUsed:2},a),{status:400});
  assert.equal((await store.leaveLedger('2026',a)).totals.granted,15);
  await assert.rejects(store.saveRecordMonth('attendance','2026-09',{action:'save',version:confirmed.version,payload,sourceHash:attendance.sourceHash},a),{status:409});
- let journal=await store.recordMonth('journal','2026-09',a);assert.equal(journal.document.payload.rows[0].morning,'실제 업무');journal.document.payload.rows.forEach(row=>row.reviewed=true);
+ let journal=await store.recordMonth('journal','2026-09',a);
+ assert.equal(journal.document.status,'draft');
+ assert.equal(journal.document.payload.attendance[0].kind,'work');
+ assert.equal(journal.document.payload.attendance[0].hours,8);
+ assert.equal(journal.document.payload.rows[0].morning,'실제 업무');
+ journal.document.payload.rows.forEach(row=>row.reviewed=true);
  const extra=await store.recordManual({requestId:randomUUID(),date:'2026-09-02',assigneeId:profile.staffId,period:'unknown',content:'시간 확인 필요',category:'operations',related:[]},a);
  await assert.rejects(store.saveRecordMonth('journal','2026-09',{action:'confirm',version:0,payload:journal.document.payload,sourceHash:journal.sourceHash},a),{status:409});
- const latest=await store.recordMonth('journal','2026-09',a),merged=appendExecutionCandidates(journal.document.payload,latest.executions);
+ const latest=await store.recordMonth('journal','2026-09',a);
+ assert.equal(latest.document.payload.rows[1].unknown,'');
+ assert.deepEqual(latest.journalCandidates.map(row=>row.id),[execution.id]);
+ const merged=appendExecutionCandidates(journal.document.payload,latest.executions);
  assert.equal(merged.rows[0].morning,'실제 업무');assert.equal(merged.rows[1].unknown,extra.content);
  merged.rows.forEach(row=>row.reviewed=true);
  await assert.rejects(store.saveRecordMonth('journal','2026-09',{action:'confirm',version:0,payload:merged,sourceHash:latest.sourceHash},a),{status:400});

@@ -4,12 +4,13 @@ const css = `@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}body{mar
 function dayCells(row?: StaffRow) {
   return <><td>{row ? Number(row.date.slice(8)) : ''}</td><td>{row?.start}</td><td>{row?.end}</td><td>{row?.hours || ''}</td><td></td><td>{row ? [row.kind === 'leave' ? `연차 ${row.leaveDays}일` : row.kind === 'work' ? '' : attendanceLabels[row.kind],row.note].filter(Boolean).join('\n') : ''}</td></>;
 }
-export function AttendancePaper({ document }: { document: StaffDocument }) {
-  const p=document.payload.profile, rows=document.payload.rows;
-  return <article><h2>{document.period.slice(0,4)}년 ({Number(document.period.slice(5))})월 {p.jobTitle} 출근부</h2><table><tbody><tr><th>성명</th><td>{p.name}</td><th>회사명</th><td>{p.organization}</td></tr><tr><th>기간</th><td>{rows[0]?.date} ~ {rows.at(-1)?.date}</td><th>1일 근로시간</th><td>{p.startTime}~{p.endTime} ({p.hours}시간)</td></tr><tr><td colSpan={4}>출근 {rows.filter(r=>r.kind==='work').length}일 · 연차 {rows.filter(r=>r.kind==='leave').reduce((sum,r)=>sum+r.leaveDays,0)}일 · 결근 {rows.filter(r=>r.kind==='absent').length}일 · 총 근무시간 {rows.reduce((sum,r)=>sum+r.hours,0)}시간</td></tr></tbody></table><table className="att"><colgroup>{[0,1].flatMap(index=>['day','time','time','hours','sign','note'].map((name,i)=><col key={`${index}:${i}`} className={name}/>))}</colgroup><thead><tr>{[0,1].flatMap(index=>['일','출근','퇴근','근로시간','본인서명','비고'].map((label,i)=><th key={`${index}:${i}`}>{label==='본인서명'?<><span className="att-heading-line">본인</span><br/><span className="att-heading-line">서명</span></>:label==='근로시간'?<>근로<br/>시간</>:label}</th>))}</tr></thead><tbody>{Array.from({length:17},(_,i)=><tr key={i}>{dayCells(rows[i])}{dayCells(rows[i+17])}</tr>)}</tbody></table></article>;
+export function AttendancePaper({ document, visibleDate, jobTitle }: { document: StaffDocument; visibleDate?:(date:string)=>boolean; jobTitle?:string }) {
+  const p=document.payload.profile, rows=document.payload.rows.filter(row=>!visibleDate||visibleDate(row.date));
+  if(!rows.length)return null;
+  return <article><h2>{document.period.slice(0,4)}년 ({Number(document.period.slice(5))})월 {jobTitle??p.jobTitle} 출근부</h2><table><tbody><tr><th>성명</th><td>{p.name}</td><th>회사명</th><td>{p.organization}</td></tr><tr><th>기간</th><td>{rows[0]?.date} ~ {rows.at(-1)?.date}</td><th>1일 근로시간</th><td>{p.startTime}~{p.endTime} ({p.hours}시간)</td></tr><tr><td colSpan={4}>출근 {rows.filter(r=>r.kind==='work').length}일 · 연차 {rows.filter(r=>r.kind==='leave').reduce((sum,r)=>sum+r.leaveDays,0)}일 · 결근 {rows.filter(r=>r.kind==='absent').length}일 · 총 근무시간 {rows.reduce((sum,r)=>sum+r.hours,0)}시간</td></tr></tbody></table><table className="att"><colgroup>{[0,1].flatMap(index=>['day','time','time','hours','sign','note'].map((name,i)=><col key={`${index}:${i}`} className={name}/>))}</colgroup><thead><tr>{[0,1].flatMap(index=>['일','출근','퇴근','근로시간','본인서명','비고'].map((label,i)=><th key={`${index}:${i}`}>{label==='본인서명'?<><span className="att-heading-line">본인</span><br/><span className="att-heading-line">서명</span></>:label==='근로시간'?<>근로<br/>시간</>:label}</th>))}</tr></thead><tbody>{Array.from({length:17},(_,i)=><tr key={i}>{dayCells(rows[i])}{dayCells(rows[i+17])}</tr>)}</tbody></table></article>;
 }
 export function JournalPaper({ document, date }: {document:StaffDocument;date?:string}) {
-  return <>{document.payload.rows.filter(row=>date?row.date===date:document.payload.attendance?.some(day=>day.date===row.date&&day.kind==='work')||Boolean(row.morning.trim()||row.afternoon.trim()||row.other.trim())).map(row=><article key={row.date}><table><tbody><tr><td colSpan={3} style={{width:'62%'}}><h1>업 무 일 지</h1>{row.date} · {document.payload.profile.name}</td><td>사회복지사<br/><br/><br/></td><td>시설장<br/><br/><br/></td></tr></tbody></table><p className="muted">{document.payload.profile.organization} · 근태: {attendanceLabels[document.payload.attendance?.find(r=>r.date===row.date)?.kind ?? 'pending']}</p><table className="journal"><colgroup><col className="label"/><col/><col className="remarks"/></colgroup><thead><tr><th>시간</th><th>업무 내용</th><th>비고</th></tr></thead><tbody><tr className="period"><td className="label">업무<br/>일정<br/>(오전)</td><td className="left">{row.morning}</td><td className="left">{row.morningNote}</td></tr><tr className="period"><td className="label">업무<br/>일정<br/>(오후)</td><td className="left">{row.afternoon}</td><td className="left">{row.afternoonNote}</td></tr><tr><td>기타 사항</td><td colSpan={2} className="left">{row.other}</td></tr></tbody></table></article>)}</>;
+  return <>{document.payload.rows.filter(row=>date?row.date===date:document.payload.attendance?.some(day=>day.date===row.date&&(day.kind==='work'||day.hours>0))||Boolean(row.morning.trim()||row.afternoon.trim()||row.other.trim())).map(row=><article key={row.date}><table><tbody><tr><td colSpan={3} style={{width:'62%'}}><h1>업 무 일 지</h1>{row.date} · {document.payload.profile.name}</td><td>사회복지사<br/><br/><br/></td><td>시설장<br/><br/><br/></td></tr></tbody></table><p className="muted">{document.payload.profile.organization} · 근태: {attendanceLabels[document.payload.attendance?.find(r=>r.date===row.date)?.kind ?? 'pending']}</p><table className="journal"><colgroup><col className="label"/><col/><col className="remarks"/></colgroup><thead><tr><th>시간</th><th>업무 내용</th><th>비고</th></tr></thead><tbody><tr className="period"><td className="label">업무<br/>일정<br/>(오전)</td><td className="left">{row.morning}</td><td className="left">{row.morningNote}</td></tr><tr className="period"><td className="label">업무<br/>일정<br/>(오후)</td><td className="left">{row.afternoon}</td><td className="left">{row.afternoonNote}</td></tr><tr><td>기타 사항</td><td colSpan={2} className="left">{row.other}</td></tr></tbody></table></article>)}</>;
 }
 export function LeavePaper({ plan }: {plan:LeavePlan}) {
   const p=plan.profile;
@@ -19,11 +20,23 @@ export function LeaveLedgerPaper({ ledger, year, profile }: {ledger:LeaveLedger;
   const extra = ledger.attendanceUses?.filter(row=>!ledger.plans.some(plan=>['confirmed','used'].includes(plan.status)&&plan.dates.some(date=>date.date===row.date)))??[];
   return <article><h1>{year}년 연차대장</h1><p>{profile.organization} · {profile.jobTitle} · {profile.name}</p><p>부여 {ledger.totals.granted}일 / 사용 {ledger.totals.used}일 / 잔여 {ledger.totals.remaining}일 / 사용 예정 {ledger.totals.planned}일 / 예약 제외 가용 {ledger.totals.available}일</p><table><thead><tr><th>날짜</th><th>일수</th><th>사유</th><th>상태</th></tr></thead><tbody>{ledger.plans.filter(p=>p.status!=='cancelled'&&p.status!=='draft').flatMap(p=>p.dates.map(d=><tr key={`${p.id}:${d.date}`}><td>{d.date}</td><td>{d.days}</td><td>{p.leaveReason}</td><td>{p.status==='used'?'사용':'사용 예정'}</td></tr>))}{extra.map(row=><tr key={row.date}><td>{row.date}</td><td>{row.days}</td><td>확정 출근부 사용</td><td>사용</td></tr>)}</tbody></table><p className="muted">기존 사용분 및 확정 출근부의 연차도 잔여 일수에 반영됩니다.</p></article>;
 }
-export async function printStaffPaper(content: React.ReactNode) {
+async function staffPaperHtml(content: React.ReactNode) {
   const { renderToStaticMarkup } = await import('react-dom/server');
-  const markup=renderToStaticMarkup(<>{content}</>); if(!markup.trim()){window.alert('인쇄할 기록이 없습니다.');return;}
+  const markup=renderToStaticMarkup(<>{content}</>);
+  return markup.trim() ? '<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>근무기록</title><style>'+css+'</style></head><body>'+markup+'</body></html>' : '';
+}
+export async function downloadStaffPaper(content: React.ReactNode, name: string) {
+  const html=await staffPaperHtml(content);
+  if(!html)return;
+  const url=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
+  const link=document.createElement('a');link.href=url;link.download=name+'.html';link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+export async function printStaffPaper(content: React.ReactNode) {
+  const html=await staffPaperHtml(content);
+  if(!html){window.alert('인쇄할 기록이 없습니다.');return;}
   const frame=document.createElement('iframe'); frame.title='근무기록 인쇄'; frame.style.cssText='position:fixed;width:1px;height:1px;left:-9999px;top:0;border:0';
-  frame.srcdoc='<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>근무기록</title><style>'+css+'</style></head><body>'+markup+'</body></html>';
+  frame.srcdoc=html;
   frame.onload=()=>{frame.contentWindow?.focus();frame.contentWindow?.print();};document.body.appendChild(frame);
   const cleanup=()=>frame.remove();frame.contentWindow?.addEventListener('afterprint',cleanup,{once:true});setTimeout(cleanup,300000);
 }
