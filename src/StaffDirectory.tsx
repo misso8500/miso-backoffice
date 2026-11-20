@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ChevronRight, FileText, Plus, Search } from 'lucide-react';
+import { ChevronRight, FileText, Plus, Search, Upload } from 'lucide-react';
+import StaffImport from './StaffImport';
 import PageHeading from './PageHeading';
 import type { EmploymentContract } from './types';
 import { loadStaffProfiles, newStaffProfile, saveStaffProfile, staffDirectoryEntries, staffDocumentTypes, type StaffDocument, type StaffProfile } from './lib/staff-directory';
@@ -21,6 +22,7 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
   const [profileError, setProfileError] = useState('');
   const [busy, setBusy] = useState(true);
   const [savedNotice, setSavedNotice] = useState('');
+  const [importing, setImporting] = useState(false);
   const [editor, setEditor] = useState<{ profile: StaffProfile; contracts: EmploymentContract[] } | null>(null);
   async function load() {
     setBusy(true); setProfileError('');
@@ -35,6 +37,8 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
       value?.toLowerCase().includes(query.trim().toLowerCase())));
   return <section className="recipient-directory-workspace">
     <PageHeading title="직원 기초정보" description="직원별 연락처, 입·퇴사, 희망이음 진행과 서류를 확인합니다.">
+      <button type="button" className="secondary-button" disabled={busy || !!profileError}
+        onClick={() => setImporting(true)}><Upload size={17} aria-hidden="true" /> 희망이음 가져오기</button>
       <button type="button" className="primary-button" disabled={busy || !!profileError} onClick={() => setEditor({ profile: newStaffProfile(), contracts: [] })}><Plus size={17} /> 직원 추가</button>
     </PageHeading>
     {(error || profileError) && <div className="error-banner" role="alert">{profileError || error}
@@ -64,6 +68,11 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
       </div>)}
     </div>}
     {!shown.length && !busy && !loading && <div className="empty-state"><p>{query || filter !== '전체' ? '검색 조건에 맞는 직원이 없습니다.' : '직원 추가로 명부를 시작하세요.'}</p></div>}
+    {importing && <StaffImport onClose={() => setImporting(false)} onSaved={message => {
+      setImporting(false);
+      setSavedNotice(message);
+      void load();
+    }} />}
     {editor && <StaffEditor key={editor.profile.id} initial={editor.profile}
       contracts={entries.find(item => item.profile?.id === editor.profile.id)?.contracts ?? editor.contracts}
       eligible={entries.filter(item => !item.profile).flatMap(item => item.contracts.slice(0, 1))}
@@ -138,6 +147,8 @@ function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onOpenCon
               <label>인사카드 등록<select value={profile.personnel} onChange={e => set('personnel',e.target.value)}>{options(['대기','진행 중','완료'])}</select></label>
               <label>입사보고<select aria-label="입사보고" value={profile.reporting} onChange={e => set('reporting',e.target.value)}>{options(['대기','진행 중','완료'])}</select></label>
               {field('입사보고 처리일','reportingDate','date')}
+              {profile.hopeStaffNumber && <label>희망이음 직원번호<input value={profile.hopeStaffNumber} readOnly /></label>}
+              {profile.hopeReportStatus && <label>희망이음 보고상태<input value={profile.hopeReportStatus} readOnly /></label>}
             </div><label>인사 업무 메모<textarea rows={2} maxLength={2000} value={profile.memo} onChange={e => set('memo',e.target.value)} /></label></section>
           </>}
           {section === '서류' && Object.entries(staffDocumentTypes).map(([type, label]) => {

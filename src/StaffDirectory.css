@@ -194,3 +194,10 @@
   .service-assignment-grade-column { width: 44px; }
   .service-assignment-owner-column { width: 72px; }
 }
+
+.staff-import-counts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.staff-import-counts > span { padding: 5px 8px; border-radius: 6px; background: #f1ebf7; font-size: 12px; }
+.staff-import-preview { max-height: 52vh; }
+.staff-import-preview thead { position: sticky; top: 0; }
+.staff-import-dialog .recipient-overview-card > span { display: flex; align-items: center; gap: 7px; }
+.staff-import-dialog .staff-import-confirm { display: flex; align-items: center; margin: 6px 0 0; }

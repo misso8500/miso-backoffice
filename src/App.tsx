@@ -1534,6 +1534,25 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               수급자 기초정보
             </button>
             </SidebarGroup>
+            <SidebarGroup title="요양보호사, 사회복지사" active={['employmentContracts','staffDirectory'].includes(activeView)}>
+            <button type="button" className={activeView==='staffDirectory'?'is-active':''} aria-current={activeView==='staffDirectory'?'page':undefined}
+              onClick={()=>{if(activeView!=='records'||!recordsDirty||window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))setActiveView('staffDirectory');}}>
+              <Users size={16}/>직원 기초정보
+            </button>
+            <button
+              type="button"
+              className={activeView === "employmentContracts" ? "is-active" : ""}
+              aria-current={activeView === "employmentContracts" ? "page" : undefined}
+              onClick={() => {
+                if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("employmentContracts");
+                setSelectedRecipientId(null);
+                setIsCreatePanelOpen(false);
+              }}
+            >
+              <Briefcase size={16} />
+              근로계약서
+            </button>
+            </SidebarGroup>
             <SidebarGroup title="방문요양" active={activeView === 'staffServiceConnections' || activeView === 'recipientServices' || activeView === 'copay' || activeView === 'visits'}>
               <button type="button" className={activeView==='staffServiceConnections'?'is-active':''} aria-current={activeView==='staffServiceConnections'?'page':undefined}
                 onClick={()=>{if(activeView!=='records'||!recordsDirty||window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))setActiveView('staffServiceConnections');}}>
@@ -1554,25 +1573,6 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                     setIsEmploymentCreatePanelOpen(false);
                   }}><Icon size={16} aria-hidden="true" />{label}</button>
               )}
-            </SidebarGroup>
-            <SidebarGroup title="요양보호사, 사회복지사" active={['employmentContracts','staffDirectory'].includes(activeView)}>
-            <button type="button" className={activeView==='staffDirectory'?'is-active':''} aria-current={activeView==='staffDirectory'?'page':undefined}
-              onClick={()=>{if(activeView!=='records'||!recordsDirty||window.confirm('저장하지 않은 근무기록을 닫고 이동할까요?'))setActiveView('staffDirectory');}}>
-              <Users size={16}/>직원 기초정보
-            </button>
-            <button
-              type="button"
-              className={activeView === "employmentContracts" ? "is-active" : ""}
-              aria-current={activeView === "employmentContracts" ? "page" : undefined}
-              onClick={() => {
-                if (activeView === "records" && recordsDirty && !window.confirm("저장하지 않은 근무기록을 닫고 이동할까요?")) return; setActiveView("employmentContracts");
-                setSelectedRecipientId(null);
-                setIsCreatePanelOpen(false);
-              }}
-            >
-              <Briefcase size={16} />
-              근로계약서
-            </button>
             </SidebarGroup>
             <SidebarGroup title="센터 실무" active={activeView === "work" || activeView === "records" || activeView === "rfid"}>
             <button type="button" className={activeView === "work" ? "is-active" : ""}
