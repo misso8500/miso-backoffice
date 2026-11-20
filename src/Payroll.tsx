@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { loadEmploymentContracts, loadRecipients, requestJson } from './storage';
 import { calculatePayroll, insuranceNames, shiftMinutes, type Entry, type PayrollMonth, type Shift } from './lib/payroll';
 import type { EmploymentContract, Recipient } from './types';
-import PayrollWork from './PayrollWork';
+import PayrollWork, { type ServiceRosterRow } from './PayrollWork';
 import PayrollReview from './PayrollReview';
-import type { Review } from './lib/payroll-review';
+import { allowanceAmount, allowanceNames, payrollReviewRecords, type Review } from './lib/payroll-review';
+import { loadWorkContext, type WorkContext } from './lib/work-tasks';
 import type { WorkRow } from './lib/payroll-work';
 import './Payroll.css';
 
@@ -86,6 +87,38 @@ async function exportWorkbook(month: string, entries: Entry[], contracts: Employ
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+async function exportReviewedWorkbook(month: string, records: ReturnType<typeof payrollReviewRecords>) {
+  const { default: { Workbook } } = await import('exceljs');
+  const workbook = new Workbook();
+  const ledger = workbook.addWorksheet('급여대장');
+  const hours = workbook.addWorksheet('근무·계약 근거');
+  ledger.addRow(['귀속월', '근로자', '생년월일', '기본급', '휴일 지급액', ...allowanceNames, '지급총액',
+    ...insuranceNames, '소득세', '지방소득세', '가족요양 공제', '실지급액']);
+  hours.addRow(['근로자', '수급자', '근무 구분', '계약 ID', '계약 시작일', '근무시간 합계(분)', '휴일 근무(분)', '기본급 단가', '휴일 추가 단가']);
+  for (const { worker, review, totals } of records) {
+    ledger.addRow([month, worker.name, worker.birth, totals.base, totals.holiday, ...review.allowances.map(allowanceAmount),
+      totals.gross, ...review.insurance.map((item, index) => index === 4 ? item.status : item.status === '가입' ? item.amount : 0),
+      review.incomeTax, review.localTax, totals.copay, totals.net]);
+    for (const group of worker.groups) {
+      const rates = review.rates[group.key];
+      hours.addRow([worker.name, group.recipient, group.care, group.contract?.id, group.contract?.contractStartDate,
+        group.minutes, group.holiday, rates?.base, rates?.holiday]);
+    }
+  }
+  for (const sheet of workbook.worksheets) {
+    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+    sheet.getRow(1).font = { bold: true };
+    sheet.columns.forEach(column => { column.width = 19; });
+  }
+  const data = await workbook.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `급여대장-${month}.xlsx`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export default function Payroll({ onDirty, onBusy }: { onDirty: (value: boolean) => void; onBusy: (value: boolean) => void }) {
   const [month, setMonth] = useState(() => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit' }).format(new Date()));
   const [data, setData] = useState<PayrollMonth | null>(null);
@@ -95,9 +128,12 @@ export default function Payroll({ onDirty, onBusy }: { onDirty: (value: boolean)
   const [contracts, setContracts] = useState<EmploymentContract[]>([]);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [copays, setCopays] = useState<Copay[]>([]);
+  const [roster, setRoster] = useState<ServiceRosterRow[] | null>([]);
+  const [context, setContext] = useState<WorkContext | null>(null);
+  const [workQuery, setWorkQuery] = useState('');
   const [choice, setChoice] = useState('');
   const [selected, setSelected] = useState('');
-  const [view, setView] = useState<'work' | 'classify' | 'review' | 'schedule' | 'ledger'>('work');
+  const [view, setView] = useState<'work' | 'review' | 'schedule' | 'ledger'>('work');
   const [focusShift, setFocusShift] = useState<number | null>(null);
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -106,15 +142,22 @@ export default function Payroll({ onDirty, onBusy }: { onDirty: (value: boolean)
   const dirty = data !== null && (JSON.stringify(data.entries) !== JSON.stringify(entries) || JSON.stringify(data.workRows ?? []) !== JSON.stringify(workRows) || JSON.stringify(data.reviews ?? []) !== JSON.stringify(reviews));
   const path = '/api/work/payroll?month=' + month;
   useEffect(() => {
+    let ignore = false;
+    loadWorkContext().then(value => { if (!ignore) setContext(value); }).catch(() => {});
+    return () => { ignore = true; };
+  }, []);
+  useEffect(() => {
     if (!month) return;
     let ignore = false;
     setData(null); setError(''); setNotice(''); setSelected(''); setChoice('');
     Promise.all([requestJson<PayrollMonth>(path), loadEmploymentContracts(), loadRecipients(),
-      requestJson<{ rows: Copay[] }>('/api/work/copay?month=' + month)])
-      .then(([saved, contracts, recipients, fees]) => {
+      requestJson<{ rows: Copay[] }>('/api/work/copay?month=' + month),
+      requestJson<{ rows: ServiceRosterRow[] }>('/api/work/service-month?month=' + month)
+        .then(value => Array.isArray(value.rows) ? value.rows : null).catch(() => null)])
+      .then(([saved, contracts, recipients, fees, roster]) => {
         if (ignore) return;
         setData(saved); setEntries(saved.entries); setWorkRows(saved.workRows ?? []); setReviews(saved.reviews ?? []); setContracts(contracts);
-        setRecipients(recipients); setCopays(fees.rows); setSelected(saved.entries[0]?.contractId ?? '');
+        setRecipients(recipients); setCopays(fees.rows); setRoster(roster); setSelected(saved.entries[0]?.contractId ?? '');
       }).catch(error => { if (!ignore) setError(error.message); });
     return () => { ignore = true; };
   }, [month, path, retry]);
@@ -162,34 +205,47 @@ export default function Payroll({ onDirty, onBusy }: { onDirty: (value: boolean)
   const results = entries.map(item => ({ item, totals: calculatePayroll(item), source: contracts.find(contract => contract.id === item.contractId) }));
   const selectedTotals = entry ? calculatePayroll(entry) : null;
   const exportable = results.length > 0 && results.every(({ totals, source }) => totals.complete && source);
+  const monthlyRecords = view === 'review' ? payrollReviewRecords(workRows, month, contracts, recipients, copays, reviews) : [];
+  const monthlyExportable = monthlyRecords.length > 0 && monthlyRecords.every(item => item.confirmed) &&
+    monthlyRecords.reduce((sum, item) => sum + item.worker.rows.length, 0) === workRows.length;
+  async function downloadReviewed() {
+    setBusy(true); setError('');
+    try { await exportReviewedWorkbook(month, monthlyRecords); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : '엑셀 생성에 실패했습니다.'); }
+    finally { setBusy(false); }
+  }
   return <section className="payroll">
     <div className="payroll-actions">
       <label>급여 귀속월<input type="month" value={month} disabled={busy} onChange={e => {
-        if (e.target.value && (!dirty || window.confirm('저장하지 않은 급여 입력을 닫고 월을 이동할까요?'))) setMonth(e.target.value);
+        if (e.target.value && (!dirty || window.confirm('저장하지 않은 급여 입력을 닫고 월을 이동할까요?'))) { setMonth(e.target.value); setWorkQuery(''); }
       }} /></label>
       <button type="button" className="secondary-button" disabled={busy} onClick={() => {
         if (!dirty || window.confirm('저장하지 않은 급여 입력을 닫고 다시 조회할까요?')) setRetry(value => value + 1);
       }}>다시 조회</button>
       <button type="button" className="primary-button" disabled={!dirty || busy} onClick={() => void save()}>저장</button>
-      <button type="button" className="secondary-button" hidden={view !== 'ledger'} disabled={!data || dirty || busy || !exportable} onClick={() => void download()}>기존 급여대장 엑셀</button>
+      {view === 'review' && <button type="button" className="secondary-button" disabled={!data || dirty || busy || !monthlyExportable}
+        title="모든 근무 기록과 급여를 확인하고 저장하면 다운로드할 수 있습니다." onClick={() => void downloadReviewed()}>급여대장 엑셀</button>}
+      {view === 'ledger' && <button type="button" className="secondary-button" disabled={!data || dirty || busy || !exportable} onClick={() => void download()}>기존 급여대장 엑셀</button>}
     </div>
     {error && <p role="alert" className="error-banner">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     {!data && !error && <p role="status">급여 자료를 불러오는 중입니다.</p>}
     {data && <fieldset disabled={busy} className="payroll-content">
       <legend className="payroll-visually-hidden">급여 입력</legend>
-      <nav className="payroll-tabs" aria-label="급여대장 업무">
-        <button type="button" className="secondary-button" aria-pressed={view === 'work'} onClick={() => setView('work')}>월 전체 근무시간표</button>
-        <button type="button" className="secondary-button" aria-pressed={view === 'classify'} onClick={() => setView('classify')}>근로자·계약 분류</button>
-        <button type="button" className="secondary-button" aria-pressed={view === 'review'} onClick={() => setView('review')}>월 전체 급여 검토</button>
-        <button type="button" className="secondary-button" aria-pressed={view === 'schedule'} onClick={() => setView('schedule')}>기존 계약별 입력</button>
-        <button type="button" className="secondary-button" aria-pressed={view === 'ledger'} onClick={() => setView('ledger')}>기존 급여대장 산출</button>
+      <nav className="payroll-tabs payroll-stages" aria-label="급여대장 업무">
+        <button type="button" className="secondary-button" aria-pressed={view === 'work'} onClick={() => { setWorkQuery(''); setView('work'); }}>서비스 시간 확인</button>
+        <button type="button" className="secondary-button" aria-pressed={view === 'review'} onClick={() => setView('review')}>급여 검토·출력</button>
+        <details className="payroll-legacy"><summary>이전 입력 방식</summary><div className="payroll-actions">
+          <button type="button" className="secondary-button" aria-pressed={view === 'schedule'} onClick={() => setView('schedule')}>기존 계약별 입력</button>
+          <button type="button" className="secondary-button" aria-pressed={view === 'ledger'} onClick={() => setView('ledger')}>기존 급여대장 산출</button>
+        </div></details>
       </nav>
-      {(view === 'work' || view === 'classify') &&
-        <PayrollWork key={month} month={month} rows={workRows} contracts={contracts} recipients={recipients}
-          classify={view === 'classify'} onChange={rows => { setWorkRows(rows); setNotice(''); }} onBusy={setBusy} />}
+      {view === 'work' &&
+        <PayrollWork key={month + workQuery} month={month} rows={workRows} contracts={contracts} recipients={recipients} roster={roster} initialQuery={workQuery}
+          onReview={() => setView('review')} onChange={rows => { setWorkRows(rows); setNotice(''); }} onBusy={setBusy} />}
       {view === 'review' && <PayrollReview key={month} month={month} rows={workRows} contracts={contracts} recipients={recipients}
-        copays={copays} reviews={reviews} onChange={next => { setReviews(next); setNotice(''); }} onClassify={() => setView('classify')} />}
+        copays={copays} reviews={reviews} context={context} onChange={next => { setReviews(next); setNotice(''); }}
+        onClassify={worker => { setWorkQuery(worker ?? ''); setView('work'); }} />}
       {view === 'schedule' && <>
       <div className="payroll-actions">
         {entries.length > 0 && <label>시간표 근무자<select value={selected} onChange={e => setSelected(e.target.value)}>

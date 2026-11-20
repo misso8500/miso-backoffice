@@ -83,9 +83,14 @@ function normalizeWorkRows(month, rows) {
     const inputs = row.inputs;
     const fields = ['expected', 'visits', 'laborDay', 'vehicle', 'extra', 'longevity', 'intensive', 'copay'];
     if (inputs && (fields.some(key => inputs[key] !== null && (!Number.isFinite(inputs[key]) || inputs[key] < 0 || inputs[key] > 9999999999)) ||
-        ![null, true, false].includes(inputs.fullAttendance))) invalid('급여마법사 참고 항목을 확인해 주세요.');
+        ![null, true, false].includes(inputs.fullAttendance))) invalid('근무 횟수, 만근 여부 및 수당 참고 항목을 확인해 주세요.');
+    for (const key of ['longevityEligible', 'intensiveEligible']) {
+      if (![undefined, null, true, false].includes(row[key])) invalid('장기근속장려금·중증수급자 가산금 여부를 확인해 주세요.');
+    }
     return { id, date, birth, worker: string(row.worker), recipient: string(row.recipient), care: string(row.care),
       minutes, holiday, fixed: row.fixed, recipientId: string(row.recipientId), contractId: string(row.contractId), source: string(row.source),
+      ...(row.longevityEligible !== undefined ? { longevityEligible: row.longevityEligible } : {}),
+      ...(row.intensiveEligible !== undefined ? { intensiveEligible: row.intensiveEligible } : {}),
       ...(inputs ? { inputs: { ...Object.fromEntries(fields.map(key => [key, inputs[key]])), fullAttendance: inputs.fullAttendance } } : {}) };
   });
 }
@@ -107,6 +112,8 @@ function normalizeReviews(reviews) {
     if (allowances.length !== 9 || insurance.length !== 5) invalid('수당과 사회보험 항목을 확인해 주세요.');
     return {
       workerKey, basis: string(review.basis, 10000),
+      ...Object.fromEntries(['assigneeId', 'requestedBy', 'confirmedBy', 'returnedReason']
+        .filter(key => review[key] !== undefined).map(key => [key, string(review[key], key === 'returnedReason' ? 500 : 200)])),
       rates: record(review.rates, item => ({ base: money(item?.base), holiday: money(item?.holiday) })),
       allowances: allowances.map(item => {
         if (!['', 'none', 'fixed', 'count'].includes(item?.mode)) invalid('수당 지급 방식을 확인해 주세요.');

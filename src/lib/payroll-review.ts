@@ -1,4 +1,4 @@
-import { careGroup, payrollBirth, reviewWorkRows, type WorkRow } from './payroll-work';
+import { careGroup, payrollBirth, reviewWorkRows, sameWorkType, type WorkRow } from './payroll-work';
 import { insuranceNames } from './payroll';
 import type { EmploymentContract, Recipient } from '../types';
 
@@ -7,6 +7,10 @@ export type Allowance = { mode: '' | 'none' | 'fixed' | 'count'; amount: number 
 export type Review = {
   workerKey: string;
   basis: string;
+  assigneeId?: string;
+  requestedBy?: string;
+  returnedReason?: string;
+  confirmedBy?: string;
   rates: Record<string, { base: number | null; holiday: number | null }>;
   allowances: Allowance[];
   insurance: { status: string; amount: number | null }[];
@@ -44,7 +48,7 @@ export function reviewWorkers(rows: WorkRow[], month: string, contracts: Employm
     for (const row of worker.rows) {
       const key = recipientKey(row);
       assignments.set(key, [...(assignments.get(key) ?? []), row]);
-      if (careGroup(row.care) === '가족') family.set(row.recipientId, [...(family.get(row.recipientId) ?? []), row]);
+      if (sameWorkType(row.care, '가족')) family.set(row.recipientId, [...(family.get(row.recipientId) ?? []), row]);
     }
     const groups = [...assignments].map(([key, rows]) => {
       const first = rows[0];
@@ -97,4 +101,26 @@ export function reviewTotals(worker: ReturnType<typeof reviewWorkers>[number], r
       (review.copays[id]?.status === '공제' && review.copays[id].amount != null)) &&
     review.incomeTax != null && review.localTax != null;
   return { base, holiday, allowances, gross, deductions, copay, net, complete };
+}
+
+export function payrollReviewRecords(rows: WorkRow[], month: string, contracts: EmploymentContract[], recipients: Recipient[],
+  copays: { copay: number; recipientLink: { recipientId: string | null } }[], reviews: Review[]) {
+  const reviewMap = new Map(reviews.map(item => [item.workerKey, item]));
+  const fees = new Map(copays.map(item => [item.recipientLink.recipientId, item.copay]));
+  const workers = reviewWorkers(rows, month, contracts, recipients);
+  const deductions = new Map<string, number>();
+  for (const worker of workers) {
+    for (const id of worker.family.keys()) {
+      if (reviewMap.get(worker.key)?.copays[id]?.status === '공제') deductions.set(id, (deductions.get(id) ?? 0) + 1);
+    }
+  }
+  return workers.map(worker => {
+    const saved = reviewMap.get(worker.key) ?? blankReview(worker.key);
+    const suggestedRates = Object.fromEntries(worker.groups.map(group => [group.key, { base: group.suggested, holiday: null }]));
+    const review = { ...saved, rates: { ...suggestedRates, ...saved.rates } };
+    const totals = reviewTotals(worker, review);
+    const duplicate = [...worker.family.keys()].some(id => (deductions.get(id) ?? 0) > 1 && review.copays[id]?.status === '공제');
+    const basis = worker.basis + ':' + [...worker.family.keys()].map(id => fees.get(id) ?? '').join(',');
+    return { worker, review, totals, duplicate, basis, confirmed: totals.complete && !duplicate && !review.returnedReason && review.basis === basis };
+  });
 }

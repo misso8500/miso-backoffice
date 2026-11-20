@@ -4,9 +4,30 @@ export type WorkRow = {
   id: string; date: string; worker: string; birth: string; recipient: string; care: string;
   minutes: number | null; holiday: number | null; fixed: boolean;
   recipientId: string; contractId: string; source: string;
+  longevityEligible?: boolean | null;
+  intensiveEligible?: boolean | null;
   inputs?: { expected: number | null; visits: number | null; laborDay: number | null; vehicle: number | null;
     extra: number | null; fullAttendance: boolean | null; longevity: number | null; intensive: number | null; copay: number | null };
 };
+
+export const blankWorkInputs = (): NonNullable<WorkRow['inputs']> => ({
+  expected: null, visits: null, laborDay: null, vehicle: null, extra: null,
+  fullAttendance: null, longevity: null, intensive: null, copay: null
+});
+
+export function coversWorkPeriod(start: string, end: string | undefined, period: string) {
+  return (!start || start.slice(0, period.length) <= period) && (!end || end.slice(0, period.length) >= period);
+}
+
+export function contractWorkTypes(contract: EmploymentContract, row: WorkRow, month: string, recipient?: Recipient) {
+  if (!recipient) return [];
+  const conditions = contract.workConditions?.conditions.filter(item => item.recipientId === recipient.id) ?? [];
+  const types = conditions.length
+    ? conditions.filter(item => coversWorkPeriod(item.effectiveStartDate, item.effectiveEndDate, row.date || month))
+        .map(item => item.serviceType || (item.familyCare ? '가족' : recipient.serviceType))
+    : contract.recipientAssignments.some(item => item.recipientId === recipient.id) ? [recipient.serviceType] : [];
+  return [...new Set(types.filter(Boolean))];
+}
 
 export const blankWorkRow = (): WorkRow => ({
   id: crypto.randomUUID(), date: '', worker: '', birth: '', recipient: '', care: '',
@@ -15,6 +36,8 @@ export const blankWorkRow = (): WorkRow => ({
 
 const clean = (value: string) => value.normalize('NFC').trim().replace(/\s+/g, '');
 export const careGroup = (value: string) => clean(value).split('(')[0];
+const workTypeKey = (value: string) => careGroup(value).replace(/^(방문|가족)요양$/, '$1');
+export const sameWorkType = (first: string, second: string) => workTypeKey(first) === workTypeKey(second);
 export function payrollBirth(value: string) {
   const digits = value.replace(/\D/g, '');
   return digits.length === 8 ? `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}` : value.trim();
@@ -25,16 +48,13 @@ export function workMatches(row: WorkRow, month: string, contracts: EmploymentCo
   const recipient = recipients.find(person => person.id === row.recipientId);
   const candidates = contracts.filter(contract => !contract.isDraft && contract.contractStartDate &&
     clean(contract.workerName) === clean(row.worker) && row.birth && payrollBirth(contract.workerBirthDate ?? '') === payrollBirth(row.birth) &&
-    (row.date ? contract.contractStartDate <= row.date && (!contract.contractEndDate || row.date <= contract.contractEndDate)
-      : contract.contractStartDate.slice(0, 7) <= month && (!contract.contractEndDate || month <= contract.contractEndDate.slice(0, 7))));
+    coversWorkPeriod(contract.contractStartDate, contract.contractEndDate, row.date || month));
   const linked = candidates.filter(contract => {
     if (!recipient) return false;
     const conditions = contract.workConditions?.conditions.filter(item => item.recipientId === recipient.id) ?? [];
     if (!conditions.length) return contract.recipientAssignments.some(item => item.recipientId === recipient.id);
-    return conditions.some(item => (!item.serviceType || careGroup(item.serviceType) === careGroup(row.care)) &&
-      (row.date ? (!item.effectiveStartDate || item.effectiveStartDate <= row.date) && (!item.effectiveEndDate || row.date <= item.effectiveEndDate)
-        : (!item.effectiveStartDate || item.effectiveStartDate.slice(0, 7) <= month) &&
-          (!item.effectiveEndDate || month <= item.effectiveEndDate.slice(0, 7))));
+    return conditions.some(item => (!item.serviceType || sameWorkType(item.serviceType, row.care)) &&
+      coversWorkPeriod(item.effectiveStartDate, item.effectiveEndDate, row.date || month));
   });
   return { people, candidates, linked };
 }
@@ -49,7 +69,7 @@ export function classifyWorkRow(row: WorkRow, month: string, contracts: Employme
 }
 
 export function workKey(row: WorkRow) {
-  return JSON.stringify([clean(row.worker), payrollBirth(row.birth), row.recipientId || clean(row.recipient), careGroup(row.care)]);
+  return JSON.stringify([clean(row.worker), payrollBirth(row.birth), row.recipientId || clean(row.recipient), workTypeKey(row.care)]);
 }
 
 export async function readPayrollWizard(buffer: ArrayBuffer, month: string) {
@@ -93,19 +113,26 @@ export async function readPayrollWizard(buffer: ArrayBuffer, month: string) {
 
 export function reviewWorkRows(rows: WorkRow[], month: string, contracts: EmploymentContract[], recipients: Recipient[]) {
   const groups = new Map<string, WorkRow[]>();
+  const dates = new Map<string, Map<string, number>>();
   for (const row of rows) {
     const key = workKey(row);
-    groups.set(key, [...(groups.get(key) ?? []), row]);
+    const group = groups.get(key);
+    if (group) group.push(row);
+    else groups.set(key, [row]);
+    const counts = dates.get(key) ?? new Map<string, number>();
+    counts.set(row.date, (counts.get(row.date) ?? 0) + 1);
+    dates.set(key, counts);
   }
   const reviewed = rows.map(row => {
     const references = workMatches(row, month, contracts, recipients);
-    const group = groups.get(workKey(row)) ?? [];
-    const overlap = group.some(item => item.id !== row.id && (item.date === row.date || !item.date || !row.date));
-    const issue = !row.source && !row.date ? '근무일 확인'
-      : !row.worker || !row.birth ? '근로자 이름·생년월일 확인'
+    const key = workKey(row);
+    const counts = dates.get(key);
+    const overlap = row.date ? counts?.has('') || (counts?.get(row.date) ?? 0) > 1 : (groups.get(key)?.length ?? 0) > 1;
+    const issue = !row.worker || !row.birth ? '근로자 이름·생년월일 확인'
       : !row.care ? '요양구분 확인'
       : !row.fixed && !recipients.some(person => person.id === row.recipientId) ? '수급자 연결 필요'
       : !row.contractId || !references.candidates.some(item => item.id === row.contractId) ? '근로계약 연결 필요'
+      : row.date && (!row.date.startsWith(month + '-') || (row.minutes ?? 0) + (row.holiday ?? 0) > 1440) ? '근무일·시간 확인'
       : !row.fixed && !(row.minutes || row.holiday) ? '근무시간 확인'
       : overlap ? '중복 범위 확인' : '';
     return { row, references, issue };
