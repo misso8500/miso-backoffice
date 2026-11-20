@@ -1,10 +1,10 @@
 import type { StaffMonth, StaffRow } from './lib/staff-records';
 import { attendanceLabels } from './lib/staff-records';
 
-export default function StaffAttendanceTable({ data, disabled, onChange }: {
-  data: StaffMonth; disabled: boolean; onChange: (date: string, patch: Partial<StaffRow>) => void;
+export default function StaffAttendanceTable({ data, disabled, onChange, visibleDate }: {
+  data: StaffMonth; visibleDate?:(date:string)=>boolean; disabled: boolean; onChange: (date: string, patch: Partial<StaffRow>) => void;
 }) {
-  return <div className="staff-table-scroll"><table className="staff-month-table staff-attendance-table"><thead><tr><th>일자</th><th>근태</th><th>출근</th><th>퇴근</th><th>인정시간</th><th>비고 / 수행 근거</th><th>검토 상태</th></tr></thead><tbody>{data.document.payload.rows.map(row => {
+  return <div className="staff-table-scroll"><table className="staff-month-table staff-attendance-table"><thead><tr><th>일자</th><th>근태</th><th>출근</th><th>퇴근</th><th>인정시간</th><th>비고 / 수행 근거</th><th>검토 상태</th></tr></thead><tbody>{data.document.payload.rows.filter(row=>!visibleDate||visibleDate(row.date)).map(row => {
     const sources = data.executions.filter(item => item.date === row.date);
     const leave = data.leaveDates?.find(item => item.date === row.date);
     const reviewLabel = row.reviewed ? '검토 완료' : row.kind === 'pending' ? '작성 필요' : '검토 대기';

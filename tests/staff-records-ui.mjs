@@ -33,13 +33,45 @@ try{
   await call(token,'work/executions','POST',{requestId:randomUUID(),date:'2026-09-01',assigneeId:staff.id,period:'morning',content:'수급자 서류 확인',category:'operations',related:[]});
   const longText='오후 업무 내용을 확인하고 서류를 정리합니다. '.repeat(85);
   await call(token,'work/executions','POST',{requestId:randomUUID(),date:'2026-09-01',assigneeId:staff.id,period:'unknown',content:longText,category:'operations',related:[]});
-  await page.getByLabel('작성 월',{exact:true}).fill('2026-09');await page.getByRole('button',{name:'월 출근부 자동 작성',exact:true}).click();await page.getByText('월 출근부 초안을 작성하고 저장했습니다.',{exact:false}).waitFor();assert.equal(await page.getByLabel('2026-09-01 근태',{exact:true}).inputValue(),'work');assert.equal(await page.getByLabel('2026-09-05 근태',{exact:true}).inputValue(),'off');await page.getByRole('button',{name:'이달 확정',exact:true}).click();await page.getByText('이달 기록을 확정했습니다.',{exact:true}).waitFor();
+  if(index===0){
+    await page.getByRole('button',{name:'출근부',exact:true}).click();
+    await page.getByLabel('작성 월',{exact:true}).fill('2026-09');await page.getByRole('button',{name:'월 출근부 자동 작성',exact:true}).click();await page.getByText('월 출근부 초안을 작성하고 저장했습니다.',{exact:false}).waitFor();assert.equal(await page.getByLabel('2026-09-01 근태',{exact:true}).inputValue(),'work');assert.equal(await page.getByLabel('2026-09-05 근태',{exact:true}).inputValue(),'off');await page.getByRole('button',{name:'이달 확정',exact:true}).click();await page.getByText('이달 기록을 확정했습니다.',{exact:true}).waitFor();
+  }else{
+    await page.getByRole('button',{name:'상근 근로자 등록',exact:true}).click();
+    await page.getByRole('button',{name:'상근 근로자 정보 추가',exact:true}).click();
+    await page.getByLabel('입사일',{exact:true}).fill('2024-09-01');
+    await page.getByRole('button',{name:'직함 변경 추가',exact:true}).click();
+    await page.getByLabel('발령일',{exact:true}).last().fill('2026-09-02');
+    await page.getByRole('button',{name:'기본정보 저장',exact:true}).click();
+    await page.getByLabel('통합 근무기록 월',{exact:true}).fill('2026-09');
+    await page.getByRole('button',{name:'사무원',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:/^2026-09-02 확인 필요/}).count(),0);
+    await page.getByRole('button',{name:'사회복지사',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:/^2026-09-01 확인 필요/}).count(),0);
+    await page.getByRole('button',{name:'전체 근태',exact:true}).click();
+    await page.getByRole('button',{name:'첫 미입력 날짜 열기',exact:true}).click();
+    await page.getByLabel('근태',{exact:true}).selectOption('work');
+    await page.getByRole('button',{name:'다음 날짜',exact:true}).click();
+    assert.equal(await page.getByLabel('근태',{exact:true}).inputValue(),'pending');
+    await page.getByRole('button',{name:'미입력 날짜를 휴무로 표시',exact:true}).click();
+    await page.getByRole('button',{name:'달력 등록 및 출근부 확정',exact:true}).click();
+    await page.getByRole('button',{name:'업무수행일지 열기',exact:true}).click();
+    assert.equal(await page.getByLabel('작성 월',{exact:true}).inputValue(),'2026-09');
+    await page.getByLabel('오전 업무',{exact:true}).waitFor();
+    assert.equal(await page.getByLabel('오전 업무',{exact:true}).inputValue(),'수급자 서류 확인');
+    await page.getByRole('button',{name:'출근부',exact:true}).click();
+    assert.equal(await page.getByLabel('2026-09-01 근태',{exact:true}).inputValue(),'work');
+    assert.equal(await page.getByLabel('2026-09-05 근태',{exact:true}).inputValue(),'off');
+  }
   assert.equal(await verifyPrint(page,page.getByRole('button',{name:'확정 월 인쇄',exact:true}),'출근부',1,1),1);
   await page.getByRole('button',{name:'수정 사유 남기고 다시 열기',exact:true}).click();await page.getByLabel('2026-09-01 인정시간',{exact:true}).fill('7');await page.getByRole('button',{name:'월 출근부 자동 작성',exact:true}).click();await page.getByText('월 출근부 초안을 작성하고 저장했습니다.',{exact:false}).waitFor();assert.equal(await page.getByLabel('2026-09-01 인정시간',{exact:true}).inputValue(),'7');await page.getByRole('button',{name:'이달 확정',exact:true}).click();await page.getByText('이달 기록을 확정했습니다.',{exact:true}).waitFor();
   await page.getByRole('button',{name:'업무수행일지',exact:true}).click();await page.getByLabel('오전 업무',{exact:true}).waitFor();assert.equal(await page.getByLabel('오전 업무',{exact:true}).inputValue(),'수급자 서류 확인');
-  await page.getByLabel('오후 업무',{exact:true}).fill(longText);await page.getByLabel('시간대 미확인 업무',{exact:true}).fill('');await page.getByRole('button',{name:'전체 검토 표시',exact:true}).click();await page.getByRole('button',{name:'이달 확정',exact:true}).click();await page.getByText('이달 기록을 확정했습니다.',{exact:true}).waitFor();
+  await page.getByLabel('오후 업무',{exact:true}).fill(longText);await page.getByLabel('시간대 미확인 업무',{exact:true}).fill('');await page.getByRole('button',{name:'검토하고 일지 확정',exact:true}).click();await page.getByText('이달 기록을 확정했습니다.',{exact:true}).waitFor();
   const journalPages=await verifyPrint(page,page.getByRole('button',{name:'선택일 인쇄',exact:true}),'업 무 일 지',2,8);
-  await page.getByRole('button',{name:'연차대장',exact:true}).click();await page.getByText('연차 일수 직접 등록',{exact:true}).click();await page.getByLabel('부여 일수',{exact:true}).fill(String(15+index));await page.getByLabel('기존 사용분',{exact:true}).fill('2');await page.getByRole('button',{name:'일수 저장',exact:true}).click();await page.getByText('연차 일수를 저장했습니다.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'연차대장',exact:true}).click();await page.getByText('연차 일수 직접 등록',{exact:true}).waitFor();
+  if(!await page.getByLabel('부여 일수',{exact:true}).isVisible())await page.getByText('연차 일수 직접 등록',{exact:true}).click();await page.getByLabel('부여 일수',{exact:true}).fill(String(15+index));await page.getByLabel('기존 사용분',{exact:true}).fill('2');await page.getByRole('button',{name:'일수 저장',exact:true}).click();await page.getByText('연차 일수를 저장했습니다.',{exact:true}).waitFor();
+  await page.locator('.staff-metrics strong').getByText(String(15+index)+'일',{exact:true}).first().waitFor();
+  if(!await page.getByLabel('부여 일수',{exact:true}).isVisible())await page.getByText('연차 일수 직접 등록',{exact:true}).click();
   await page.getByLabel('부여 일수',{exact:true}).fill('99');
   await page.getByLabel('휴가 사유',{exact:true}).fill('버릴 입력');
   await page.getByRole('button',{name:'다시 불러오기',exact:true}).click();
@@ -48,6 +80,12 @@ try{
   assert.equal(await page.getByLabel('휴가 사유',{exact:true}).inputValue(),'');
   await page.getByLabel('연차 날짜',{exact:true}).fill('2026-09-10');await page.getByLabel('휴가 사유',{exact:true}).fill('개인사유');await page.getByLabel('업무 대행자',{exact:true}).fill('대행 직원');await page.getByRole('button',{name:'계획 확정',exact:true}).click();await page.getByRole('button',{name:'사용 완료',exact:true}).click();await page.getByText('연차 계획을 저장했습니다.',{exact:true}).waitFor();
   await verifyPrint(page,page.getByRole('button',{name:'확정 서류 인쇄',exact:true}),'연 차 사 용 계 획 서',1,1);
+  await page.getByLabel('서명본 첨부',{exact:false}).setInputFiles({name:'signed.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.7')});
+  await page.getByText('서명본을 저장했습니다.',{exact:true}).waitFor();
+  const [signedDownload]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:/서명본 다운로드/}).click()]);
+  assert.equal(signedDownload.suggestedFilename(),'signed.pdf');
+  const [formDownload]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'계획서 파일 다운로드',exact:true}).click()]);
+  assert.match(formDownload.suggestedFilename(),/연차사용계획서\.html$/);
   await page.getByRole('button',{name:'출근부',exact:true}).click();
   await page.getByRole('button',{name:'수정 사유 남기고 다시 열기',exact:true}).click();
   for(const day of [10,11]){
@@ -61,8 +99,11 @@ try{
   const document=await call(token,'work/records/attendance/2026-09');assert.equal(document.document.payload.rows[0].hours,7);assert.equal(document.sourceChanged,false);
   const another=context.assignees[2];
   await page.getByLabel('기록 대상 직원',{exact:true}).selectOption(another.id);
-  await page.getByRole('button',{name:'기본정보 저장',exact:true}).or(page.getByRole('button',{name:'연차대장',exact:true})).first().waitFor();
-  if(await page.getByRole('button',{name:'기본정보 저장',exact:true}).count())await page.getByRole('button',{name:'기본정보 저장',exact:true}).click();
+  await page.getByRole('button',{name:'기본정보 저장',exact:true}).or(page.locator('.staff-metrics')).first().waitFor();
+  if(await page.getByRole('button',{name:'기본정보 저장',exact:true}).isVisible()){
+    await page.getByRole('button',{name:'기본정보 저장',exact:true}).click();
+    await page.locator('.staff-metrics').waitFor();
+  }
   await page.getByRole('button',{name:'연차대장',exact:true}).click();
   assert.equal((await call(token,'work/records/leave/2026?staffId='+another.id)).totals.granted,0);
   await page.getByLabel('기록 대상 직원',{exact:true}).selectOption(staff.id);
