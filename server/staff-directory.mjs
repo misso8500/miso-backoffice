@@ -213,6 +213,19 @@ export function createStaffDirectoryStore(transaction) {
     saveStaffProfile(body, current) {
       return transaction(q => writeProfile(q, body, current));
     },
+    deleteStaffProfile(body) {
+      if (typeof body?.id !== 'string' || !Number.isSafeInteger(body.version) || body.version < 1) invalid('삭제할 직원과 조회 버전을 확인해 주세요.');
+      return transaction(async q => {
+        const row = (await q(`SELECT id,version FROM staff_directory_profiles WHERE id=$1${q.forUpdate ?? ''}`,[body.id])).rows[0];
+        if (!row) throw workError(404,'직원 기초정보를 찾을 수 없습니다.');
+        if (Number(row.version)!==body.version) throw workError(409,'직원 정보가 변경되었습니다. 다시 불러온 뒤 삭제해 주세요.');
+        const assignments = (await q('SELECT DISTINCT month,payload FROM recipient_service_workers',[])).rows;
+        const months = [...new Set(assignments.filter(assignment=>JSON.parse(assignment.payload).some(worker=>worker.workerId===`staff:${row.id}`)).map(assignment=>assignment.month))].sort();
+        if (months.length) throw workError(409,`서비스 매칭(${months.join(', ')})에 연결된 직원입니다. 해당 월의 매칭을 해제한 뒤 삭제해 주세요.`);
+        await q('DELETE FROM staff_directory_profiles WHERE id=$1 AND version=$2 RETURNING id',[row.id,body.version]);
+        return {id:row.id};
+      });
+    },
     previewStaffImport(body) {
       const rows = readImportRows(body);
       return transaction(async q => preview(await importPlan(q, rows, confirmations(body, rows))));

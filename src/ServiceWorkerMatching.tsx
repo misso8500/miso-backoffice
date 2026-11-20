@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import { Check, Plus, Search, UserRound, X } from 'lucide-react';
-export type ServiceWorker={id:string;name:string;birthDate:string;jobTitle:string;enabled:boolean;isDraft:boolean;contractStartDate?:string;contractEndDate?:string};
+export type ServiceWorker={id:string;name:string;birthDate:string;jobTitle:string;profileOnly?:boolean;enabled:boolean;isDraft:boolean;contractStartDate?:string;contractEndDate?:string};
 export type WorkerMatch={workerId:string;workerName?:string;birthDate?:string;serviceType:'방문'|'가족'};
 export const matchKey=(items:WorkerMatch[])=>JSON.stringify(items.map(({workerId,serviceType})=>({workerId,serviceType})));
 type MatchFields = {
@@ -82,7 +82,7 @@ function StaffMatchDialog({ name, workers, available, busy, selected, onChange, 
      <span><strong>{worker.name}</strong>
       <span className="staff-match-meta">{worker.birthDate || '생년월일 미입력'} · {worker.jobTitle || '직종 미입력'}
        {worker.contractStartDate && ` · 계약 ${worker.contractStartDate} ~ ${worker.contractEndDate || '종료일 미입력'}`}
-       {worker.isDraft && ' · 정보 입력 중'}{!worker.enabled && ' · 비활성'}</span>
+       {worker.profileOnly && ' · 직원 기초정보'}{worker.isDraft && ' · 정보 입력 중'}{!worker.enabled && ' · 비활성'}</span>
      </span>
      {added ? <span className="staff-match-added"><Check size={15} aria-hidden="true" /> 선택됨</span> : <Plus size={16} aria-hidden="true" />}
     </button></li>;

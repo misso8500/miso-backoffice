@@ -51,3 +51,7 @@ export function conditionOverlapsMonth(contract: EmploymentContract, condition: 
   const end = [month + '-31', contract.contractEndDate, condition.effectiveEndDate, service?.serviceEndDate].filter(Boolean).sort()[0]!;
   return start <= end && (condition.matchingStatus === 'active' || condition.statusDate > start);
 }
+
+export function deleteStaffProfile(profile: Pick<StaffProfile,'id'|'version'>) {
+  return requestJson<{id:string}>('/api/work/staff-directory',{method:'DELETE',body:JSON.stringify({id:profile.id,version:profile.version})});
+}

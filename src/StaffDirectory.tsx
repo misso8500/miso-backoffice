@@ -3,9 +3,18 @@ import { ChevronRight, FileText, Plus, Search, Upload } from 'lucide-react';
 import StaffImport from './StaffImport';
 import PageHeading from './PageHeading';
 import type { EmploymentContract } from './types';
-import { loadStaffProfiles, newStaffProfile, saveStaffProfile, staffDirectoryEntries, staffDocumentTypes, type StaffDocument, type StaffProfile } from './lib/staff-directory';
+import { deleteStaffProfile, loadStaffProfiles, newStaffProfile, saveStaffProfile, staffDirectoryEntries, staffDocumentTypes, type StaffDocument, type StaffProfile } from './lib/staff-directory';
 import { workToday } from './lib/work-tasks';
 import './StaffDirectory.css';
+
+const staffStatuses = ['전체','재직','휴직','퇴사','입사 예정','미입력'] as const;
+const staffNumberOrder = new Intl.Collator('ko', { numeric: true });
+type StaffSort = 'name' | 'number' | 'start';
+
+function compareRecorded(first: string | undefined, second: string | undefined, compare: (a: string, b: string) => number) {
+  if (!first || !second) return Number(!first) - Number(!second);
+  return compare(first, second);
+}
 
 const sections = ['기초정보', '서류', '근로계약'] as const;
 const expectedPages = { contract: '3쪽', health: '1~2쪽', criminal: '3쪽', certificate: '1쪽' };
@@ -18,7 +27,8 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
 }) {
   const [profiles, setProfiles] = useState<StaffProfile[]>([]);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('전체');
+  const [filter, setFilter] = useState<typeof staffStatuses[number]>('재직');
+  const [sort, setSort] = useState<StaffSort>('name');
   const [profileError, setProfileError] = useState('');
   const [busy, setBusy] = useState(true);
   const [savedNotice, setSavedNotice] = useState('');
@@ -34,7 +44,14 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
   const entries = staffDirectoryEntries(profiles, contracts);
   const shown = entries.filter(item => (filter === '전체' || (item.profile?.status || '미입력') === filter) &&
     [item.name, item.profile?.phone ?? item.contracts[0]?.workerPhone, item.profile?.job ?? item.contracts[0]?.jobTitle].some(value =>
-      value?.toLowerCase().includes(query.trim().toLowerCase())));
+      value?.toLowerCase().includes(query.trim().toLowerCase()))).sort((first, second) => {
+    const primary = sort === 'number'
+      ? compareRecorded(first.profile?.hopeStaffNumber, second.profile?.hopeStaffNumber, staffNumberOrder.compare)
+      : sort === 'start'
+        ? compareRecorded(first.profile?.start, second.profile?.start, (a, b) => a.localeCompare(b))
+        : 0;
+    return primary || first.name.localeCompare(second.name, 'ko') || first.key.localeCompare(second.key);
+  });
   return <section className="recipient-directory-workspace">
     <PageHeading title="직원 기초정보" description="직원별 연락처, 입·퇴사, 희망이음 진행과 서류를 확인합니다.">
       <button type="button" className="secondary-button" disabled={busy || !!profileError}
@@ -47,20 +64,26 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
     <div className="list-toolbar">
       <div><h2>직원 목록</h2><span>{shown.length}명</span></div>
       <div className="toolbar-controls">
-        <select className="filter-select" aria-label="재직 상태" value={filter} onChange={e => setFilter(e.target.value)}>
-          {['전체','재직','휴직','퇴사','입사 예정','미입력'].map(value => <option key={value}>{value}</option>)}
+        <select className="filter-select" aria-label="직원 목록 정렬" value={sort} onChange={e => setSort(e.target.value as StaffSort)}>
+          <option value="number">직원번호순</option>
+          <option value="name">이름순</option>
+          <option value="start">입사일순</option>
         </select>
         <label className="search-box"><Search size={18} /><input type="search" aria-label="직원 검색" placeholder="이름·연락처·직종"
           value={query} onChange={e => setQuery(e.target.value)} /></label>
       </div>
     </div>
+    <nav className="app-navigation-tabs recipient-directory-tabs" aria-label="재직 상태 필터">
+      {staffStatuses.map(status => <button type="button" key={status} aria-pressed={filter === status}
+        onClick={() => setFilter(status)}>{status}</button>)}
+    </nav>
     {(loading || busy) && <p role="status">직원 명부를 불러오는 중입니다.</p>}
     {shown.length > 0 && <div className="recipient-directory-list">
       <div className="recipient-directory-columns" aria-hidden="true"><span>직원</span><span>입사 · 퇴사</span><span>희망이음 · 서류</span><span>재직 상태</span><span /></div>
       {shown.map(({ key, name, profile, contracts }) => <div className="recipient-directory-row" key={key}>
         <button type="button" className="recipient-directory-open" aria-label={name} disabled={busy || !!profileError}
           onClick={() => setEditor({ profile: profile ?? newStaffProfile(contracts[0]), contracts })} />
-        <span className="recipient-directory-identity"><strong>{name}</strong><small>{profile?.job || contracts[0]?.jobTitle || '직종 미입력'}</small></span>
+        <span className="recipient-directory-identity"><strong>{name}</strong><small>{profile?.job || contracts[0]?.jobTitle || '직종 미입력'}{profile?.hopeStaffNumber && ` · 직원번호 ${profile.hopeStaffNumber}`}</small></span>
         <span><strong>입사 {profile?.start || '미입력'}</strong><small>퇴사 {profile?.end || '미입력'}</small></span>
         <span><strong>입사보고 {profile?.reporting || '미입력'}</strong><small>서류 {profile?.documents.filter(document => document.url).length ?? 0}건</small></span>
         <span><em className={`recipient-directory-status${profile?.status ? '' : ' is-draft'}`}>{profile?.status || '미입력'}</em></span>
@@ -79,14 +102,18 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
       onClose={() => setEditor(null)} onSaved={saved => {
         setProfiles(current => [...current.filter(profile => profile.id !== saved.id), saved]);
         setSavedNotice(saved.name + ' 직원 정보를 저장했습니다.');
+      }} onDeleted={deleted => {
+        setProfiles(current => current.filter(profile => profile.id !== deleted.id));
+        setSavedNotice(deleted.name + ' 직원 기초정보를 삭제했습니다.');
+        setEditor(null);
       }} onOpenContract={contract => { setEditor(null); onOpenContract(contract); }}
       onCreateContract={(profile, contract) => { setEditor(null); onCreateContract(profile, contract); }} />}
   </section>;
 }
 
-function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onOpenContract, onCreateContract }: {
+function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onDeleted, onOpenContract, onCreateContract }: {
   initial: StaffProfile; contracts: EmploymentContract[]; eligible: EmploymentContract[];
-  onClose: () => void; onSaved: (profile: StaffProfile) => void; onOpenContract: (contract: EmploymentContract) => void;
+  onClose: () => void; onSaved: (profile: StaffProfile) => void; onDeleted: (profile: StaffProfile) => void; onOpenContract: (contract: EmploymentContract) => void;
   onCreateContract: (profile: StaffProfile, contract?: EmploymentContract) => void;
 }) {
   const [profile, setProfile] = useState(initial);
@@ -126,6 +153,13 @@ function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onOpenCon
       const saved = await saveStaffProfile(profile);
       setBaseline(saved); setProfile(saved); onSaved(saved); setNotice('저장했습니다.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : '직원 정보를 저장하지 못했습니다.'); }
+    finally { setBusy(false); }
+  }
+  async function remove() {
+    if (busy || !baseline.version || !window.confirm(`${baseline.name} 직원 기초정보를 삭제할까요? 연결된 근로계약은 별도로 관리됩니다.`)) return;
+    setBusy(true); setError(''); setNotice('');
+    try { await deleteStaffProfile(baseline); onDeleted(baseline); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : '직원 정보를 삭제하지 못했습니다.'); }
     finally { setBusy(false); }
   }
   return <dialog className="recipient-overview-dialog staff-overview-dialog" aria-label={profile.name ? profile.name + ' 직원 상세' : '직원 추가'}
@@ -186,6 +220,7 @@ function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onOpenCon
       </div>
       <footer className="recipient-overview-save-host staff-overview-footer">
         {error && <p role="alert" className="error-banner">{error}</p>}{notice && <p role="status">{notice}</p>}
+        {baseline.version>0&&<button type="button" className="danger-button" disabled={busy} onClick={()=>void remove()}>직원 기초정보 삭제</button>}
         <button type="submit" className="primary-button" disabled={busy || (!dirty && !!baseline.version)}>{busy ? '저장 중…' : '직원 정보 저장'}</button>
       </footer>
     </form>
