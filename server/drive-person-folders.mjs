@@ -34,3 +34,35 @@ export async function findDrivePersonFolder(name, scope, env = process.env, depe
   if (matches.length > 1) throw new DriveError(409, '같은 이름의 Drive 폴더가 여러 개 있습니다. 사람별 폴더를 직접 연결해 주세요.');
   return matches[0] ?? null;
 }
+
+// Cache only the name-to-folder lookup. Each document request still authorizes
+// access to the selected folder and verifies the file belongs to it.
+export function createDrivePersonFolderCache({ resolve = findDrivePersonFolder, now = Date.now } = {}) {
+  const completed = new Map();
+  const pending = new Map();
+  const lifetime = 30_000;
+  const capacity = 500;
+
+  return function resolvePersonFolder(id, name, scope, env = process.env) {
+    const normalizedName = normalizeDriveFolderName(name);
+    const key = JSON.stringify([
+      scope, id, normalizedName, env[`DRIVE_${scope}_ROOT_IDS`], env[`DRIVE_${scope}_LOOKUP_PATH`]
+    ]);
+    const cached = completed.get(key);
+    if (cached && cached.expiresAt > now()) return Promise.resolve(cached.folderId);
+    completed.delete(key);
+    if (pending.has(key)) return pending.get(key);
+
+    const lookup = Promise.resolve().then(() => resolve(normalizedName, scope, env)).then(folderId => {
+      if (folderId) {
+        if (completed.size >= capacity) completed.delete(completed.keys().next().value);
+        completed.set(key, { folderId, expiresAt: now() + lifetime });
+      }
+      return folderId;
+    }).finally(() => pending.delete(key));
+    pending.set(key, lookup);
+    return lookup;
+  };
+}
+
+export const resolveDrivePersonFolder = createDrivePersonFolderCache();

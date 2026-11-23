@@ -38,7 +38,8 @@ test('saving references and rereading preserves period, names, order and version
   assert.equal((await h.call('GET',`/images/${fileId}`)).headers['Cache-Control'],'private, no-store');
 });
 test('recipient candidates resolve the folder by roster name when no folder ID is supplied', async () => {
-  const h = harness({ findFolder: async (name, scope) => {
+  const h = harness({ findFolder: async (id, name, scope) => {
+    assert.equal(id, 'recipient1');
     assert.equal(name, '김미소');
     assert.equal(scope, 'RECIPIENT');
     return folderId;

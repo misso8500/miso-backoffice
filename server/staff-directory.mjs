@@ -1,4 +1,4 @@
-import { findDrivePersonFolder, uniqueDrivePersonName } from './drive-person-folders.mjs';
+import { resolveDrivePersonFolder, uniqueDrivePersonName } from './drive-person-folders.mjs';
 import { parseFolderId } from './recipient-documents.mjs';
 import { classifyStaffDriveFile, staffDriveReader } from './staff-drive-documents.mjs';
 import { createHash, randomUUID } from 'node:crypto';
@@ -223,7 +223,7 @@ export function createStaffDirectoryStore(transaction) {
       const people = (await q('SELECT * FROM staff_directory_profiles', [])).rows.map(unpack);
       return { ...value, name: uniqueDrivePersonName(people, id) };
     });
-    const folderId = profile.driveFolderId || await findDrivePersonFolder(profile.name, 'STAFF');
+    const folderId = profile.driveFolderId || await resolveDrivePersonFolder(id, profile.name, 'STAFF');
     return folderId ? staffDriveReader(folderId) : null;
   }
   return {

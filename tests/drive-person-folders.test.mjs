@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findDrivePersonFolder, uniqueDrivePersonName } from '../server/drive-person-folders.mjs';
+import { createDrivePersonFolderCache, findDrivePersonFolder, uniqueDrivePersonName } from '../server/drive-person-folders.mjs';
 
 const root = 'root_folder_12345';
 const caregivers = 'caregivers_12345';
@@ -43,4 +43,41 @@ test('uses the root directly when the relative path is blank and rejects ambiguo
     [root]: [person, folder('duplicate_person_12345', '김미소')]
   })), { status: 409 });
   assert.throws(() => uniqueDrivePersonName([{ id: 'a', name: '김미소' }, { id: 'b', name: ' 김미소 ' }], 'a'), { status: 409 });
+});
+
+test('folder cache coalesces concurrent requests and expires successful matches', async () => {
+  let calls = 0;
+  let time = 0;
+  const resolve = createDrivePersonFolderCache({ now: () => time, resolve: async () => {
+    calls++;
+    return personal;
+  } });
+  const env = { DRIVE_STAFF_ROOT_IDS: root };
+  const requests = Array.from({ length: 4 }, () => resolve('staff-1', '김미소', 'STAFF', env));
+  assert.deepEqual(await Promise.all(requests), Array(4).fill(personal));
+  assert.equal(calls, 1);
+  await resolve('staff-1', '김미소', 'STAFF', env);
+  assert.equal(calls, 1);
+  time += 30_000;
+  await resolve('staff-1', '김미소', 'STAFF', env);
+  assert.equal(calls, 2);
+});
+
+test('folder cache separates changes in identity or settings and retries misses and errors', async () => {
+  let calls = 0;
+  const resolve = createDrivePersonFolderCache({ resolve: async name => {
+    calls++;
+    if (name === 'error') throw new Error('Drive error');
+    return name === 'missing' ? null : personal;
+  } });
+  const env = { DRIVE_STAFF_ROOT_IDS: root };
+  await resolve('staff-1', 'start', 'STAFF', env);
+  await resolve('staff-2', 'start', 'STAFF', env);
+  await resolve('staff-1', 'changed', 'STAFF', env);
+  await resolve('staff-1', 'start', 'STAFF', { ...env, DRIVE_STAFF_LOOKUP_PATH: 'another' });
+  await resolve('staff-1', 'missing', 'STAFF', env);
+  await resolve('staff-1', 'missing', 'STAFF', env);
+  await assert.rejects(resolve('staff-1', 'error', 'STAFF', env), /Drive error/);
+  await assert.rejects(resolve('staff-1', 'error', 'STAFF', env), /Drive error/);
+  assert.equal(calls, 8);
 });
