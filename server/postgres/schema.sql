@@ -573,3 +573,9 @@ CREATE TABLE IF NOT EXISTS staff_directory_profiles (
 );
 ALTER TABLE staff_directory_profiles ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE staff_directory_profiles FROM anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS staff_directory_discarded_contracts (
+  contract_id TEXT PRIMARY KEY REFERENCES employment_contracts(id) ON DELETE CASCADE
+);
+ALTER TABLE staff_directory_discarded_contracts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE staff_directory_discarded_contracts FROM anon, authenticated;

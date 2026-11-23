@@ -6,3 +6,7 @@ CREATE TABLE IF NOT EXISTS staff_directory_profiles (
   updated_by TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS staff_directory_discarded_contracts (
+  contract_id TEXT PRIMARY KEY REFERENCES employment_contracts(id) ON DELETE CASCADE
+);

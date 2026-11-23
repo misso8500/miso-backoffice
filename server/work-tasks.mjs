@@ -132,6 +132,11 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       sendJson(response,200,path.endsWith('/preview')?await store.previewStaffImport(body):await store.applyStaffImport(body,current));
       return true;
     }
+    if(path==='/api/work/staff-directory/discard') {
+      if(request.method!=='POST')throw workError(405,'지원하지 않는 요청입니다.');
+      sendJson(response,200,await store.discardStaffDirectoryEntry(await readWorkBody(request)));
+      return true;
+    }
     if(path==='/api/work/staff-directory') {
       if(request.method==='GET')sendJson(response,200,await store.staffDirectory());
       else if(request.method==='PUT')sendJson(response,200,await store.saveStaffProfile(await readWorkBody(request,100000),current));

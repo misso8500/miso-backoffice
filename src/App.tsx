@@ -1,6 +1,6 @@
 import StaffDirectory from './StaffDirectory';
 import StaffServiceConnections from './StaffServiceConnections';
-import { saveStaffProfile, type StaffProfile } from './lib/staff-directory';
+import { loadStaffProfiles, saveStaffProfile, staffDirectoryEntries, type StaffProfile } from './lib/staff-directory';
 import CarePlanImport from './CarePlanImport';
 import {getRecipientStatus} from '../shared/recipient-directory.mjs';
 import StaffCounseling from './StaffCounseling';
@@ -911,14 +911,45 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
   const [showContractIdentity, setShowContractIdentity] = useState(false);
   const [staffDirectoryRefresh, setStaffDirectoryRefresh] = useState(0);
 
+  const [contractStaffProfiles, setContractStaffProfiles] = useState<StaffProfile[]>([]);
+  const [contractStaffError, setContractStaffError] = useState('');
+  const reloadContractStaff = useCallback(async (signal?: AbortSignal) => {
+    setContractStaffError('');
+    try {
+      const { profiles } = await loadStaffProfiles();
+      if (!signal?.aborted) setContractStaffProfiles(profiles);
+    } catch {
+      if (!signal?.aborted) setContractStaffError('직원 기초정보를 불러오지 못했습니다.');
+    }
+  }, []);
+  const showContractStaff = activeView === 'employmentContracts' || Boolean(selectedEmploymentContractId);
+  useEffect(() => {
+    if (!showContractStaff) return;
+    const controller = new AbortController();
+    void reloadContractStaff(controller.signal);
+    return () => controller.abort();
+  }, [activeView, showContractStaff, staffDirectoryRefresh, reloadContractStaff]);
+  const contractStaffEntries = useMemo(() => staffDirectoryEntries(contractStaffProfiles, employmentContracts),
+    [contractStaffProfiles, employmentContracts]);
+  const selectedContractProfile = contractStaffEntries.find(entry =>
+    entry.contracts.some(contract => contract.id === selectedEmploymentContractId))?.profile;
+  const contractStaffQuery = employmentSearchQuery.trim().toLowerCase();
+  const staffAwaitingContracts = contractStaffEntries.flatMap(({ profile, contracts }) =>
+    profile && !contracts.length && [profile.name, profile.phone, profile.job].some(value =>
+      value.toLowerCase().includes(contractStaffQuery)) ? [profile] : []);
+
   function openStaffContract(profile: StaffProfile, contract?: EmploymentContract) {
     if (contract) {
       openEmploymentRenewalPanel(contract);
+      setEmploymentFormState(current => ({ ...current, workerName: profile.name, workerPhone: profile.phone || current.workerPhone }));
     } else {
+      setSelectedEmploymentContractId(null);
       setIsEditingEmploymentContract(false);
       setIncludeWorkConditions(true);
       setEmploymentRenewalSource(null);
-      setEmploymentFormState({ ...emptyEmploymentContractForm, workerName: profile.name, workerPhone: profile.phone });
+      setEmploymentFormState({
+        ...emptyEmploymentContractForm, workerName: profile.name, workerPhone: profile.phone, terms: [createEmptyEmploymentTerm()]
+      });
       setEmploymentFormErrorMessage(null);
       setIsEmploymentCreatePanelOpen(true);
     }
@@ -1186,7 +1217,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       ...(isEditingEmploymentContract && employmentRenewalSource ? { updatedAt: employmentRenewalSource.updatedAt } : {}),
       id: isEditingEmploymentContract && employmentRenewalSource ? employmentRenewalSource.id : createEmploymentContractId(),
       workerName: employmentFormState.workerName.trim(),
-      workerBirthDate: derivedWorkerBirthDate ?? staffContractSource?.birth ?? "",
+      workerBirthDate: derivedWorkerBirthDate || staffContractSource?.birth || employmentRenewalSource?.workerBirthDate || "",
       residentRegistrationNumber: formatResidentNumberInput(
         employmentFormState.residentRegistrationNumber.trim()
       ),
@@ -1196,7 +1227,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
       primaryBank: employmentFormState.primaryBank.trim(),
       bankAccountNumber: formatBankAccountNumberInput(employmentFormState.bankAccountNumber.trim()),
       workerAddress: employmentRenewalSource?.workerAddress ?? "미입력",
-      jobTitle: employmentRenewalSource?.jobTitle || staffContractSource?.job || "근로자",
+      jobTitle: staffContractSource?.job || employmentRenewalSource?.jobTitle || "근로자",
       employmentType: employmentRenewalSource?.employmentType ?? "근로계약 묶음",
       workplaceType: employmentRenewalSource?.workplaceType ?? "office",
       workplace: employmentRenewalSource?.workplace ?? "미입력",
@@ -1241,7 +1272,8 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
         : [...current, createdContract]);
       if (!isEditingEmploymentContract && staffContractSource && !staffContractSource.anchorContractId) {
         try {
-          await saveStaffProfile({ ...staffContractSource, anchorContractId: createdContract.id });
+          const linked = await saveStaffProfile({ ...staffContractSource, anchorContractId: createdContract.id });
+          setContractStaffProfiles(current => [...current.filter(profile => profile.id !== linked.id), linked]);
           setStaffDirectoryRefresh(value => value + 1);
         } catch {
           showNotification('근로계약은 저장했습니다. 직원 기초정보의 근로계약 탭에서 연결해 주세요.');
@@ -1794,6 +1826,16 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
               </div>
             )}
 
+            {contractStaffError && <div className="error-banner" role="alert">{contractStaffError}
+              <button type="button" className="secondary-button" onClick={() => void reloadContractStaff()}>다시 불러오기</button>
+            </div>}
+            {hasEmploymentContracts && staffAwaitingContracts.length > 0 && <section className="recipient-overview-card">
+              <h2>근로계약 미등록 직원</h2>
+              {staffAwaitingContracts.map(profile => <div className="staff-contract-row" key={profile.id}>
+                <span><strong>{profile.name}</strong>{[profile.job, profile.birth, profile.phone].filter(Boolean).map(value => ` · ${value}`).join('')}</span>
+                <button type="button" className="secondary-button" onClick={() => openStaffContract(profile)}>근로계약 작성</button>
+              </div>)}
+            </section>}
             <section aria-labelledby="employment-contract-list-title">
               <div className="list-toolbar">
                 <div>
@@ -1934,7 +1976,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 <button type="button" className="primary-button"
                   disabled={Boolean(selectedEmploymentContract.isDraft)}
                   title={selectedEmploymentContract.isDraft ? "상세 정보 등록 후 갱신할 수 있습니다." : undefined}
-                  onClick={() => openEmploymentRenewalPanel(selectedEmploymentContract)}>
+                  onClick={() => selectedContractProfile ? openStaffContract(selectedContractProfile, selectedEmploymentContract) : openEmploymentRenewalPanel(selectedEmploymentContract)}>
                   <Plus size={17} />
                   추가/갱신계약
                 </button>
@@ -1953,6 +1995,18 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                 )}
               </div>
               </section>
+
+            {selectedContractProfile && <section className="recipient-overview-card">
+              <h3>직원 기초정보</h3>
+              <dl className="recipient-overview-facts">
+                {[
+                  ['이름', selectedContractProfile.name], ['생년월일', selectedContractProfile.birth],
+                  ['연락처', selectedContractProfile.phone], ['직종', selectedContractProfile.job],
+                  ['재직 상태', selectedContractProfile.status], ['입사일', selectedContractProfile.start],
+                  ['퇴사일', selectedContractProfile.end], ['희망이음 직원번호', selectedContractProfile.hopeStaffNumber]
+                ].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+              </dl>
+            </section>}
 
             <section className="employment-history recipient-overview-card" aria-label="근로자 계약 이력">
               <h3>계약 이력 ({selectedWorkerHistory.length}건)</h3>
@@ -2263,7 +2317,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                       <strong>
                         {deriveBirthDateFromResidentNumber(
                           employmentFormState.residentRegistrationNumber
-                        ) ?? "자동계산"}
+                        ) || staffContractSource?.birth || employmentRenewalSource?.workerBirthDate || "자동계산"}
                       </strong>
                     </div>
                     <div>
@@ -2272,7 +2326,7 @@ function App({ authUser, onSignOut }: { authUser: AuthUser; onSignOut: () => Pro
                         {(() => {
                           const birthDate = deriveBirthDateFromResidentNumber(
                             employmentFormState.residentRegistrationNumber
-                          );
+                          ) || staffContractSource?.birth || employmentRenewalSource?.workerBirthDate;
                           const age = birthDate ? calculateAgeFromBirthDate(birthDate) : null;
                           return age === null ? "자동계산" : `만 ${age}세`;
                         })()}

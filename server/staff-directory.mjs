@@ -208,7 +208,27 @@ async function writeProfile(q, body, current) {
 export function createStaffDirectoryStore(transaction) {
   return {
     staffDirectory() {
-      return transaction(async q => ({ profiles: (await q('SELECT * FROM staff_directory_profiles ORDER BY updated_at DESC', [])).rows.map(unpack) }));
+      return transaction(async q => ({
+        profiles: (await q('SELECT * FROM staff_directory_profiles ORDER BY updated_at DESC', [])).rows.map(unpack),
+        discardedContractIds: (await q('SELECT contract_id FROM staff_directory_discarded_contracts', [])).rows.map(row => row.contract_id)
+      }));
+    },
+    discardStaffDirectoryEntry(body) {
+      if (typeof body?.contractId !== 'string' || !body.contractId || body.contractId.length > 100) invalid('폐기할 미입력 항목을 확인해 주세요.');
+      return transaction(async q => {
+        const contracts = (await q('SELECT id,resident_registration_number FROM employment_contracts', [])).rows;
+        const selected = contracts.find(row => row.id === body.contractId);
+        if (!selected) throw workError(404, '미입력 항목을 찾을 수 없습니다.');
+        const contractIds = contracts.filter(row => workerKey(row) === workerKey(selected)).map(row => row.id);
+        const profiles = (await q('SELECT anchor_contract_id FROM staff_directory_profiles', [])).rows;
+        if (profiles.some(row => contractIds.includes(row.anchor_contract_id))) {
+          throw workError(409, '직원 기초정보가 이미 등록되었습니다. 목록을 다시 불러와 주세요.');
+        }
+        for (const id of contractIds) {
+          await q('INSERT INTO staff_directory_discarded_contracts(contract_id) VALUES($1) ON CONFLICT DO NOTHING RETURNING contract_id', [id]);
+        }
+        return { contractIds };
+      });
     },
     saveStaffProfile(body, current) {
       return transaction(q => writeProfile(q, body, current));
