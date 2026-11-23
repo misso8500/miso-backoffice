@@ -12,12 +12,12 @@ type Documents = { folderId: string; periods: Period[]; pages: Page[]; version: 
 type Candidate = { id: string; name: string; path: string };
 const kinds = [{ id: 'identity', label: '신분증' }, { id: 'recognition', label: '장기요양인정서' }, { id: 'plan', label: '개인별장기요양이용계획서' }, { id: 'equipment', label: '복지용구확인서' }];
 const empty: Documents = { folderId: '', periods: [], pages: [], version: null };
-async function request(path: string, options?: RequestInit) {
+export async function requestDocument(path: string, options?: RequestInit) {
   const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...await getAuthHeaders() }, cache: 'no-store', signal: options?.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000) });
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? '서류를 불러오지 못했습니다.');
   return response;
 }
-function RemoteImage({ endpoint, name, onOpen, cache }: { endpoint: string; name: string; onOpen: (url: string) => void; cache: DocumentImageCache }) {
+export function RemoteImage({ endpoint, name, onOpen, cache }: { endpoint: string; name: string; onOpen: (url: string) => void; cache: DocumentImageCache }) {
   const host = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -45,7 +45,7 @@ export default function RecipientDocuments({ recipientId, recipientName, onDirty
   const [preview, setPreview] = useState<{ url: string; name: string; pages: { endpoint: string; name: string }[]; index: number } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [imageCache] = useState(() => createDocumentImageCache(async (endpoint, signal) => {
-    const blob = await (await request(endpoint, { signal })).blob();
+    const blob = await (await requestDocument(endpoint, { signal })).blob();
     return blob;
   }));
   useEffect(()=>{onDirty?.(editing&&JSON.stringify(saved)!==JSON.stringify(draft));return()=>onDirty?.(false);},[editing,saved,draft,onDirty]);
@@ -82,20 +82,27 @@ export default function RecipientDocuments({ recipientId, recipientName, onDirty
   const base = `/api/recipients/${encodeURIComponent(recipientId)}/documents`;
   useEffect(() => {
     let active = true;
-    void request(base).then(r => r.json()).then((data: Documents) => { if (active) { setSaved(data); setDraft(data); } }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setInitializing(false); });
+    void requestDocument(base).then(r => r.json()).then((data: Documents) => { if (active) { setSaved(data); setDraft(data); } }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setInitializing(false); });
     return () => { active = false; };
   }, [base]);
   useEffect(() => {
     if (preview && !dialog.current?.open) dialog.current?.showModal();
     if (!preview && dialog.current?.open) dialog.current.close();
   }, [preview]);
-  async function loadCandidates() {
+  const candidateFolder = useRef('');
+  async function loadCandidates(folderId = draft.folderId) {
     setBusy(true); setError(''); setNotice('');
     try {
-      const data = await (await request(`${base}/candidates?folderId=${encodeURIComponent(draft.folderId)}`)).json() as { folderName: string; files: Candidate[] };
-      // Use the server-validated URL/ID on requests; links are parsed only on the server.
-      const id = draft.folderId.includes('https://') ? new URL(draft.folderId).pathname.split('/').filter(Boolean).at(-1)! : draft.folderId.trim();
-      setDraft(current => ({ ...current, folderId: id })); setCandidates(data.files);
+      const query = folderId ? `?folderId=${encodeURIComponent(folderId)}` : '';
+      const data = await (await requestDocument(`${base}/candidates${query}`)).json() as { folderId: string; folderName: string; files: Candidate[] };
+      const sameFolder = data.folderId === (candidateFolder.current || saved.folderId);
+      candidateFolder.current = data.folderId;
+      setDraft(current => ({
+        ...current,
+        folderId: data.folderId,
+        pages: sameFolder ? current.pages : []
+      }));
+      setCandidates(data.files);
       setNotice(`${data.folderName} 폴더에서 이미지 ${data.files.length}장을 찾았습니다. 종류·인정 기간·쪽 순서를 확인한 뒤 저장해 주세요.`);
     } catch (e) { setError(e instanceof Error ? e.message : '폴더를 조회하지 못했습니다.'); }
     finally { setBusy(false); }
@@ -103,7 +110,7 @@ export default function RecipientDocuments({ recipientId, recipientName, onDirty
   async function save() {
     setBusy(true); setError(''); setNotice('');
     try {
-      const data = await (await request(base, { method: 'PUT', body: JSON.stringify(draft) })).json() as Documents;
+      const data = await (await requestDocument(base, { method: 'PUT', body: JSON.stringify(draft) })).json() as Documents;
       setSaved(data); setDraft(data); setEditing(false); setCandidates([]); setNotice('서류 연결을 저장했습니다. 다음에 상세 화면을 열어도 바로 확인할 수 있습니다.');
     } catch (e) { setError(e instanceof Error ? e.message : '저장하지 못했습니다.'); }
     finally { setBusy(false); }
@@ -125,14 +132,14 @@ export default function RecipientDocuments({ recipientId, recipientName, onDirty
     </section>;
   }
   return <section className="recognition-preview" aria-label="수급자 Drive 서류">
-    <div className="section-title-row"><h3>수급자 서류</h3><button type="button" className="secondary-button" disabled={busy || initializing} onClick={() => { closePreview(); setEditing(!editing); setDraft(saved); setCandidates([]); setError(''); setNotice(''); }}>{editing ? '편집 취소' : saved.folderId ? '서류 추가·연결 수정' : '드라이브 서류 연결'}</button></div>
+    <div className="section-title-row"><h3>수급자 서류</h3><button type="button" className="secondary-button" disabled={busy || initializing} onClick={() => { closePreview(); setEditing(!editing); candidateFolder.current = ''; setDraft(saved); setCandidates([]); setError(''); setNotice(''); if (!editing && !saved.folderId) void loadCandidates(''); }}>{editing ? '편집 취소' : saved.folderId ? '서류 추가·연결 수정' : '드라이브 서류 연결'}</button></div>
     <p className="contract-attachment-note">이미지는 Drive에 보관하고, 이 화면에서는 수급자·인정 기간과의 연결만 저장합니다.</p>
     {initializing && <p role="status">서류 연결 불러오는 중…</p>}
     {error && <p role="alert" className="assignment-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     {editing ? <div className="recipient-document-editor">
-      <p>① 사람 폴더 불러오기 → ② 인정 기간 입력 → ③ 서류 선택 → ④ 연결 저장</p>
-      <label>이 수급자의 Drive 폴더 링크<input type="text" value={draft.folderId} disabled={busy} onChange={e => { setDraft(current => ({ ...current, folderId: e.target.value })); setCandidates([]); }} placeholder="https://drive.google.com/drive/folders/…" /></label>
-      <button type="button" className="secondary-button" disabled={busy || !draft.folderId} onClick={() => void loadCandidates()}>폴더의 사진 불러오기</button>
+      <p>이름으로 찾은 폴더의 사진을 확인하고, 인정 기간과 서류 종류를 선택해 저장하세요.</p>
+      <label>Drive 폴더 링크 또는 ID (직접 선택할 때)<input type="text" value={draft.folderId} disabled={busy} onChange={e => { setDraft(current => ({ ...current, folderId: e.target.value })); setCandidates([]); }} placeholder="https://drive.google.com/drive/folders/…" /></label>
+      <button type="button" className="secondary-button" disabled={busy} onClick={() => void loadCandidates()}>{draft.folderId ? '폴더의 사진 불러오기' : '수급자 이름으로 폴더 찾기'}</button>
       <h4>인정 기간</h4><p className="contract-attachment-note">이용계약 기간이 아닌, 인정서에 적힌 유효기간을 입력해 주세요.</p>
       {draft.periods.map(period => <div className="recognition-preview-dates" key={period.id}><label>인정 시작일<DateInput disabled={busy} value={period.startDate} onChange={e => setDraft(current => ({ ...current, periods: current.periods.map(p => p.id === period.id ? { ...p, startDate: e.target.value } : p) }))} /></label><label>인정 종료일<DateInput disabled={busy} value={period.endDate} onChange={e => setDraft(current => ({ ...current, periods: current.periods.map(p => p.id === period.id ? { ...p, endDate: e.target.value } : p) }))} /></label><button type="button" className="secondary-button" disabled={busy || draft.pages.some(p => p.periodId === period.id)} title="이 기간에 연결할 서류를 먼저 해제해 주세요." onClick={() => setDraft(current => ({ ...current, periods: current.periods.filter(p => p.id !== period.id) }))}>이 기간 삭제</button></div>)}
       <button type="button" disabled={busy} className="secondary-button" onClick={() => setDraft(current => ({ ...current, periods: [...current.periods, { id: crypto.randomUUID(), startDate: '', endDate: '' }] }))}>+ 인정 기간 추가</button>

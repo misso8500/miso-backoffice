@@ -829,6 +829,7 @@ export const handlePostgresRequest = async (request, response) => {
     if (await handleDriveRequest(request, response, sendJson)) return;
     if (await handleRecipientDocuments(request, response, sendJson, {
       exists: async id => (await pool.query(`SELECT 1 FROM recipients WHERE id=$1 AND ${recipientNotDeleted()}`, [id])).rowCount > 0,
+      people: async () => (await pool.query(`SELECT id,name FROM recipients WHERE ${recipientNotDeleted()}`)).rows,
       get: async id => (await pool.query('SELECT payload FROM recipient_documents WHERE recipient_id=$1', [id])).rows[0]?.payload ?? null,
       save: async (id, payload, version) => {
         const result = version === null

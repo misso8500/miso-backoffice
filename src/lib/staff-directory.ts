@@ -12,6 +12,7 @@ export type StaffDocument = { id: string; type: keyof typeof staffDocumentTypes;
 export type StaffProfile = {
   id: string; version: number; updatedAt?: string; anchorContractId: string;
   name: string; birth: string; phone: string; job: string; start: string; end: string; status: string;
+  driveFolderId?: string;
   hopeStaffNumber?: string; hopeReportStatus?: string;
   personnel: string; reporting: string; reportingDate: string; documents: StaffDocument[]; memo: string;
 };
@@ -20,15 +21,16 @@ export const newStaffProfile = (contract?: EmploymentContract): StaffProfile => 
   name: contract?.workerName ?? '', birth: contract?.workerBirthDate ?? '', phone: contract?.workerPhone ?? '',
   job: contract?.jobTitle ?? '', start: '', end: '', status: '', personnel: '', reporting: '', reportingDate: '', documents: [], memo: ''
 });
-export const loadStaffProfiles = () => requestJson<{ profiles: StaffProfile[] }>('/api/work/staff-directory', { cache: 'reload' });
+export const loadStaffProfiles = () => requestJson<{ profiles: StaffProfile[]; discardedContractIds?: string[] }>('/api/work/staff-directory', { cache: 'reload' });
 export const saveStaffProfile = (value: StaffProfile) =>
   requestJson<StaffProfile>('/api/work/staff-directory', { method: 'PUT', body: JSON.stringify(value) });
 
-export function staffDirectoryEntries(profiles: StaffProfile[], contracts: EmploymentContract[]) {
+export function staffDirectoryEntries(profiles: StaffProfile[], contracts: EmploymentContract[], discardedContractIds: string[] = []) {
   const byId = new Map(contracts.map(contract => [contract.id, contract]));
   const byWorker = new Map(groupEmploymentContracts(contracts).map(group => [getWorkerKey(group[0]), group]));
   const linkedIds = new Set(profiles.map(profile => profile.anchorContractId));
   const claimed = new Set<string>();
+  const discarded = new Set(discardedContractIds);
   const entries: { key: string; profile?: StaffProfile; contracts: EmploymentContract[]; name: string }[] = profiles.map(profile => {
     const anchor = byId.get(profile.anchorContractId);
     const group = anchor ? (byWorker.get(getWorkerKey(anchor)) ?? []).filter(contract => contract.id === anchor.id || !linkedIds.has(contract.id)) : [];
@@ -37,7 +39,7 @@ export function staffDirectoryEntries(profiles: StaffProfile[], contracts: Emplo
     return { key: profile.id, profile, contracts: assigned, name: profile.name };
   });
   for (const group of byWorker.values()) {
-    const remaining = group.filter(contract => !claimed.has(contract.id));
+    const remaining = group.filter(contract => !claimed.has(contract.id) && !discarded.has(contract.id));
     if (remaining.length) entries.push({ key: remaining[0].id, profile: undefined, contracts: remaining, name: remaining[0].workerName });
   }
   return entries.sort((first, second) => first.name.localeCompare(second.name, 'ko'));
@@ -55,3 +57,8 @@ export function conditionOverlapsMonth(contract: EmploymentContract, condition: 
 export function deleteStaffProfile(profile: Pick<StaffProfile,'id'|'version'>) {
   return requestJson<{id:string}>('/api/work/staff-directory',{method:'DELETE',body:JSON.stringify({id:profile.id,version:profile.version})});
 }
+
+export const discardStaffDirectoryEntry = (contractId: string) =>
+  requestJson<{ contractIds: string[] }>('/api/work/staff-directory/discard', {
+    method: 'POST', body: JSON.stringify({ contractId })
+  });

@@ -65,7 +65,7 @@ export function createDriveReader(env = process.env, dependencies = {}) {
     throw new DriveError(404, '연결한 폴더에서 조회할 수 없는 파일입니다.');
   }
   return {
-    async assertRootAllowed(allowedRoots) {
+    async assertRootAllowed(allowedRoots, message = '승인된 수급자 상위 폴더 안의 사람별 폴더를 선택해 주세요.') {
       const seen = new Set();
       let currentId = folderId;
       for (let depth = 0; depth < 12; depth++) {
@@ -76,7 +76,23 @@ export function createDriveReader(env = process.env, dependencies = {}) {
         if (allowedRoots.includes(currentId)) return;
         currentId = current.parents?.[0];
       }
-      throw new DriveError(403, '승인된 수급자 상위 폴더 안의 사람별 폴더를 선택해 주세요.');
+      throw new DriveError(403, message);
+    },
+    async childFolders() {
+      if (!validId(folderId)) throw new DriveError(503, 'Drive 상위 폴더 설정을 확인해 주세요.');
+      const folders = [];
+      let pageToken = '';
+      for (let page = 0; page < 100; page++) {
+        const data = await (await call('files', {
+          q: `'${folderId}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'`,
+          fields: 'nextPageToken,files(id,name)', pageSize: '100', includeItemsFromAllDrives: 'true',
+          ...(pageToken ? { pageToken } : {})
+        })).json();
+        folders.push(...(data.files ?? []).filter(folder => validId(folder.id)));
+        pageToken = data.nextPageToken;
+        if (!pageToken) return folders;
+      }
+      throw new DriveError(422, '하위 폴더가 너무 많습니다. 조회 경로를 더 구체적으로 설정해 주세요.');
     },
     async tree() {
       const root = await metadata(folderId);

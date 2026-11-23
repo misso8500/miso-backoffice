@@ -224,6 +224,16 @@ test('work HTTP flow: verified accounts, directory drafts, shared edits, retries
     assert.equal((await call(`recipients/${rollback}`,'DELETE')).status,400);
     assert.equal((await call(`recipients/${rollback}`)).status,200);
   });
+  await t.test('discarding an unentered staff directory entry preserves its employment contract', async () => {
+    const path = 'work/staff-directory/discard';
+    const result = await call(path, 'POST', { contractId: wId });
+    assert.equal(result.status, 200, JSON.stringify(result.data));
+    assert.deepEqual(result.data.contractIds, [wId]);
+    assert.equal((await call(path, 'POST', { contractId: wId })).status, 200);
+    assert.ok((await call('work/staff-directory', 'GET', undefined, 'b')).data.discardedContractIds.includes(wId));
+    assert.equal((await call(`employment-contracts/${wId}`)).status, 200);
+  });
+
   await t.test('staff directory profiles can be matched without a contract and deleted after unlinking', async () => {
     const id=randomUUID();
     const input={id,version:0,anchorContractId:'',name:'서비스 매칭 테스트 직원',birth:'1988-04-03',phone:'',job:'요양보호사',start:'',end:'',status:'재직',personnel:'',reporting:'',reportingDate:'',documents:[],memo:''};

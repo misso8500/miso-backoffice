@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ChevronRight, FileText, Plus, Search, Upload } from 'lucide-react';
+import StaffDriveDocuments from './StaffDriveDocuments';
 import StaffImport from './StaffImport';
 import PageHeading from './PageHeading';
 import type { EmploymentContract } from './types';
-import { deleteStaffProfile, loadStaffProfiles, newStaffProfile, saveStaffProfile, staffDirectoryEntries, staffDocumentTypes, type StaffDocument, type StaffProfile } from './lib/staff-directory';
+import { discardStaffDirectoryEntry, deleteStaffProfile, loadStaffProfiles, newStaffProfile, saveStaffProfile, staffDirectoryEntries, staffDocumentTypes, type StaffDocument, type StaffProfile } from './lib/staff-directory';
 import { workToday } from './lib/work-tasks';
 import './StaffDirectory.css';
 
@@ -26,6 +27,7 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
   onCreateContract: (profile: StaffProfile, contract?: EmploymentContract) => void;
 }) {
   const [profiles, setProfiles] = useState<StaffProfile[]>([]);
+  const [discardedContractIds, setDiscardedContractIds] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<typeof staffStatuses[number]>('재직');
   const [sort, setSort] = useState<StaffSort>('name');
@@ -36,12 +38,16 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
   const [editor, setEditor] = useState<{ profile: StaffProfile; contracts: EmploymentContract[] } | null>(null);
   async function load() {
     setBusy(true); setProfileError('');
-    try { setProfiles((await loadStaffProfiles()).profiles); }
+    try {
+      const directory = await loadStaffProfiles();
+      setProfiles(directory.profiles);
+      setDiscardedContractIds(directory.discardedContractIds ?? []);
+    }
     catch (cause) { setProfileError(cause instanceof Error ? cause.message : '직원 기초정보를 불러오지 못했습니다.'); }
     finally { setBusy(false); }
   }
   useEffect(() => { void load(); }, []);
-  const entries = staffDirectoryEntries(profiles, contracts);
+  const entries = staffDirectoryEntries(profiles, contracts, discardedContractIds);
   const shown = entries.filter(item => (filter === '전체' || (item.profile?.status || '미입력') === filter) &&
     [item.name, item.profile?.phone ?? item.contracts[0]?.workerPhone, item.profile?.job ?? item.contracts[0]?.jobTitle].some(value =>
       value?.toLowerCase().includes(query.trim().toLowerCase()))).sort((first, second) => {
@@ -99,6 +105,11 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
     {editor && <StaffEditor key={editor.profile.id} initial={editor.profile}
       contracts={entries.find(item => item.profile?.id === editor.profile.id)?.contracts ?? editor.contracts}
       eligible={entries.filter(item => !item.profile).flatMap(item => item.contracts.slice(0, 1))}
+      onDiscarded={ids => {
+        setDiscardedContractIds(current => [...current, ...ids]);
+        setSavedNotice(editor.profile.name + ' 미입력 항목을 폐기했습니다.');
+        setEditor(null);
+      }}
       onClose={() => setEditor(null)} onSaved={saved => {
         setProfiles(current => [...current.filter(profile => profile.id !== saved.id), saved]);
         setSavedNotice(saved.name + ' 직원 정보를 저장했습니다.');
@@ -111,9 +122,10 @@ export default function StaffDirectory({ contracts, loading, error, onReload, on
   </section>;
 }
 
-function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onDeleted, onOpenContract, onCreateContract }: {
+function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onDeleted, onDiscarded, onOpenContract, onCreateContract }: {
   initial: StaffProfile; contracts: EmploymentContract[]; eligible: EmploymentContract[];
   onClose: () => void; onSaved: (profile: StaffProfile) => void; onDeleted: (profile: StaffProfile) => void; onOpenContract: (contract: EmploymentContract) => void;
+  onDiscarded: (ids: string[]) => void;
   onCreateContract: (profile: StaffProfile, contract?: EmploymentContract) => void;
 }) {
   const [profile, setProfile] = useState(initial);
@@ -155,6 +167,13 @@ function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onDeleted
     } catch (cause) { setError(cause instanceof Error ? cause.message : '직원 정보를 저장하지 못했습니다.'); }
     finally { setBusy(false); }
   }
+  async function discard() {
+    if (busy || !window.confirm(`${baseline.name} 미입력 항목을 직원 기초정보 목록에서 폐기할까요? 근로계약서는 근로계약서 화면에서 계속 확인할 수 있습니다.`)) return;
+    setBusy(true); setError(''); setNotice('');
+    try { onDiscarded((await discardStaffDirectoryEntry(baseline.anchorContractId)).contractIds); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : '미입력 항목을 폐기하지 못했습니다.'); }
+    finally { setBusy(false); }
+  }
   async function remove() {
     if (busy || !baseline.version || !window.confirm(`${baseline.name} 직원 기초정보를 삭제할까요? 연결된 근로계약은 별도로 관리됩니다.`)) return;
     setBusy(true); setError(''); setNotice('');
@@ -185,6 +204,9 @@ function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onDeleted
               {profile.hopeReportStatus && <label>희망이음 보고상태<input value={profile.hopeReportStatus} readOnly /></label>}
             </div><label>인사 업무 메모<textarea rows={2} maxLength={2000} value={profile.memo} onChange={e => set('memo',e.target.value)} /></label></section>
           </>}
+          {section === '서류' && <StaffDriveDocuments key={baseline.driveFolderId || ''} staffId={baseline.version ? baseline.id : ''}
+            folder={profile.driveFolderId || ''} savedFolder={baseline.driveFolderId || ''}
+            onFolderChange={value => set('driveFolderId', value || undefined)} />}
           {section === '서류' && Object.entries(staffDocumentTypes).map(([type, label]) => {
             const kind = type as StaffDocument['type'];
             const files = profile.documents.filter(document => document.type === kind);
@@ -220,6 +242,7 @@ function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onDeleted
       </div>
       <footer className="recipient-overview-save-host staff-overview-footer">
         {error && <p role="alert" className="error-banner">{error}</p>}{notice && <p role="status">{notice}</p>}
+        {!baseline.version && baseline.anchorContractId && <button type="button" className="danger-button" disabled={busy} onClick={() => void discard()}>미입력 항목 폐기</button>}
         {baseline.version>0&&<button type="button" className="danger-button" disabled={busy} onClick={()=>void remove()}>직원 기초정보 삭제</button>}
         <button type="submit" className="primary-button" disabled={busy || (!dirty && !!baseline.version)}>{busy ? '저장 중…' : '직원 정보 저장'}</button>
       </footer>
