@@ -1,3 +1,5 @@
+import { parseFolderId } from './recipient-documents.mjs';
+import { classifyStaffDriveFile, staffDriveReader } from './staff-drive-documents.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { recurrenceToday } from '../shared/work-recurrence.mjs';
 import { workError } from './work-tasks.mjs';
@@ -17,6 +19,7 @@ function normalize(body) {
   if (!body || !Number.isSafeInteger(body.version) || body.version < 0) invalid('직원 정보의 조회 버전을 확인해 주세요.');
   const id = field(body.id, 80);
   const anchorContractId = field(body.anchorContractId, 100);
+  const driveFolderId = body.driveFolderId ? parseFolderId(body.driveFolderId) : '';
   const name = field(body.name);
   const birth = date(body.birth);
   const start = date(body.start), end = date(body.end);
@@ -41,7 +44,7 @@ function normalize(body) {
     ids.add(id);
     return { id, type, year, url, pages };
   });
-  return { id, anchorContractId, name, birth, phone: field(body.phone), job: field(body.job),
+  return { id, anchorContractId, ...(driveFolderId ? { driveFolderId } : {}), name, birth, phone: field(body.phone), job: field(body.job),
     ...(body.hopeStaffNumber ? { hopeStaffNumber: field(body.hopeStaffNumber, 80) } : {}),
     ...(body.hopeReportStatus ? { hopeReportStatus: field(body.hopeReportStatus, 80) } : {}),
     start, end, status, personnel, reporting, reportingDate: date(body.reportingDate), documents, memo: field(body.memo, 2000) };
@@ -192,6 +195,10 @@ const preview = plan => ({
 
 async function writeProfile(q, body, current) {
   const profile = normalize(body);
+  if (profile.driveFolderId) {
+    const previous = body.version ? (await q('SELECT * FROM staff_directory_profiles WHERE id=$1', [profile.id])).rows[0] : null;
+    if (!previous || unpack(previous).driveFolderId !== profile.driveFolderId) await staffDriveReader(profile.driveFolderId);
+  }
   if (profile.anchorContractId && !(await q('SELECT id FROM employment_contracts WHERE id=$1', [profile.anchorContractId])).rows.length) {
     invalid('연결할 근로계약을 확인해 주세요.');
   }
@@ -206,7 +213,24 @@ async function writeProfile(q, body, current) {
 }
 
 export function createStaffDirectoryStore(transaction) {
+  async function documentReader(id) {
+    const row = await transaction(async q => (await q('SELECT * FROM staff_directory_profiles WHERE id=$1', [id])).rows[0]);
+    if (!row) throw workError(404, '직원 기초정보를 찾을 수 없습니다.');
+    const folderId = unpack(row).driveFolderId;
+    return folderId ? staffDriveReader(folderId) : null;
+  }
   return {
+    async staffDriveDocuments(id) {
+      const reader = await documentReader(id);
+      if (!reader) return { folderName: '', files: [] };
+      const tree = await reader.tree();
+      return { ...tree, files: tree.files.map(file => ({ ...file, kind: classifyStaffDriveFile(file) })) };
+    },
+    async staffDriveDocument(id, fileId) {
+      const reader = await documentReader(id);
+      if (!reader) throw workError(404, '연결된 직원 서류 폴더가 없습니다.');
+      return reader.file(fileId);
+    },
     staffDirectory() {
       return transaction(async q => ({
         profiles: (await q('SELECT * FROM staff_directory_profiles ORDER BY updated_at DESC', [])).rows.map(unpack),

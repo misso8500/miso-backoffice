@@ -12,6 +12,7 @@ export type StaffDocument = { id: string; type: keyof typeof staffDocumentTypes;
 export type StaffProfile = {
   id: string; version: number; updatedAt?: string; anchorContractId: string;
   name: string; birth: string; phone: string; job: string; start: string; end: string; status: string;
+  driveFolderId?: string;
   hopeStaffNumber?: string; hopeReportStatus?: string;
   personnel: string; reporting: string; reportingDate: string; documents: StaffDocument[]; memo: string;
 };

@@ -65,7 +65,7 @@ export function createDriveReader(env = process.env, dependencies = {}) {
     throw new DriveError(404, '연결한 폴더에서 조회할 수 없는 파일입니다.');
   }
   return {
-    async assertRootAllowed(allowedRoots) {
+    async assertRootAllowed(allowedRoots, message = '승인된 수급자 상위 폴더 안의 사람별 폴더를 선택해 주세요.') {
       const seen = new Set();
       let currentId = folderId;
       for (let depth = 0; depth < 12; depth++) {
@@ -76,7 +76,7 @@ export function createDriveReader(env = process.env, dependencies = {}) {
         if (allowedRoots.includes(currentId)) return;
         currentId = current.parents?.[0];
       }
-      throw new DriveError(403, '승인된 수급자 상위 폴더 안의 사람별 폴더를 선택해 주세요.');
+      throw new DriveError(403, message);
     },
     async tree() {
       const root = await metadata(folderId);

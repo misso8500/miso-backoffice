@@ -132,6 +132,19 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       sendJson(response,200,path.endsWith('/preview')?await store.previewStaffImport(body):await store.applyStaffImport(body,current));
       return true;
     }
+    const staffDrivePath = /^\/api\/work\/staff-directory\/([A-Za-z0-9_-]+)\/documents(?:\/([A-Za-z0-9_-]+))?$/.exec(path);
+    if (staffDrivePath) {
+      response.setHeader('Cache-Control', 'private, no-store');
+      response.setHeader('X-Content-Type-Options', 'nosniff');
+      if (request.method !== 'GET') throw workError(405, '조회만 지원합니다.');
+      const [, id, fileId] = staffDrivePath;
+      if (fileId) {
+        const file = await store.staffDriveDocument(id, fileId);
+        response.writeHead(200, { 'Content-Type': file.mimeType, 'Content-Length': file.bytes.length });
+        response.end(file.bytes);
+      } else sendJson(response, 200, await store.staffDriveDocuments(id));
+      return true;
+    }
     if(path==='/api/work/staff-directory/discard') {
       if(request.method!=='POST')throw workError(405,'지원하지 않는 요청입니다.');
       sendJson(response,200,await store.discardStaffDirectoryEntry(await readWorkBody(request)));
@@ -280,7 +293,7 @@ export async function handleWorkTasks(request, response, sendJson, store, user) 
       } else throw workError(405, '지원하지 않는 요청입니다.');
     }
   } catch (error) {
-    const status = [400, 401, 403, 404, 405, 409, 413, 502, 503].includes(error.status) ? error.status : 500;
+    const status = [400, 401, 403, 404, 405, 409, 413, 422, 502, 503].includes(error.status) ? error.status : 500;
     sendJson(response, status, { error: status === 500 ? '업무를 저장하거나 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.' : error.message });
   }
   return true;

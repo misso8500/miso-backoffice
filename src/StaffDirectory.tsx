@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ChevronRight, FileText, Plus, Search, Upload } from 'lucide-react';
+import StaffDriveDocuments from './StaffDriveDocuments';
 import StaffImport from './StaffImport';
 import PageHeading from './PageHeading';
 import type { EmploymentContract } from './types';
@@ -203,6 +204,9 @@ function StaffEditor({ initial, contracts, eligible, onClose, onSaved, onDeleted
               {profile.hopeReportStatus && <label>희망이음 보고상태<input value={profile.hopeReportStatus} readOnly /></label>}
             </div><label>인사 업무 메모<textarea rows={2} maxLength={2000} value={profile.memo} onChange={e => set('memo',e.target.value)} /></label></section>
           </>}
+          {section === '서류' && <StaffDriveDocuments key={baseline.driveFolderId || ''} staffId={baseline.version ? baseline.id : ''}
+            folder={profile.driveFolderId || ''} savedFolder={baseline.driveFolderId || ''}
+            onFolderChange={value => set('driveFolderId', value || undefined)} />}
           {section === '서류' && Object.entries(staffDocumentTypes).map(([type, label]) => {
             const kind = type as StaffDocument['type'];
             const files = profile.documents.filter(document => document.type === kind);

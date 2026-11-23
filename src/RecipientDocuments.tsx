@@ -12,12 +12,12 @@ type Documents = { folderId: string; periods: Period[]; pages: Page[]; version: 
 type Candidate = { id: string; name: string; path: string };
 const kinds = [{ id: 'identity', label: '신분증' }, { id: 'recognition', label: '장기요양인정서' }, { id: 'plan', label: '개인별장기요양이용계획서' }, { id: 'equipment', label: '복지용구확인서' }];
 const empty: Documents = { folderId: '', periods: [], pages: [], version: null };
-async function request(path: string, options?: RequestInit) {
+export async function requestDocument(path: string, options?: RequestInit) {
   const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...await getAuthHeaders() }, cache: 'no-store', signal: options?.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000) });
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? '서류를 불러오지 못했습니다.');
   return response;
 }
-function RemoteImage({ endpoint, name, onOpen, cache }: { endpoint: string; name: string; onOpen: (url: string) => void; cache: DocumentImageCache }) {
+export function RemoteImage({ endpoint, name, onOpen, cache }: { endpoint: string; name: string; onOpen: (url: string) => void; cache: DocumentImageCache }) {
   const host = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -45,7 +45,7 @@ export default function RecipientDocuments({ recipientId, recipientName, onDirty
   const [preview, setPreview] = useState<{ url: string; name: string; pages: { endpoint: string; name: string }[]; index: number } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [imageCache] = useState(() => createDocumentImageCache(async (endpoint, signal) => {
-    const blob = await (await request(endpoint, { signal })).blob();
+    const blob = await (await requestDocument(endpoint, { signal })).blob();
     return blob;
   }));
   useEffect(()=>{onDirty?.(editing&&JSON.stringify(saved)!==JSON.stringify(draft));return()=>onDirty?.(false);},[editing,saved,draft,onDirty]);
@@ -82,7 +82,7 @@ export default function RecipientDocuments({ recipientId, recipientName, onDirty
   const base = `/api/recipients/${encodeURIComponent(recipientId)}/documents`;
   useEffect(() => {
     let active = true;
-    void request(base).then(r => r.json()).then((data: Documents) => { if (active) { setSaved(data); setDraft(data); } }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setInitializing(false); });
+    void requestDocument(base).then(r => r.json()).then((data: Documents) => { if (active) { setSaved(data); setDraft(data); } }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setInitializing(false); });
     return () => { active = false; };
   }, [base]);
   useEffect(() => {
@@ -92,7 +92,7 @@ export default function RecipientDocuments({ recipientId, recipientName, onDirty
   async function loadCandidates() {
     setBusy(true); setError(''); setNotice('');
     try {
-      const data = await (await request(`${base}/candidates?folderId=${encodeURIComponent(draft.folderId)}`)).json() as { folderName: string; files: Candidate[] };
+      const data = await (await requestDocument(`${base}/candidates?folderId=${encodeURIComponent(draft.folderId)}`)).json() as { folderName: string; files: Candidate[] };
       // Use the server-validated URL/ID on requests; links are parsed only on the server.
       const id = draft.folderId.includes('https://') ? new URL(draft.folderId).pathname.split('/').filter(Boolean).at(-1)! : draft.folderId.trim();
       setDraft(current => ({ ...current, folderId: id })); setCandidates(data.files);
@@ -103,7 +103,7 @@ export default function RecipientDocuments({ recipientId, recipientName, onDirty
   async function save() {
     setBusy(true); setError(''); setNotice('');
     try {
-      const data = await (await request(base, { method: 'PUT', body: JSON.stringify(draft) })).json() as Documents;
+      const data = await (await requestDocument(base, { method: 'PUT', body: JSON.stringify(draft) })).json() as Documents;
       setSaved(data); setDraft(data); setEditing(false); setCandidates([]); setNotice('서류 연결을 저장했습니다. 다음에 상세 화면을 열어도 바로 확인할 수 있습니다.');
     } catch (e) { setError(e instanceof Error ? e.message : '저장하지 못했습니다.'); }
     finally { setBusy(false); }
