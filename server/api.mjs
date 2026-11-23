@@ -1186,6 +1186,7 @@ const server = createServer(async (request, response) => {
     if (await handleDriveRequest(request, response, sendJson)) return;
     if (await handleRecipientDocuments(request, response, sendJson, {
       exists: id => Boolean(db.prepare(`SELECT 1 FROM recipients WHERE id=? AND ${recipientNotDeleted()}`).get(id)),
+      people: () => db.prepare(`SELECT id,name FROM recipients WHERE ${recipientNotDeleted()}`).all(),
       get: id => { const row = db.prepare('SELECT payload FROM recipient_documents WHERE recipient_id=?').get(id); return row ? JSON.parse(row.payload) : null; },
       save: (id, payload, version) => {
         const result = version === null

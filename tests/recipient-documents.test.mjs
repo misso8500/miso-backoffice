@@ -18,10 +18,10 @@ test('folder parsing and allowlist reject arbitrary domains and unapproved IDs',
   assert.throws(() => parseFolderId(`https://evil.example/drive/folders/${folderId}`));
   assert.throws(() => recipientReader(folderId,{}),{status:403});
 });
-function harness() {
+function harness(overrides = {}) {
   let saved=null, writes=0;
-  const store={exists:async id=>id==='recipient1',get:async()=>saved,save:async(_id,value)=>{saved=value;writes++;}};
-  const dependencies={reader:()=>({tree:async()=>({files:[{id:fileId,name:'page.jpg'}]}),image:async()=>({bytes:Buffer.from([1,2]),mimeType:'image/jpeg'})})};
+  const store={people:async()=>[{id:'recipient1',name:'김미소'}],exists:async id=>id==='recipient1',get:async()=>saved,save:async(_id,value)=>{saved=value;writes++;}};
+  const dependencies={reader:()=>({tree:async()=>({files:[{id:fileId,name:'page.jpg'}]}),image:async()=>({bytes:Buffer.from([1,2]),mimeType:'image/jpeg'})}),...overrides};
   async function call(method,path,data) {
     const req=Readable.from(data ? [Buffer.from(JSON.stringify(data))] : []);req.method=method;req.url=`/api/recipients/recipient1/documents${path}`;
     let status,output,headers={};const res={setHeader:(k,v)=>headers[k]=v,writeHead:(s,h)=>{status=s;headers={...headers,...h};},end:v=>output=v};
@@ -36,6 +36,18 @@ test('saving references and rereading preserves period, names, order and version
   assert.deepEqual((await h.call('GET','')).output,result.output);
   assert.equal((await h.call('GET',`/images/${fileId}`)).status,200);
   assert.equal((await h.call('GET',`/images/${fileId}`)).headers['Cache-Control'],'private, no-store');
+});
+test('recipient candidates resolve the folder by roster name when no folder ID is supplied', async () => {
+  const h = harness({ findFolder: async (name, scope) => {
+    assert.equal(name, '김미소');
+    assert.equal(scope, 'RECIPIENT');
+    return folderId;
+  } });
+  const found = await h.call('GET', '/candidates');
+  assert.equal(found.status, 200);
+  assert.equal(found.output.folderId, folderId);
+  h.store.people = async () => [{ id: 'recipient1', name: '김미소' }, { id: 'recipient2', name: '김미소' }];
+  assert.equal((await h.call('GET', '/candidates')).status, 409);
 });
 test('stale versions cannot overwrite saved connections',async()=>{
   const h=harness();await h.call('PUT','',body());

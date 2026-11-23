@@ -78,6 +78,22 @@ export function createDriveReader(env = process.env, dependencies = {}) {
       }
       throw new DriveError(403, message);
     },
+    async childFolders() {
+      if (!validId(folderId)) throw new DriveError(503, 'Drive 상위 폴더 설정을 확인해 주세요.');
+      const folders = [];
+      let pageToken = '';
+      for (let page = 0; page < 100; page++) {
+        const data = await (await call('files', {
+          q: `'${folderId}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'`,
+          fields: 'nextPageToken,files(id,name)', pageSize: '100', includeItemsFromAllDrives: 'true',
+          ...(pageToken ? { pageToken } : {})
+        })).json();
+        folders.push(...(data.files ?? []).filter(folder => validId(folder.id)));
+        pageToken = data.nextPageToken;
+        if (!pageToken) return folders;
+      }
+      throw new DriveError(422, '하위 폴더가 너무 많습니다. 조회 경로를 더 구체적으로 설정해 주세요.');
+    },
     async tree() {
       const root = await metadata(folderId);
       if (root.trashed || root.mimeType !== 'application/vnd.google-apps.folder') throw new DriveError(404, '폴더를 사용할 수 없습니다.');

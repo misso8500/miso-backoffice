@@ -1,3 +1,4 @@
+import { findDrivePersonFolder, uniqueDrivePersonName } from './drive-person-folders.mjs';
 import { randomUUID } from 'node:crypto';
 import { createDriveReader, DriveError } from './drive.mjs';
 const kinds = new Set(['identity', 'recognition', 'plan', 'equipment']);
@@ -65,8 +66,11 @@ export async function handleRecipientDocuments(request, response, sendJson, stor
     if (request.method === 'GET' && !match[2]) {
       sendJson(response, 200, saved ?? { folderId: '', periods: [], pages: [], version: null });
     } else if (request.method === 'GET' && match[2] === 'candidates') {
-      const folderId = parseFolderId(url.searchParams.get('folderId') || saved?.folderId || '');
-      sendJson(response, 200, await reader(folderId).tree());
+      const specified = url.searchParams.get('folderId') || saved?.folderId;
+      const folderId = specified ? parseFolderId(specified) : await (dependencies.findFolder ?? findDrivePersonFolder)(
+        uniqueDrivePersonName(await store.people(), id), 'RECIPIENT');
+      if (!folderId) throw new DriveError(404, '이름과 일치하는 Drive 폴더를 찾지 못했습니다. 조회 경로를 확인하거나 폴더를 직접 연결해 주세요.');
+      sendJson(response, 200, { ...await reader(folderId).tree(), folderId });
     } else if (request.method === 'GET' && match[3]) {
       const candidateFolder = url.searchParams.get('folderId');
       if (!candidateFolder && !saved?.pages.some(p => p.fileId === match[3])) throw new DriveError(404, '연결된 서류가 아닙니다.');

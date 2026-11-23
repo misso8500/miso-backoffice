@@ -51,7 +51,7 @@ export default function StaffDriveDocuments({ staffId, folder, savedFolder, onFo
   }, [base]);
 
   useEffect(() => {
-    if (!staffId || !savedFolder) return;
+    if (!staffId) return;
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
@@ -98,15 +98,16 @@ export default function StaffDriveDocuments({ staffId, folder, savedFolder, onFo
   const uncategorized = listing?.files.filter(file => !file.kind) ?? [];
   return <section className="recognition-preview" aria-label="직원 Drive 서류">
     <div className="section-title-row"><h3>Google Drive 서류</h3>
-      {savedFolder && <button type="button" className="secondary-button" disabled={loading} onClick={() => void load()}>Drive 다시 확인</button>}
+      {staffId && <button type="button" className="secondary-button" disabled={loading} onClick={() => void load()}>Drive 다시 확인</button>}
     </div>
     <label>직원별 Drive 폴더 링크<input type="text" value={folder} onChange={event => onFolderChange(event.target.value)} placeholder="https://drive.google.com/drive/folders/…" /></label>
-    {(!savedFolder || folder !== savedFolder) && <p className="contract-attachment-note">직원별 폴더 링크를 입력하고 직원 정보를 저장하면 폴더의 서류를 자동으로 확인합니다.</p>}
+    {(!savedFolder || folder !== savedFolder) && <p className="contract-attachment-note">직원 이름으로 폴더를 찾습니다. 경로를 직접 지정하려면 폴더 링크를 입력하고 직원 정보를 저장하세요.</p>}
     {loading && <p role="status">Drive 서류 확인 중…</p>}
     {error && <p role="alert">{error}</p>}
     {!preview && previewBusy && <p role="status">미리보기 불러오는 중…</p>}
     {!preview && previewError && <p role="alert">{previewError}</p>}
-    {listing && <>
+    {listing && !listing.folderName && <p>직원 이름과 일치하는 Drive 폴더를 찾지 못했습니다.</p>}
+    {listing?.folderName && <>
       <p className="contract-attachment-note">{listing.folderName} · 이미지 및 PDF {listing.files.length}개</p>
       {categories.map(category => {
         const files = listing.files.filter(file => file.kind === category.id);
